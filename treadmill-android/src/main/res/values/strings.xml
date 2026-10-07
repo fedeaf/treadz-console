@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Foreground service notification. Prefixed to avoid clashing with the app's resources. -->
+    <string name="treadz_service_title">TreadZ Console</string>
     <string name="treadz_service_channel">Treadmill connection</string>
     <string name="treadz_service_disconnected">Disconnected</string>
     <string name="treadz_service_connecting">Connecting to the treadmill…</string>
@@ -9,7 +10,17 @@
     <string name="treadz_service_starting">Connected · starting</string>
     <string name="treadz_service_running">Connected · running %1$.1f km/h</string>
     <string name="treadz_service_paused">Connected · paused</string>
+    <string name="treadz_service_pausing">Connected · pausing (%1$.1f km/h)</string>
+    <string name="treadz_service_stopping">Connected · stopping (%1$.1f km/h)</string>
     <string name="treadz_service_key_removed">Safety key removed!</string>
+    <string name="treadz_service_stop_failed">STOP FAILED: the belt may still be moving. Press STOP on the console or pull the safety key.</string>
+    <string name="treadz_service_data_stalled">No data from the treadmill: the belt state is unknown. If needed, press STOP on the console or pull the safety key.</string>
+    <!-- Same word in both languages, like the app's START button. -->
+    <string name="treadz_action_stop">STOP</string>
+
+    <!-- High-priority alert when the belt could not be stopped. -->
+    <string name="treadz_alert_channel">Treadmill alerts</string>
+    <string name="treadz_alert_title">Treadmill alert</string>
 
     <!-- Share text when the recording file no longer exists. -->
     <string name="treadz_share_missing">Not found: %1$s</string>

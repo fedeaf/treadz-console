@@ -27,6 +27,7 @@ import com.treadz.console.treadmill.ftms.toHex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -209,6 +210,12 @@ class FtmsTreadmillController(
     private var knownInclineRange: ValueRange = SafetyClamp.DEFAULT_INCLINE_RANGE
     private var nextCommandId = 1L
 
+    /** Id of the latest stop command: older commands still waiting in the queue are dropped (a stop jumps the queue). */
+    private var lastStopCommandId = 0L
+
+    /** Stop/pause calls currently in flight by name: a second call joins the first instead of sending the command again. */
+    private val inFlight = HashMap<String, Deferred<CommandResult>>()
+
     private enum class Intent { None, Stopping, Pausing }
 
     // Observation log: what has arrived so far, so that verifications can walk through it.
@@ -220,7 +227,8 @@ class FtmsTreadmillController(
         class Training(override val seq: Long) : Obs
         class Control(override val seq: Long, val response: ControlPointResponse) : Obs
         class Lost(override val seq: Long) : Obs
-        class Preempt(override val seq: Long, val byStop: Boolean) : Obs
+        /** A stop or pause command was issued: whatever is being verified gives way to it. */
+        class Preempt(override val seq: Long, val command: String) : Obs
     }
 
     private class Cursor(var seq: Long)
@@ -798,11 +806,11 @@ class FtmsTreadmillController(
 
     override suspend fun start(): CommandResult = runCommand("start", emptyMap(), priority = false) { startBody() }
 
-    override suspend fun pause(): CommandResult = runCommand("pause", emptyMap(), priority = true) { pauseBody() }
+    override suspend fun pause(): CommandResult = joinOrRun("pause", priority = true) { pauseBody() }
 
     override suspend fun resume(): CommandResult = runCommand("resume", emptyMap(), priority = false) { resumeBody() }
 
-    override suspend fun stop(): CommandResult = runCommand("stop", emptyMap(), priority = true) { stopBody() }
+    override suspend fun stop(): CommandResult = joinOrRun("stop", priority = true) { stopBody() }
 
     override suspend fun setSpeed(kmh: Double): CommandResult =
         runCommand("setSpeed", mapOf("requestedKmh" to kmh), priority = false) { setSpeedBody(kmh) }
@@ -810,33 +818,86 @@ class FtmsTreadmillController(
     override suspend fun setIncline(percent: Double): CommandResult =
         runCommand("setIncline", mapOf("requestedPercent" to percent), priority = false) { setInclineBody(percent) }
 
+    /**
+     * Stop and pause are idempotent while in flight: a second tap (or a second caller) gets the result of the one
+     * already running instead of sending the command to the treadmill again. A call made after it finished starts a
+     * new command, so a failed stop can be retried.
+     */
+    private suspend fun joinOrRun(name: String, priority: Boolean, body: suspend () -> CommandResult): CommandResult {
+        var joinedId = 0L
+        val deferred = synchronized(lock) {
+            val existing = inFlight[name]
+            if (existing != null) {
+                joinedId = nextCommandId++
+                existing
+            } else {
+                launchCommand(name, emptyMap(), priority, body).also { created ->
+                    inFlight[name] = created
+                    created.invokeOnCompletion { synchronized(lock) { if (inFlight[name] === created) inFlight.remove(name) } }
+                }
+            }
+        }
+        if (joinedId == 0L) return deferred.await()
+        trace(TraceRecord.CommandIssued(now(), joinedId, name, mapOf("joinedInFlight" to true)))
+        val result = deferred.await()
+        trace(TraceRecord.CommandFinished(now(), joinedId, name, result))
+        return result
+    }
+
     private suspend fun runCommand(
         name: String,
         args: Map<String, Any?>,
         priority: Boolean,
         body: suspend () -> CommandResult,
-    ): CommandResult = scope.async {
-        val id = synchronized(lock) { nextCommandId++ }
-        trace(TraceRecord.CommandIssued(now(), id, name, args))
-        if (priority) synchronized(lock) { appendObs { Obs.Preempt(it, byStop = true) } }
-        val result = try {
-            commandMutex.withLock {
-                if (_connection.value !is ConnectionState.Connected) CommandResult.NotConnected else body()
+    ): CommandResult = launchCommand(name, args, priority, body).await()
+
+    /**
+     * Registers a command (id, trace, and for a stop/pause the preemption of whatever is being verified) at the moment
+     * of the call, so the order of the calls is the order of the queue, and runs it in [scope].
+     */
+    private fun launchCommand(
+        name: String,
+        args: Map<String, Any?>,
+        priority: Boolean,
+        body: suspend () -> CommandResult,
+    ): Deferred<CommandResult> {
+        val id = synchronized(lock) {
+            val id = nextCommandId++
+            if (priority) {
+                if (name == "stop") lastStopCommandId = id
+                appendObs { Obs.Preempt(it, name) }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            CommandResult.NotVerified(FailureCode.InternalError, "Internal error in $name: $e")
+            id
         }
-        trace(TraceRecord.CommandFinished(now(), id, name, result))
-        val critical = when (result) {
-            is CommandResult.NotVerified -> result.code != FailureCode.Preempted
-            is CommandResult.Rejected -> name == "stop" || name == "pause"
-            else -> false
+        trace(TraceRecord.CommandIssued(now(), id, name, args))
+        return scope.async {
+            val result = try {
+                commandMutex.withLock {
+                    when {
+                        _connection.value !is ConnectionState.Connected -> CommandResult.NotConnected
+                        // A stop was issued after this command while it waited for the queue: the stop goes first.
+                        name != "stop" && synchronized(lock) { lastStopCommandId > id } -> {
+                            trace(TraceRecord.Note(now(), "$name dropped: a stop was issued after it"))
+                            CommandResult.NotVerified(FailureCode.Preempted, "Superseded by a stop command")
+                        }
+                        else -> body()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CommandResult.NotVerified(FailureCode.InternalError, "Internal error in $name: $e")
+            }
+            trace(TraceRecord.CommandFinished(now(), id, name, result))
+            val critical = when (result) {
+                is CommandResult.NotVerified -> result.code != FailureCode.Preempted
+                is CommandResult.Rejected -> name == "stop" || name == "pause"
+                else -> false
+            }
+            if (critical) emitEvent(TreadmillEvent.CommandNotExecuted(name))
+            result
         }
-        if (critical) emitEvent(TreadmillEvent.CommandNotExecuted(name))
-        result
-    }.await()
+    }
 
     // -- Start
 
@@ -922,7 +983,7 @@ class FtmsTreadmillController(
                 ?: return CommandResult.NotVerified(FailureCode.NotStarted, "The belt did not start after ${timeoutMs / 1000} s")
             when (obs) {
                 is Obs.Lost -> return CommandResult.NotConnected
-                is Obs.Preempt -> if (obs.byStop) return CommandResult.NotVerified(FailureCode.Preempted, "Interrupted by a stop command")
+                is Obs.Preempt -> return CommandResult.NotVerified(FailureCode.Preempted, "Interrupted by a ${obs.command} command")
                 is Obs.Status -> if (obs.status is MachineStatus.StoppedBySafetyKey) {
                     return CommandResult.NotAllowed(FailureCode.SafetyKeyRemoved, "Safety key removed during the start")
                 }
@@ -981,7 +1042,9 @@ class FtmsTreadmillController(
      */
     private suspend fun verifyStopped(name: String, cursor: Cursor): CommandResult {
         val sentAt = now()
-        var sawStatus = false
+        // A stop given while the belt is already pausing: the 02 status of the pause has been seen and the belt is
+        // already decelerating, so the stop only has to see the deceleration through.
+        var sawStatus = name == "stop" && synchronized(lock) { status == BeltStatus.Paused }
         var lastSpeed = synchronized(lock) { lastSample?.speedKmh ?: 0.0 }
         var lastDecreaseAt = sentAt
         while (true) {
@@ -1004,6 +1067,10 @@ class FtmsTreadmillController(
                 }
             }
             when (obs) {
+                // A stop gives way to nothing, but it does cut short a pause that is still decelerating.
+                is Obs.Preempt -> if (name == "pause" && obs.command == "stop") {
+                    return CommandResult.NotVerified(FailureCode.Preempted, "pause: interrupted by a stop command")
+                }
                 is Obs.Lost -> return CommandResult.NotVerified(FailureCode.ConnectionLost, "$name: connection lost while stopping")
                 is Obs.Status -> if (obs.status is MachineStatus.StoppedOrPaused || obs.status is MachineStatus.StoppedBySafetyKey) {
                     sawStatus = true
@@ -1098,7 +1165,7 @@ class FtmsTreadmillController(
                 ?: return CommandResult.NotVerified(FailureCode.DataLost, "No data arriving to verify the change")
             when (obs) {
                 is Obs.Lost -> return CommandResult.NotConnected
-                is Obs.Preempt -> if (obs.byStop) return CommandResult.NotVerified(FailureCode.Preempted, "Interrupted by a stop command")
+                is Obs.Preempt -> return CommandResult.NotVerified(FailureCode.Preempted, "Interrupted by a ${obs.command} command")
                 is Obs.Status -> when (obs.status) {
                     is MachineStatus.StoppedBySafetyKey -> return CommandResult.NotVerified(FailureCode.SafetyKeyRemoved, "Safety key removed")
                     is MachineStatus.StoppedOrPaused -> return CommandResult.NotVerified(FailureCode.BeltStopped, "The belt stopped")
@@ -1213,8 +1280,15 @@ class FtmsTreadmillController(
     }
 
     private companion object {
+        /** The treadmill reports speeds in multiples of 0.1 km/h and never jitters: two values are the same below this. */
         const val SPEED_EPS = 0.05
-        const val SPEED_TOLERANCE = 0.15
+
+        /**
+         * A measured speed counts as "at" an expected/target speed within this distance. Below the 0.1 km/h step of
+         * the treadmill: a single step is a different speed (a 0.1 km/h command is only verified once the data shows
+         * it, and a single 0.1 km/h button press on the console is a manual change).
+         */
+        const val SPEED_TOLERANCE = 0.05
         const val INCLINE_EPS = 0.05
         const val OBS_CAPACITY = 512
     }

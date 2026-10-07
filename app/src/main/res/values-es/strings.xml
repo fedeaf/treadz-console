@@ -108,4 +108,159 @@
     <string name="failure_connection_lost">se ha perdido la conexión.</string>
     <string name="failure_preempted">interrumpida por una parada.</string>
     <string name="failure_internal_error">error interno de la app.</string>
+
+    <!-- Common -->
+    <string name="nav_back">Atrás</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_save">Guardar</string>
+    <string name="action_delete">Eliminar</string>
+    <string name="action_edit">Editar</string>
+    <string name="action_ok">Aceptar</string>
+    <string name="error_storage">No se pudieron guardar los datos. Inténtalo de nuevo.</string>
+    <string name="no_user_chosen">Elige primero un usuario.</string>
+    <string name="choose_date">Elegir fecha</string>
+
+    <!-- Users: main screen -->
+    <string name="generic_user_label">Usuario</string>
+    <string name="user_none">Sin usuario</string>
+    <string name="user_chip_change">Cambiar</string>
+    <string name="user_chip_locked">Bloqueado</string>
+    <string name="main_weight">Peso</string>
+    <string name="main_history">Historial</string>
+    <string name="start_hint_no_user">Elige un usuario para empezar.</string>
+    <string name="generic_banner_title">Estás usando el usuario genérico</string>
+    <string name="generic_banner_short">Usuario genérico</string>
+    <string name="generic_banner_body">Crea tu perfil para guardar tu propio peso y tus entrenamientos.</string>
+    <string name="generic_banner_action">Crear mi perfil</string>
+
+    <!-- Users: selection -->
+    <string name="users_title">¿Quién entrena?</string>
+    <string name="users_subtitle">Elige un usuario para continuar.</string>
+    <string name="users_subtitle_nobody">No hay nadie seleccionado. La cinta no se puede usar hasta que elijas un usuario.</string>
+    <string name="users_locked">La banda no está parada. El usuario solo se puede cambiar cuando se detenga.</string>
+    <string name="users_add">Añadir usuario</string>
+    <string name="users_personalize">Personalizar</string>
+    <string name="user_age">%1$d años</string>
+    <string name="tag_active">Activo</string>
+    <string name="tag_generic">Perfil genérico</string>
+
+    <!-- Users: editor -->
+    <string name="editor_title_create">Nuevo usuario</string>
+    <string name="editor_title_edit">Editar usuario</string>
+    <string name="editor_title_personalize">Personaliza tu perfil</string>
+    <string name="editor_personalize_intro">Sustituye el usuario genérico por tus datos, para que el peso, los entrenamientos y las zonas de pulso sean los tuyos.</string>
+    <string name="editor_not_found">Este usuario ya no existe.</string>
+    <string name="field_name">Nombre</string>
+    <string name="field_sex">Sexo</string>
+    <string name="sex_male">Hombre</string>
+    <string name="sex_female">Mujer</string>
+    <string name="field_height">Altura (cm)</string>
+    <string name="hint_height_range">Entre %1$d y %2$d cm</string>
+    <string name="field_birth_date">Fecha de nacimiento</string>
+    <string name="field_weight_personalize">Tu peso actual (kg)</string>
+    <string name="hint_weight_personalize">Opcional. Si lo dejas vacío, se mantiene el peso inventado de 80 kg hasta que lo indiques.</string>
+    <string name="field_resting_hr">Pulso en reposo (ppm), opcional</string>
+    <string name="field_max_hr">Pulso máximo (ppm), opcional</string>
+    <string name="hint_max_hr_estimated">Estimado: %1$d ppm, calculado según tu edad. Déjalo vacío para usar la estimación.</string>
+    <string name="hint_max_hr_needs_birth">Se estima según tu edad cuando elijas la fecha de nacimiento.</string>
+    <string name="field_fitness">Nivel de forma (opcional)</string>
+    <string name="fitness_beginner">Principiante</string>
+    <string name="fitness_intermediate">Intermedio</string>
+    <string name="fitness_advanced">Avanzado</string>
+    <string name="field_goal">Objetivo (opcional)</string>
+    <string name="goal_lose_weight">Perder peso</string>
+    <string name="goal_maintain_weight">Mantener el peso</string>
+    <string name="goal_improve_fitness">Mejorar la forma</string>
+    <string name="goal_build_endurance">Ganar resistencia</string>
+    <string name="option_not_set">Sin indicar</string>
+    <string name="editor_delete">Eliminar usuario</string>
+    <string name="delete_user_title">¿Eliminar a %1$s?</string>
+    <string name="delete_user_body">También se eliminan todos los pesos y entrenamientos de este usuario. No se puede deshacer.</string>
+    <string name="delete_user_locked">La banda está en marcha: este usuario no se puede eliminar ahora.</string>
+
+    <!-- Validation messages (next to the field) -->
+    <string name="err_required">Obligatorio</string>
+    <string name="err_name_blank">Escribe un nombre</string>
+    <string name="err_height_blank">Indica la altura</string>
+    <string name="err_birth_blank">Elige la fecha de nacimiento</string>
+    <string name="err_weight_blank">Indica el peso</string>
+    <string name="err_too_long">Máximo %1$d caracteres</string>
+    <string name="err_name_taken">Ya hay otro usuario con este nombre</string>
+    <string name="err_height_range">Indica una altura entre %1$d y %2$d cm</string>
+    <string name="err_age_range">La edad debe estar entre %1$d y %2$d años</string>
+    <string name="err_bpm_range">Indica un valor entre %1$d y %2$d ppm</string>
+    <string name="err_weight_range">Indica un peso entre %1$d y %2$d kg</string>
+    <string name="err_date_invalid">Elige una fecha válida</string>
+    <string name="err_in_future">La fecha no puede ser futura</string>
+    <string name="err_resting_not_below_max">Debe ser menor que el pulso máximo</string>
+
+    <!-- Weight -->
+    <string name="weight_title">Peso</string>
+    <string name="unit_kg">kg</string>
+    <string name="weight_current">Peso actual</string>
+    <string name="weight_target">Peso objetivo</string>
+    <string name="weight_target_none">Sin definir</string>
+    <string name="weight_target_reached">Objetivo alcanzado</string>
+    <string name="weight_above_target">%1$s kg por encima del objetivo</string>
+    <string name="weight_below_target">%1$s kg por debajo del objetivo</string>
+    <string name="weight_set_target">Definir peso objetivo</string>
+    <string name="weight_change_target">Cambiar peso objetivo</string>
+    <string name="weight_add">Añadir peso</string>
+    <string name="weight_add_title">Añadir peso</string>
+    <string name="weight_edit_title">Editar peso</string>
+    <string name="weight_target_title">Peso objetivo</string>
+    <string name="weight_clear_target">Quitar objetivo</string>
+    <string name="weight_date">Fecha</string>
+    <string name="weight_field">Peso (kg)</string>
+    <string name="weight_placeholder_tag">Provisional</string>
+    <string name="weight_placeholder_title">Tu peso es provisional</string>
+    <string name="weight_placeholder_body">Los %1$s kg que se muestran son un valor inventado para el usuario genérico. Indica tu peso real para que las calorías y las gráficas sean correctas.</string>
+    <string name="weight_enter_real">Indicar mi peso</string>
+    <string name="weight_empty">Todavía no hay pesos registrados.</string>
+    <string name="weight_delete_title">¿Eliminar este peso?</string>
+    <string name="weight_delete_body">%1$s: %2$s kg</string>
+    <string name="weight_chart_target">Objetivo %1$s kg</string>
+    <string name="weight_chart_description">Evolución del peso</string>
+
+    <!-- Workout history -->
+    <string name="history_title">Entrenamientos</string>
+    <string name="history_tab_mine">Míos (%1$d)</string>
+    <string name="history_tab_unassigned">Sin asignar (%1$d)</string>
+    <string name="history_unassigned_note">Estos entrenamientos se grabaron cuando no había nadie seleccionado. Asigna cada uno a un usuario o elimínalo.</string>
+    <string name="history_empty">Todavía no hay entrenamientos. Pulsa START en la pantalla principal para grabar uno.</string>
+    <string name="history_in_progress">En curso</string>
+    <string name="stat_duration">Duración</string>
+    <string name="stat_distance">Distancia</string>
+    <string name="stat_calories">Calorías</string>
+    <string name="stat_avg_speed">Velocidad media</string>
+    <string name="stat_max_speed">Velocidad máxima</string>
+    <string name="stat_max_incline">Inclinación máxima</string>
+    <string name="stat_avg_hr">Pulso medio</string>
+    <string name="stat_max_hr">Pulso máximo</string>
+    <string name="stat_avg_speed_short">Vel. media</string>
+    <string name="stat_avg_hr_short">Pulso medio</string>
+    <string name="stat_max_hr_short">Pulso máx.</string>
+    <string name="end_stopped">Detenido</string>
+    <string name="end_key_removed">Llave de seguridad quitada</string>
+    <string name="end_connection_lost">Conexión perdida</string>
+    <string name="end_disconnected">Desconectado</string>
+    <string name="end_closed">Cerrado por la app</string>
+    <string name="end_interrupted">Interrumpido</string>
+    <string name="workout_assign">Asignar a un usuario</string>
+    <string name="assign_title">¿De quién es este entrenamiento?</string>
+    <string name="workout_delete">Eliminar entrenamiento</string>
+    <string name="workout_delete_title">¿Eliminar este entrenamiento?</string>
+    <string name="workout_delete_body">Se elimina el resumen y todos sus datos. No se puede deshacer.</string>
+    <string name="detail_title">Entrenamiento</string>
+    <string name="detail_owner">Usuario: %1$s</string>
+    <string name="detail_unassigned">Sin asignar a ningún usuario</string>
+    <string name="detail_unassigned_note">Este entrenamiento se grabó sin nadie seleccionado.</string>
+    <string name="workout_assign_short">Asignar</string>
+    <string name="detail_not_found">Este entrenamiento ya no existe.</string>
+    <string name="detail_in_progress_note">Este entrenamiento se sigue grabando. Los datos se actualizan cada pocos segundos.</string>
+    <string name="chart_speed">Velocidad (km/h)</string>
+    <string name="chart_incline">Inclinación (%)</string>
+    <string name="chart_heart_rate">Pulso (ppm)</string>
+    <string name="chart_empty">Todavía sin datos</string>
+    <string name="chart_no_hr">Este entrenamiento no tiene datos de pulso</string>
 </resources>

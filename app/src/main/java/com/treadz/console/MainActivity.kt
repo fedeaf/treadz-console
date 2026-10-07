@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings) as T
+                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData) as T
         }
     }
 
@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
             }
 
             TreadZRoot(
+                dependencies = dependencies,
                 viewModel = viewModel,
                 permissions = permissions,
                 actions = MainActions(

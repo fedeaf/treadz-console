@@ -233,6 +233,7 @@ private fun StartSection(
             )
         } else if (showHint) {
             val hint = when {
+                ui.activeUser == null -> R.string.start_hint_no_user
                 !ui.isConnected -> R.string.start_hint_disconnected
                 ui.treadmill.status == BeltStatus.Idle -> R.string.start_hint_idle
                 else -> R.string.start_hint_busy

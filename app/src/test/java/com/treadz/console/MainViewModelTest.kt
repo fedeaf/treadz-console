@@ -4,6 +4,7 @@ import com.treadz.console.fakes.FakeApp
 import com.treadz.console.fakes.FakeTreadmillController
 import com.treadz.console.fakes.FakeWorkoutRecorder
 import com.treadz.console.fakes.InMemorySettingsStore
+import com.treadz.console.fakes.createProfile
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -83,7 +85,7 @@ class MainViewModelTest {
         val slow = object : com.treadz.console.treadmill.TreadmillController by controller {
             override suspend fun start(): CommandResult = gate.await()
         }
-        val slowVm = MainViewModel(slow, app.recorder, app.settings)
+        val slowVm = MainViewModel(slow, app.recorder, app.settings, app.userData)
         slowVm.start()
         assertTrue(slowVm.uiState.value.startInProgress)
         assertFalse(slowVm.uiState.value.canStart)
@@ -113,7 +115,7 @@ class MainViewModelTest {
     @Test fun alertRaisedBeforeTheScreenExistsIsStillShown() {
         // The alert happened with nobody listening to events (e.g. with the app in the background).
         controller.emit(TreadmillEvent.ConnectionLost)
-        val lateVm = MainViewModel(controller, app.recorder, app.settings)
+        val lateVm = MainViewModel(controller, app.recorder, app.settings, app.userData)
         assertEquals(TreadmillEvent.ConnectionLost, lateVm.uiState.value.alert)
     }
 
@@ -220,5 +222,50 @@ class MainViewModelTest {
         controller.showReconnecting(attempt = 3)
         assertEquals(ConnectionState.Reconnecting(FakeTreadmillController.TREADMILL_ADDRESS, 3), ui.connection)
         assertTrue(ui.showsLiveData)
+    }
+
+    // ---- Milestone 2: users ----
+
+    @Test fun freshInstallStartsWithTheGenericUserSoStartIsPossible() {
+        controller.showConnected()
+        assertTrue(ui.activeUser!!.isGeneric)
+        assertTrue(ui.canStart)
+    }
+
+    @Test fun startIsDisabledWithoutAnActiveUser() = runTest {
+        controller.showConnected()
+        app.userData.profiles.setActiveUser(null)
+        assertNull(ui.activeUser)
+        assertFalse(ui.canStart)
+        vm.start()
+        assertEquals(0, controller.startCalls)
+        app.userData.profiles.setActiveUser(app.userData.profiles.profiles.first().first().id)
+        assertTrue(ui.canStart)
+    }
+
+    @Test fun deletingTheActiveUserDisablesStart() = runTest {
+        val ana = app.userData.createProfile("Ana")
+        app.userData.profiles.setActiveUser(ana.id)
+        controller.showConnected()
+        assertTrue(ui.canStart)
+        app.userData.profiles.delete(ana.id)
+        assertFalse(ui.canStart)
+    }
+
+    @Test fun theUserCanOnlyBeSwitchedWhileTheBeltIsStopped() {
+        controller.showConnected()
+        assertTrue(ui.canSwitchUser)
+        for (status in listOf(BeltStatus.Starting, BeltStatus.Running, BeltStatus.Paused, BeltStatus.SafetyKeyRemoved)) {
+            controller.showState { it.copy(status = status) }
+            assertFalse("$status", ui.canSwitchUser)
+        }
+        controller.showState { it.copy(status = BeltStatus.Idle) }
+        assertTrue(ui.canSwitchUser)
+    }
+
+    @Test fun unassignedWorkoutsAreCounted() {
+        assertEquals(0, ui.unassignedWorkoutCount)
+        app.userData.addWorkout(null, com.treadz.console.userdata.WorkoutStats(durationSeconds = 5), emptyList(), 1_000)
+        assertEquals(1, ui.unassignedWorkoutCount)
     }
 }

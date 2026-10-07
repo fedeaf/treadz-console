@@ -216,6 +216,7 @@ class MainViewModelTest {
         vm.startScan()
         vm.stopScan()
         assertTrue(controller.forbiddenCalls.isEmpty())
+        assertEquals(0, controller.manualCommandCount)
     }
 
     @Test fun connectionStateIsExposed() {
@@ -267,5 +268,48 @@ class MainViewModelTest {
         assertEquals(0, ui.unassignedWorkoutCount)
         app.userData.addWorkout(null, com.treadz.console.userdata.WorkoutStats(durationSeconds = 5), emptyList(), 1_000)
         assertEquals(1, ui.unassignedWorkoutCount)
+    }
+
+    // ---- Treadmill name after an automatic reconnection ----
+
+    @Test fun reconnectingWithoutANameKeepsTheRememberedOne() {
+        val app = FakeApp(settings = InMemorySettingsStore(RememberedTreadmill("AA:BB", "REEBOK 0517")))
+        app.controller.connectWithoutName = true
+        app.viewModel.onPermissionsGranted()
+        assertTrue(app.viewModel.uiState.value.isConnected)
+        // The saved treadmill keeps its name instead of being overwritten with null...
+        assertEquals(RememberedTreadmill("AA:BB", "REEBOK 0517"), app.settings.lastTreadmill)
+        // ...and the connection chip uses it.
+        assertEquals("REEBOK 0517", app.viewModel.uiState.value.connectedName)
+    }
+
+    @Test fun theRememberedNameIsNotUsedForAnotherTreadmill() {
+        val app = FakeApp(settings = InMemorySettingsStore(RememberedTreadmill("AA:BB", "REEBOK 0517")))
+        app.controller.connectWithoutName = true
+        app.viewModel.connect("CC:DD", null)
+        assertNull(app.viewModel.uiState.value.connectedName)
+        assertEquals(RememberedTreadmill("CC:DD", null), app.settings.lastTreadmill)
+    }
+
+    @Test fun aNameGivenByTheConnectionReplacesTheRememberedOne() {
+        val app = FakeApp(settings = InMemorySettingsStore(RememberedTreadmill("AA:BB", "Old name")))
+        app.controller.scanResults = listOf(com.treadz.console.treadmill.DiscoveredTreadmill("AA:BB", "REEBOK 0517", -50))
+        app.viewModel.onPermissionsGranted()
+        assertEquals(RememberedTreadmill("AA:BB", "REEBOK 0517"), app.settings.lastTreadmill)
+        assertEquals("REEBOK 0517", app.viewModel.uiState.value.connectedName)
+    }
+
+    @Test fun theNamePickedInTheScanListIsRememberedWhenTheConnectionHasNone() {
+        controller.connectWithoutName = true
+        vm.connect(FakeTreadmillController.TREADMILL_ADDRESS, "REEBOK 0517")
+        assertEquals(RememberedTreadmill(FakeTreadmillController.TREADMILL_ADDRESS, "REEBOK 0517"), app.settings.lastTreadmill)
+        assertEquals("REEBOK 0517", ui.connectedName)
+    }
+
+    @Test fun aTreadmillThatNeverHadANameShowsNoName() {
+        controller.connectWithoutName = true
+        vm.connect(FakeTreadmillController.TREADMILL_ADDRESS, null)
+        assertNull(ui.connectedName)
+        assertNull(app.settings.lastTreadmill!!.name)
     }
 }

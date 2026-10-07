@@ -24,6 +24,8 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.VERSION_NAME goes into the exported TCX files.
+        buildConfig = true
     }
 
     testOptions {

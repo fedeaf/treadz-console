@@ -26,6 +26,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.treadz.console.treadmill.RecordingInfo
+import com.treadz.console.userdata.export.SavedExport
 import com.treadz.console.ui.BluetoothPermission
 import com.treadz.console.ui.MainActions
 import com.treadz.console.ui.PermissionsUi
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
                 permissions = permissions,
                 actions = MainActions(
                     onShare = ::share,
+                    onShareExport = ::shareExport,
                     onRequestPermissions = request,
                     onOpenSettings = ::openAppSettings,
                 ),
@@ -108,6 +110,10 @@ class MainActivity : ComponentActivity() {
 
     private fun share(recording: RecordingInfo) {
         startActivity(dependencies.shareIntent(recording))
+    }
+
+    private fun shareExport(export: SavedExport) {
+        startActivity(ExportShare.intent(export, getString(R.string.export_share_title)))
     }
 
     private fun openAppSettings() {

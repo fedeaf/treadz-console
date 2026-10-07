@@ -1,5 +1,7 @@
 package com.treadz.console
 
+import com.treadz.console.controls.ControlsState
+import com.treadz.console.controls.ManualControls
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionState
@@ -20,6 +22,8 @@ data class MainUiState(
     /** Name (or address) of the last treadmill used, if any. */
     val rememberedName: String? = null,
     val rememberedAddress: String? = null,
+    /** The real name of the last treadmill, `null` if it never had one (unlike [rememberedName], no address fallback). */
+    val rememberedDeviceName: String? = null,
     /** Connection (or scan) error to show on the connection screen. */
     val connectFailure: CommandResult? = null,
     val scanFailure: String? = null,
@@ -35,6 +39,8 @@ data class MainUiState(
     val activeUser: UserProfile? = null,
     /** Workouts recorded with no active user, waiting to be assigned. */
     val unassignedWorkoutCount: Int = 0,
+    /** Pending targets, commands in flight and the last failure of the manual controls. */
+    val controls: ControlsState = ControlsState(),
 ) {
     val isConnected: Boolean get() = connection is ConnectionState.Connected
 
@@ -42,13 +48,61 @@ data class MainUiState(
     val showsLiveData: Boolean
         get() = connection is ConnectionState.Connected || connection is ConnectionState.Reconnecting
 
+    /**
+     * Name to show for the connected treadmill. Android gives no name when it reconnects by itself, so the remembered one
+     * (same address) is used then.
+     */
+    val connectedName: String?
+        get() = (connection as? ConnectionState.Connected)?.let { c ->
+            c.name ?: rememberedDeviceName.takeIf { c.address == rememberedAddress }
+        }
+
     val canStart: Boolean
-        get() = activeUser != null && isConnected && treadmill.status == BeltStatus.Idle && !startInProgress
+        get() = activeUser != null && isConnected && !beltActive && !startInProgress
 
     /** The active user can only change while the belt is stopped (a workout belongs to one person). */
     val canSwitchUser: Boolean
         get() = treadmill.status == BeltStatus.Idle && !startInProgress
 
+    /**
+     * The belt is not at rest: a session is on (starting, running, paused, key removed) or it is still decelerating
+     * after a stop. While it holds, STOP is on every screen.
+     */
+    val beltActive: Boolean
+        get() = treadmill.status != BeltStatus.Idle || treadmill.speedKmh > ManualControls.STOPPED_SPEED_KMH
+
+    /** STOP can be pressed: the belt is active and the connection is up. Never depends on the active user. */
+    val showStop: Boolean get() = beltActive && isConnected
+
+    /** The belt may be moving but the app cannot reach the treadmill: STOP is replaced by a message. */
+    val stopUnreachable: Boolean get() = beltActive && !isConnected
+
+    /** Commands other than STOP: an active user, a connection and current data. */
+    val canOperate: Boolean get() = activeUser != null && isConnected && !treadmill.isStale
+
+    /** Speed and incline controls: only with the belt running. */
+    val canAdjust: Boolean get() = canOperate && treadmill.status == BeltStatus.Running
+
+    val canPause: Boolean get() = canOperate && treadmill.status == BeltStatus.Running && !controls.pauseInFlight
+
+    /** Resume only once the belt has stopped: the treadmill refuses before that. */
+    val canResume: Boolean
+        get() = canOperate && treadmill.status == BeltStatus.Paused &&
+            treadmill.speedKmh <= ManualControls.STOPPED_SPEED_KMH && !controls.pauseInFlight
+
+    /** Paused but the belt is still slowing down: Resume waits. */
+    val resumeWaitsForBelt: Boolean
+        get() = treadmill.status == BeltStatus.Paused && treadmill.speedKmh > ManualControls.STOPPED_SPEED_KMH
+
+    val isPaused: Boolean get() = treadmill.status == BeltStatus.Paused
+
+    /** Target speed to show next to the real one: what the user is asking for, or what the treadmill is heading to. */
+    val targetSpeed: Double?
+        get() = if (treadmill.status == BeltStatus.Running) controls.pendingSpeed ?: treadmill.targetSpeedKmh else null
+
+    val targetIncline: Double?
+        get() = if (treadmill.status == BeltStatus.Running) controls.pendingIncline else null
+
     /** The screen must stay on while the belt is not stopped. */
-    val keepScreenOn: Boolean get() = treadmill.status != BeltStatus.Idle
+    val keepScreenOn: Boolean get() = beltActive
 }

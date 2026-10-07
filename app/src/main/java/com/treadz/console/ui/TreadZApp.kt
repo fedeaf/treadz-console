@@ -21,6 +21,7 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.treadz.console.AppDependencies
 import com.treadz.console.MainViewModel
+import com.treadz.console.controls.ControlAxis
 import com.treadz.console.history.HistoryViewModel
 import com.treadz.console.history.WorkoutDetailViewModel
 import com.treadz.console.nav.NavigationViewModel
@@ -62,148 +64,179 @@ fun TreadZRoot(
 
     BackHandler(enabled = (stack?.size ?: 0) > 1) { navigation.pop() }
 
+    val controls = viewModel.controls
+    val controlActions = remember(viewModel, navigation) {
+        ControlActions(
+            onStop = controls::stop,
+            onPause = controls::pause,
+            onResume = controls::resume,
+            onSpeedPress = { controls.startRepeat(ControlAxis.Speed, it) },
+            onSpeedRelease = controls::stopRepeat,
+            onSpeedStep = controls::stepSpeed,
+            onInclinePress = { controls.startRepeat(ControlAxis.Incline, it) },
+            onInclineRelease = controls::stopRepeat,
+            onInclineStep = controls::stepIncline,
+            onSetSpeed = controls::setSpeed,
+            onSetIncline = controls::setIncline,
+            onBackToMain = { navigation.replaceAll(Screen.Main) },
+        )
+    }
+
     TreadZFrame(
         darkTheme = ui.darkTheme,
         keepScreenOn = ui.keepScreenOn,
         alert = ui.alert,
         onDismissAlert = viewModel::dismissAlert,
+        onStop = controls::stop.takeIf { ui.showStop },
     ) {
-        when (screen) {
-            null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Anything but the main screen: STOP and the speed stay in view while the belt is not at rest.
+            if (screen != null && screen != Screen.Main && ui.beltActive) SessionBar(ui, controlActions)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (screen) {
+                    null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
-            Screen.Main -> MainScreen(
-                ui = ui,
-                permissions = permissions,
-                actions = actions.copy(
-                    onStart = viewModel::start,
-                    onScan = viewModel::startScan,
-                    onStopScan = viewModel::stopScan,
-                    onConnect = { viewModel.connect(it.address, it.name) },
-                    onReconnectRemembered = viewModel::reconnectToRemembered,
-                    onDismissAlert = viewModel::dismissAlert,
-                    onDismissRecordingNotice = viewModel::dismissRecordingNotice,
-                    onDarkThemeChange = viewModel::setDarkTheme,
-                    onOpenUsers = { navigation.push(Screen.UserSelection) },
-                    onOpenWeight = { navigation.push(Screen.Weight) },
-                    onOpenHistory = { navigation.push(Screen.History) },
-                    onPersonalize = { ui.activeUser?.let { navigation.openEditor(it.id) } },
-                ),
-            )
+                    Screen.Main -> MainScreen(
+                        ui = ui,
+                        permissions = permissions,
+                        actions = actions.copy(
+                            onStart = viewModel::start,
+                            onScan = viewModel::startScan,
+                            onStopScan = viewModel::stopScan,
+                            onConnect = { viewModel.connect(it.address, it.name) },
+                            onReconnectRemembered = viewModel::reconnectToRemembered,
+                            onDismissAlert = viewModel::dismissAlert,
+                            onDismissRecordingNotice = viewModel::dismissRecordingNotice,
+                            controls = controlActions,
+                            onDarkThemeChange = viewModel::setDarkTheme,
+                            onOpenUsers = { navigation.push(Screen.UserSelection) },
+                            onOpenWeight = { navigation.push(Screen.Weight) },
+                            onOpenHistory = { navigation.push(Screen.History) },
+                            onPersonalize = { ui.activeUser?.let { navigation.openEditor(it.id) } },
+                        ),
+                    )
 
-            Screen.UserSelection -> {
-                val vm = viewModel<UserSelectionViewModel>(
-                    factory = viewModelFactory {
-                        initializer { UserSelectionViewModel(dependencies.userData.profiles, dependencies.controller, dependencies::today) }
-                    },
-                )
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                UserSelectionScreen(
-                    state = state,
-                    actions = UserSelectionActions(
-                        onSelect = { id -> vm.select(id) { navigation.replaceAll(Screen.Main) } },
-                        onEdit = { id -> navigation.openEditor(id) },
-                        onAdd = { navigation.openEditor(null) },
-                        onBack = if ((stack?.size ?: 0) > 1) navigation::pop else null,
-                    ),
-                )
-            }
+                    Screen.UserSelection -> {
+                        val vm = viewModel<UserSelectionViewModel>(
+                            factory = viewModelFactory {
+                                initializer { UserSelectionViewModel(dependencies.userData.profiles, dependencies.controller, dependencies::today) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        UserSelectionScreen(
+                            state = state,
+                            actions = UserSelectionActions(
+                                onSelect = { id -> vm.select(id) { navigation.replaceAll(Screen.Main) } },
+                                onEdit = { id -> navigation.openEditor(id) },
+                                onAdd = { navigation.openEditor(null) },
+                                onBack = if ((stack?.size ?: 0) > 1) navigation::pop else null,
+                            ),
+                        )
+                    }
 
-            is Screen.ProfileEditor -> {
-                val vm = viewModel<ProfileEditorViewModel>(
-                    key = "editor-${screen.profileId}-${screen.token}",
-                    factory = viewModelFactory {
-                        initializer {
-                            ProfileEditorViewModel(screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today)
-                        }
-                    },
-                )
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                ProfileEditorScreen(
-                    state = state,
-                    today = dependencies.today(),
-                    actions = ProfileEditorActions(
-                        onBack = navigation::pop,
-                        onName = vm::setName,
-                        onSex = vm::setSex,
-                        onHeight = vm::setHeight,
-                        onBirthDate = vm::setBirthDate,
-                        onRestingHeartRate = vm::setRestingHeartRate,
-                        onMaxHeartRate = vm::setMaxHeartRate,
-                        onFitnessLevel = vm::setFitnessLevel,
-                        onGoal = vm::setGoal,
-                        onWeight = vm::setWeight,
-                        onSave = { vm.save(onSaved = navigation::pop) },
-                        onDelete = vm::requestDelete,
-                        onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::onProfileDeleted) },
-                        onCancelDelete = vm::cancelDelete,
-                    ),
-                )
-            }
+                    is Screen.ProfileEditor -> {
+                        val vm = viewModel<ProfileEditorViewModel>(
+                            key = "editor-${screen.profileId}-${screen.token}",
+                            factory = viewModelFactory {
+                                initializer {
+                                    ProfileEditorViewModel(screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today)
+                                }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        ProfileEditorScreen(
+                            state = state,
+                            today = dependencies.today(),
+                            actions = ProfileEditorActions(
+                                onBack = navigation::pop,
+                                onName = vm::setName,
+                                onSex = vm::setSex,
+                                onHeight = vm::setHeight,
+                                onBirthDate = vm::setBirthDate,
+                                onRestingHeartRate = vm::setRestingHeartRate,
+                                onMaxHeartRate = vm::setMaxHeartRate,
+                                onFitnessLevel = vm::setFitnessLevel,
+                                onGoal = vm::setGoal,
+                                onWeight = vm::setWeight,
+                                onSave = { vm.save(onSaved = navigation::pop) },
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::onProfileDeleted) },
+                                onCancelDelete = vm::cancelDelete,
+                            ),
+                        )
+                    }
 
-            Screen.Weight -> {
-                val vm = viewModel<WeightViewModel>(
-                    factory = viewModelFactory { initializer { WeightViewModel(dependencies.userData, dependencies::today) } },
-                )
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                WeightScreen(
-                    state = state,
-                    today = dependencies.today(),
-                    actions = WeightActions(
-                        onBack = navigation::pop,
-                        onAdd = vm::openAdd,
-                        onEdit = vm::openEdit,
-                        onDelete = vm::requestDelete,
-                        onConfirmDelete = vm::confirmDelete,
-                        onCancelDelete = vm::cancelDelete,
-                        onSetTarget = vm::openTarget,
-                        onEditorDate = vm::setDate,
-                        onEditorWeight = vm::setWeightText,
-                        onSaveEditor = vm::saveEditor,
-                        onDismissEditor = vm::dismissEditor,
-                        onClearTarget = vm::clearTarget,
-                    ),
-                )
-            }
+                    Screen.Weight -> {
+                        val vm = viewModel<WeightViewModel>(
+                            factory = viewModelFactory { initializer { WeightViewModel(dependencies.userData, dependencies::today) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        WeightScreen(
+                            state = state,
+                            today = dependencies.today(),
+                            actions = WeightActions(
+                                onBack = navigation::pop,
+                                onAdd = vm::openAdd,
+                                onEdit = vm::openEdit,
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = vm::confirmDelete,
+                                onCancelDelete = vm::cancelDelete,
+                                onSetTarget = vm::openTarget,
+                                onEditorDate = vm::setDate,
+                                onEditorWeight = vm::setWeightText,
+                                onSaveEditor = vm::saveEditor,
+                                onDismissEditor = vm::dismissEditor,
+                                onClearTarget = vm::clearTarget,
+                            ),
+                        )
+                    }
 
-            Screen.History -> {
-                val vm = viewModel<HistoryViewModel>(
-                    factory = viewModelFactory { initializer { HistoryViewModel(dependencies.userData) } },
-                )
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                HistoryScreen(
-                    state = state,
-                    actions = HistoryActions(
-                        onBack = navigation::pop,
-                        onOpen = { navigation.push(Screen.WorkoutDetail(it)) },
-                        onTab = vm::selectTab,
-                        onDelete = vm::requestDelete,
-                        onConfirmDelete = vm::confirmDelete,
-                        onCancelDelete = vm::cancelDelete,
-                        onAssign = vm::requestAssign,
-                        onAssignTo = vm::assignTo,
-                        onCancelAssign = vm::cancelAssign,
-                    ),
-                )
-            }
+                    Screen.History -> {
+                        val vm = viewModel<HistoryViewModel>(
+                            factory = viewModelFactory { initializer { HistoryViewModel(dependencies.userData) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        HistoryScreen(
+                            state = state,
+                            actions = HistoryActions(
+                                onBack = navigation::pop,
+                                onOpen = { navigation.push(Screen.WorkoutDetail(it)) },
+                                onTab = vm::selectTab,
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = vm::confirmDelete,
+                                onCancelDelete = vm::cancelDelete,
+                                onAssign = vm::requestAssign,
+                                onAssignTo = vm::assignTo,
+                                onCancelAssign = vm::cancelAssign,
+                            ),
+                        )
+                    }
 
-            is Screen.WorkoutDetail -> {
-                val vm = viewModel<WorkoutDetailViewModel>(
-                    key = "workout-${screen.workoutId}",
-                    factory = viewModelFactory { initializer { WorkoutDetailViewModel(screen.workoutId, dependencies.userData) } },
-                )
-                val state by vm.uiState.collectAsStateWithLifecycle()
-                WorkoutDetailScreen(
-                    state = state,
-                    actions = WorkoutDetailActions(
-                        onBack = navigation::pop,
-                        onDelete = vm::requestDelete,
-                        onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::pop) },
-                        onCancelDelete = vm::cancelDelete,
-                        onAssign = vm::requestAssign,
-                        onAssignTo = vm::assignTo,
-                        onCancelAssign = vm::cancelAssign,
-                    ),
-                )
+                    is Screen.WorkoutDetail -> {
+                        val vm = viewModel<WorkoutDetailViewModel>(
+                            key = "workout-${screen.workoutId}",
+                            factory = viewModelFactory { initializer { WorkoutDetailViewModel(screen.workoutId, dependencies.userData, dependencies.exporter) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        WorkoutDetailScreen(
+                            state = state,
+                            actions = WorkoutDetailActions(
+                                onBack = navigation::pop,
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::pop) },
+                                onCancelDelete = vm::cancelDelete,
+                                onAssign = vm::requestAssign,
+                                onAssignTo = vm::assignTo,
+                                onCancelAssign = vm::cancelAssign,
+                                onExport = vm::requestExport,
+                                onExportFormat = { format -> vm.export(format, actions.onShareExport) },
+                                onCancelExport = vm::cancelExport,
+                                onDismissExportNotice = vm::dismissExportNotice,
+                                onShareExport = actions.onShareExport,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -220,6 +253,7 @@ fun TreadZFrame(
     keepScreenOn: Boolean,
     alert: TreadmillAlert?,
     onDismissAlert: () -> Unit,
+    onStop: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     TreadZTheme(darkTheme = darkTheme) {
@@ -244,7 +278,7 @@ fun TreadZFrame(
                     content()
                 }
             }
-            alert?.let { AlertOverlay(alert = it, onDismiss = onDismissAlert) }
+            alert?.let { AlertOverlay(alert = it, onDismiss = onDismissAlert, onStop = onStop) }
         }
     }
 }

@@ -45,6 +45,9 @@ class FakeTreadmillController : TreadmillController {
 
     var connectResult: CommandResult = CommandResult.Success
 
+    /** The connection reports no name, as Android does when it reconnects by itself. */
+    var connectWithoutName = false
+
     /** If not null, `connect` waits for it to complete (to show "Connecting"). */
     var connectGate: CompletableDeferred<Unit>? = null
     var startResult: CommandResult = CommandResult.Success
@@ -54,7 +57,7 @@ class FakeTreadmillController : TreadmillController {
     var scanCalls = 0
     var startCalls = 0
 
-    /** Any command other than scan/connect/start: the milestone 1 UI must never call them. */
+    /** Commands the app must never send (the UI offers no way to disconnect). */
     val forbiddenCalls = mutableListOf<String>()
 
     override fun setLimits(limits: SafetyLimits) {
@@ -73,7 +76,7 @@ class FakeTreadmillController : TreadmillController {
         connection.value = ConnectionState.Connecting(address)
         connectGate?.await()
         return if (connectResult is CommandResult.Success) {
-            val name = scanResults.firstOrNull { it.address == address }?.name ?: TREADMILL_NAME
+            val name = if (connectWithoutName) null else scanResults.firstOrNull { it.address == address }?.name ?: TREADMILL_NAME
             connection.value = ConnectionState.Connected(address, name)
             capabilities.value = DEFAULT_CAPABILITIES
             CommandResult.Success
@@ -93,15 +96,72 @@ class FakeTreadmillController : TreadmillController {
         return startResult
     }
 
-    override suspend fun pause(): CommandResult = forbidden("pause")
-    override suspend fun resume(): CommandResult = forbidden("resume")
-    override suspend fun stop(): CommandResult = forbidden("stop")
-    override suspend fun setSpeed(kmh: Double): CommandResult = forbidden("setSpeed($kmh)")
-    override suspend fun setIncline(percent: Double): CommandResult = forbidden("setIncline($percent)")
+    // ---- Manual controls ----
 
-    private fun forbidden(call: String): CommandResult {
-        forbiddenCalls += call
-        return CommandResult.NotAllowed(FailureCode.InternalError, "not available in milestone 1")
+    var pauseResult: CommandResult = CommandResult.Success
+    var resumeResult: CommandResult = CommandResult.Success
+    var stopResult: CommandResult = CommandResult.Success
+    var pauseCalls = 0
+    var resumeCalls = 0
+    var stopCalls = 0
+
+    /** Every speed / incline command received, in order. */
+    val speedCommands = mutableListOf<Double>()
+    val inclineCommands = mutableListOf<Double>()
+
+    /** Commands of any kind sent besides scan/connect/start (for "the UI never sends anything else" checks). */
+    val manualCommandCount: Int get() = pauseCalls + resumeCalls + stopCalls + speedCommands.size + inclineCommands.size
+
+    /**
+     * What a speed command does. The default confirms it at once and moves the target, like a verified command;
+     * tests replace it to make it slow (suspend) or to fail.
+     */
+    var setSpeedHandler: suspend (Double) -> CommandResult = { kmh ->
+        state.value = state.value.copy(targetSpeedKmh = kmh)
+        CommandResult.Success
+    }
+    var setInclineHandler: suspend (Double) -> CommandResult = { percent ->
+        state.value = state.value.copy(inclinePercent = percent)
+        CommandResult.Success
+    }
+
+    override suspend fun pause(): CommandResult {
+        pauseCalls++
+        if (pauseResult is CommandResult.Success) state.value = state.value.copy(status = BeltStatus.Paused)
+        return alertIfNotExecuted("pause", pauseResult)
+    }
+
+    override suspend fun resume(): CommandResult {
+        resumeCalls++
+        if (resumeResult is CommandResult.Success) state.value = state.value.copy(status = BeltStatus.Running)
+        return alertIfNotExecuted("resume", resumeResult)
+    }
+
+    override suspend fun stop(): CommandResult {
+        stopCalls++
+        if (stopResult is CommandResult.Success) state.value = state.value.copy(status = BeltStatus.Idle, speedKmh = 0.0, targetSpeedKmh = null)
+        return alertIfNotExecuted("stop", stopResult)
+    }
+
+    override suspend fun setSpeed(kmh: Double): CommandResult {
+        speedCommands += kmh
+        return alertIfNotExecuted("setSpeed", setSpeedHandler(kmh))
+    }
+
+    override suspend fun setIncline(percent: Double): CommandResult {
+        inclineCommands += percent
+        return alertIfNotExecuted("setIncline", setInclineHandler(percent))
+    }
+
+    /** Like the real controller: a command accepted but not verified raises the critical alert (a stop-preempted one does not). */
+    private fun alertIfNotExecuted(name: String, result: CommandResult): CommandResult {
+        val critical = when (result) {
+            is CommandResult.NotVerified -> result.code != FailureCode.Preempted
+            is CommandResult.Rejected -> name == "stop" || name == "pause"
+            else -> false
+        }
+        if (critical) emit(TreadmillEvent.CommandNotExecuted(name))
+        return result
     }
 
     // ---- Scenario shortcuts ----

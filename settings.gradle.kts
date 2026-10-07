@@ -18,3 +18,4 @@ rootProject.name = "treadz-console"
 include(":app")
 include(":treadmill")
 include(":treadmill-android")
+include(":userdata")

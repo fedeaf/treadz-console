@@ -1,0 +1,143 @@
+package com.treadz.console.userdata
+
+import com.treadz.console.treadmill.TreadmillController
+import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.workout.WorkoutHistoryObserver
+import com.treadz.console.userdata.workout.WorkoutObserverConfig
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import java.time.LocalDate
+
+/**
+ * Local profiles and the active user. Everything stays on the device; there are no accounts or PINs.
+ *
+ * Observable data is exposed as cold [Flow]s that re-emit on every change (they emit once the data is loaded, so
+ * "no active user" is `null` and not "still loading"). Writes are `suspend` and safe to call from the main thread.
+ */
+interface ProfileRepository {
+
+    /**
+     * All profiles, ordered by name (case-insensitive); the generic profile, with its empty name, comes first. A fresh
+     * database contains the generic profile, so this is never empty.
+     */
+    val profiles: Flow<List<UserProfile>>
+
+    /** The user who is training, or `null` if nobody is selected. Persists across restarts. */
+    val activeUser: Flow<UserProfile?>
+
+    fun profile(id: Long): Flow<UserProfile?>
+
+    /** One-shot read of the active user's id. */
+    suspend fun activeUserId(): Long?
+
+    /**
+     * Creates a normal profile: the name is required and unique. It does not become the active user (there is always
+     * a profile, so someone already is, or the UI is about to ask who trains).
+     */
+    suspend fun create(input: ProfileInput): DataResult<UserProfile>
+
+    /**
+     * Edits a profile. A normal profile needs a name. The generic profile ([UserProfile.isGeneric]) may keep a blank
+     * name (it stays generic and only the other fields are validated); as soon as it gets a name it becomes a normal
+     * profile (`isGeneric = false`) and the usual name rules apply. To personalise it together with the real weight
+     * use [personalize].
+     */
+    suspend fun update(id: Long, input: ProfileInput): DataResult<UserProfile>
+
+    /**
+     * Personalises the generic profile atomically (it also works on any profile): saves [input], which must have a
+     * name (`Blank` otherwise), and, if [weightKg] is not `null`, records it as the real current weight dated today and
+     * removes the placeholder weight of the generic profile, all in one transaction. With `weightKg == null` the
+     * placeholder weight is kept (still flagged [WeightEntry.isPlaceholder]), so the UI can keep asking for it.
+     * The result is a normal profile (`isGeneric = false`). Weight problems are reported with [InputField.Weight].
+     */
+    suspend fun personalize(id: Long, input: ProfileInput, weightKg: Double?): DataResult<UserProfile>
+
+    /**
+     * Deletes the profile and, with it, its weight entries, target weight and workouts.
+     *
+     * - There is always at least one profile: deleting the last one recreates a fresh generic profile
+     *   ([GenericProfile]) and makes it the active user.
+     * - If other profiles remain and the deleted one was active, nobody is active afterwards: the UI must ask who is
+     *   training (silently switching to another person would attribute the next workout to the wrong one).
+     */
+    suspend fun delete(id: Long): DataResult<Unit>
+
+    /** Selects who is training; `null` leaves nobody selected. */
+    suspend fun setActiveUser(id: Long?): DataResult<Unit>
+}
+
+/** Manual weight log and target weight, per user. */
+interface WeightRepository {
+
+    /** Entries of the user ordered by date ascending, ready for a chart. Empty for an unknown user. */
+    fun entries(userId: Long): Flow<List<WeightEntry>>
+
+    /**
+     * The latest entry (the highest date; on a tie the last created). This is the user's current weight,
+     * which feeds calories and other calculations. `null` if the user has no entries.
+     */
+    fun latestWeight(userId: Long): Flow<WeightEntry?>
+
+    fun targetWeightKg(userId: Long): Flow<Double?>
+
+    /** Adds a real entry. It also removes the user's placeholder weight ([WeightEntry.isPlaceholder]), if any. */
+    suspend fun add(userId: Long, date: LocalDate, weightKg: Double): DataResult<WeightEntry>
+
+    /** Edits an entry; editing a placeholder turns it into a normal entry. */
+    suspend fun update(entryId: Long, date: LocalDate, weightKg: Double): DataResult<WeightEntry>
+
+    suspend fun delete(entryId: Long): DataResult<Unit>
+
+    /** Sets or clears (`null`) the target weight. */
+    suspend fun setTargetWeight(userId: Long, weightKg: Double?): DataResult<Unit>
+}
+
+/** Stored workouts. They are created by [WorkoutHistoryObserver], never by the UI. */
+interface WorkoutHistoryRepository {
+
+    /** Workouts of the user, newest first (a workout in progress included, with [WorkoutSummary.isInProgress]). */
+    fun workouts(userId: Long): Flow<List<WorkoutSummary>>
+
+    /** Workouts done with no active user, newest first, waiting for [assign] (or [delete]). */
+    fun unassignedWorkouts(): Flow<List<WorkoutSummary>>
+
+    /** The workout being recorded right now, if any. */
+    fun inProgressWorkout(): Flow<WorkoutSummary?>
+
+    /** Summary and per-second samples of one workout; `null` if it does not exist. */
+    suspend fun detail(workoutId: Long): WorkoutDetail?
+
+    suspend fun delete(workoutId: Long): DataResult<Unit>
+
+    /** Gives an unassigned workout (or moves any workout) to a user. */
+    suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit>
+}
+
+/** Everything the UI needs from the data layer. [TreadZUserData] builds the real one, `InMemoryUserData` the fake. */
+interface UserData {
+    val profiles: ProfileRepository
+    val weights: WeightRepository
+    val workouts: WorkoutHistoryRepository
+
+    /**
+     * Creates the component that records the treadmill's sessions into [workouts]. It only observes
+     * [controller]; it never sends commands. Call [WorkoutHistoryObserver.start] to begin.
+     */
+    fun workoutObserver(
+        controller: TreadmillController,
+        clock: Clock = Clock.System,
+        config: WorkoutObserverConfig = WorkoutObserverConfig(),
+        onError: (Throwable) -> Unit = {},
+    ): WorkoutHistoryObserver
+}
+
+/** The active user's current weight (latest entry), or `null` if nobody is active or they have no weights. */
+@OptIn(ExperimentalCoroutinesApi::class)
+val UserData.activeUserWeightKg: Flow<Double?>
+    get() = profiles.activeUser.flatMapLatest { user ->
+        if (user == null) flowOf(null) else weights.latestWeight(user.id).map { it?.weightKg }
+    }

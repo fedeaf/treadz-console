@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The UI is in Compose; this theme only covers app start-up. Dark by default. -->
+    <style name="Theme.TreadZ" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF05070A</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

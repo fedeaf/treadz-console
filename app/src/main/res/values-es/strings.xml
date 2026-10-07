@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TreadZ Console</string>
+
+    <!-- Connection state -->
+    <string name="conn_disconnected">Sin conexión</string>
+    <string name="conn_connecting">Conectando…</string>
+    <string name="conn_connected">Conectada: %1$s</string>
+    <string name="conn_reconnecting">Reconectando… (intento %1$d)</string>
+    <string name="treadmill_unnamed">Cinta</string>
+    <string name="reconnecting_banner">Conexión perdida. Intentando reconectar con la cinta. Los valores en pantalla pueden estar desfasados.</string>
+
+    <!-- Connection screen -->
+    <string name="connect_title">Conecta con tu cinta</string>
+    <string name="connect_subtitle">Enciende la cinta, deja la tablet cerca y elígela en la lista.</string>
+    <string name="scan_button">Buscar cintas</string>
+    <string name="scan_searching">Buscando…</string>
+    <string name="scan_stop">Parar</string>
+    <string name="scan_empty">Aún no se ha encontrado ninguna cinta. Comprueba que está encendida y cerca.</string>
+    <string name="scan_failed">La búsqueda ha fallado: %1$s</string>
+    <string name="device_unnamed">Dispositivo sin nombre</string>
+    <string name="device_signal">Señal %1$d dBm</string>
+    <string name="reconnect_remembered">Reconectar con %1$s</string>
+    <string name="connecting_to_message">Conectando con la cinta…</string>
+    <string name="connect_failed_not_connected">No se ha podido conectar con la cinta.</string>
+    <string name="connect_failed">No se ha podido conectar: %1$s</string>
+
+    <!-- Live data -->
+    <string name="metric_speed">Velocidad</string>
+    <string name="metric_incline">Inclinación</string>
+    <string name="metric_distance">Distancia</string>
+    <string name="metric_time">Tiempo</string>
+    <string name="metric_calories">Calorías</string>
+    <string name="metric_heart_rate">Pulso</string>
+    <string name="unit_speed">km/h</string>
+    <string name="unit_incline">%</string>
+    <string name="unit_distance">km</string>
+    <string name="unit_calories">kcal</string>
+    <string name="unit_heart_rate">ppm</string>
+    <string name="heart_rate_none">Sin pulsómetro</string>
+
+    <string name="belt_label">Banda</string>
+    <string name="belt_idle">Parada</string>
+    <string name="belt_starting">Arrancando…</string>
+    <string name="belt_running">En marcha</string>
+    <string name="belt_paused">En pausa</string>
+    <string name="belt_key_removed">Llave quitada</string>
+
+    <!-- Start -->
+    <string name="start_button">START</string>
+    <string name="start_hint_idle">Pulsa START y después usa los botones de la consola para cambiar velocidad e inclinación.</string>
+    <string name="start_hint_busy">Usa los botones de la consola para cambiar velocidad e inclinación, o para parar.</string>
+    <string name="start_hint_disconnected">La cinta no está conectada.</string>
+    <string name="start_failed_not_connected">La cinta no está conectada.</string>
+    <string name="start_failed">No se ha podido arrancar: %1$s</string>
+
+    <!-- Alerts -->
+    <string name="alert_dismiss">Entendido</string>
+    <string name="alert_key_title">LLAVE DE SEGURIDAD QUITADA</string>
+    <string name="alert_key_body">La banda se ha parado, pero la plataforma SIGUE INCLINADA. Bajará a 0 % en cuanto vuelvas a poner la llave: sujétate bien o apártate antes de ponerla. La sesión de la cinta se perderá.</string>
+    <string name="alert_connection_lost_title">CONEXIÓN PERDIDA</string>
+    <string name="alert_connection_lost_body">Se ha perdido la conexión Bluetooth con la cinta. La cinta se para sola y su sesión se pierde. Si la banda sigue en marcha, pulsa STOP en la consola o quita la llave.</string>
+    <string name="alert_data_stalled_title">SIN DATOS DE LA CINTA</string>
+    <string name="alert_data_stalled_body">La cinta ha dejado de enviar datos, así que los valores en pantalla pueden estar desfasados. Ante la duda, pulsa STOP en la consola o quita la llave.</string>
+    <string name="alert_command_title">ORDEN NO EJECUTADA</string>
+    <string name="alert_command_body">La cinta aceptó la orden \"%1$s\" pero no la ha ejecutado. Pulsa STOP en la consola o quita la llave.</string>
+
+    <!-- Recording -->
+    <string name="recording_indicator">Grabando</string>
+    <string name="recording_saved_title">Grabación de la sesión guardada</string>
+    <string name="recording_saved_body">Guardada en %1$s</string>
+    <string name="recording_failed_title">No se ha podido guardar la grabación</string>
+    <string name="recording_share">Compartir</string>
+    <string name="recording_close">Cerrar</string>
+
+    <!-- Permissions -->
+    <string name="perm_title">Se necesita permiso de Bluetooth</string>
+    <string name="perm_body">TreadZ Console necesita buscar dispositivos cercanos y conectarse a ellos para hablar con tu cinta. Solo se usa para eso.</string>
+    <string name="perm_grant">Conceder permiso</string>
+    <string name="perm_denied_title">Permiso de Bluetooth denegado</string>
+    <string name="perm_denied_body">Sin este permiso la app no puede buscar ni conectarse a la cinta. Puedes intentarlo de nuevo o permitirlo en los ajustes del sistema.</string>
+    <string name="perm_denied_permanent_body">Sin este permiso la app no puede buscar ni conectarse a la cinta. Android no volverá a preguntar: permite «Dispositivos cercanos» en los ajustes de la app.</string>
+    <string name="perm_open_settings">Abrir ajustes de la app</string>
+    <string name="notifications_denied">Las notificaciones están desactivadas: no se verá el aviso de que la app sigue funcionando en segundo plano.</string>
+
+    <!-- Theme -->
+    <string name="theme_dark">Tema oscuro</string>
+
+    <!-- Failure reasons (FailureCode) -->
+    <string name="failure_connection_failed">no se ha podido establecer la conexión.</string>
+    <string name="failure_control_not_granted">la cinta no ha concedido el control.</string>
+    <string name="failure_already_running">la banda ya está en marcha.</string>
+    <string name="failure_already_starting">la cinta ya está arrancando.</string>
+    <string name="failure_safety_key_removed">la llave de seguridad está quitada. Vuelve a ponerla.</string>
+    <string name="failure_belt_still_stopping">la banda aún se está deteniendo. Espera a que pare.</string>
+    <string name="failure_nothing_to_resume">no hay ninguna sesión en pausa.</string>
+    <string name="failure_belt_not_running">la banda no está en marcha.</string>
+    <string name="failure_invalid_value">valor no válido.</string>
+    <string name="failure_no_response">la cinta no ha respondido.</string>
+    <string name="failure_rejected_by_treadmill">la cinta ha rechazado la orden.</string>
+    <string name="failure_write_failed">no se ha podido enviar la orden.</string>
+    <string name="failure_not_started">la banda no se ha puesto en marcha.</string>
+    <string name="failure_stop_not_confirmed">la cinta no ha confirmado la parada.</string>
+    <string name="failure_still_moving">la banda no está frenando.</string>
+    <string name="failure_target_not_reached">la cinta no ha llegado al valor pedido.</string>
+    <string name="failure_belt_stopped">la banda se ha parado.</string>
+    <string name="failure_data_lost">no llegan datos de la cinta.</string>
+    <string name="failure_connection_lost">se ha perdido la conexión.</string>
+    <string name="failure_preempted">interrumpida por una parada.</string>
+    <string name="failure_internal_error">error interno de la app.</string>
+</resources>

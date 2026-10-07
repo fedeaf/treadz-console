@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="treadz_service_channel">Conexión con la cinta</string>
+    <string name="treadz_service_disconnected">Desconectada</string>
+    <string name="treadz_service_connecting">Conectando con la cinta…</string>
+    <string name="treadz_service_reconnecting">Conexión perdida: reconectando (intento %1$d)</string>
+    <string name="treadz_service_idle">Conectada · parada</string>
+    <string name="treadz_service_starting">Conectada · arrancando</string>
+    <string name="treadz_service_running">Conectada · en marcha %1$.1f km/h</string>
+    <string name="treadz_service_paused">Conectada · en pausa</string>
+    <string name="treadz_service_key_removed">¡Llave de seguridad quitada!</string>
+
+    <string name="treadz_share_missing">No se encuentra %1$s</string>
+</resources>

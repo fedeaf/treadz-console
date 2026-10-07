@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
  * The app's single entry point for talking to the treadmill.
  *
  * No screen writes to the FTMS Control Point directly: every command goes through here,
- * and the implementation verifies its effect with the data coming from the treadmill (Treadmill Data at ~1 Hz)
+ * and the implementation verifies its effect with the data coming from the treadmill (Treadmill Data)
  * before considering the command done.
  *
  * All `suspend` functions are safe to call from the main thread.
@@ -18,7 +18,10 @@ interface TreadmillController {
     /** BLE connection state. */
     val connection: StateFlow<ConnectionState>
 
-    /** Last known treadmill state. Updated with every data packet (~1 Hz). */
+    /**
+     * Last known treadmill state. Updated with every data packet: ~2 Hz on Android (~1 Hz elsewhere), but the
+     * values themselves change only about once per second.
+     */
     val state: StateFlow<TreadmillState>
 
     /** Capabilities read from the treadmill on connect; `null` while there is no connection. */

@@ -9,6 +9,7 @@ import com.treadz.console.treadmill.recording.InMemoryRecordingStorage
 import com.treadz.console.treadmill.recording.JsonlWorkoutRecorder
 import com.treadz.console.treadmill.recording.RecorderConfig
 import com.treadz.console.treadmill.simulator.SimulatedTreadmill
+import com.treadz.console.treadmill.simulator.SimulatedTreadmill.DataRate
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -27,12 +28,13 @@ val T0: Long = Instant.parse("2026-10-07T18:30:00Z").toEpochMilli()
 @OptIn(ExperimentalCoroutinesApi::class)
 class Rig(
     private val testScope: TestScope,
+    dataRate: DataRate = DataRate.Hz2Repeated,
     config: ControllerConfig = ControllerConfig(),
     recorderConfig: RecorderConfig = RecorderConfig(zone = ZoneOffset.UTC),
 ) {
     private val bg = testScope.backgroundScope
     val clock = Clock { T0 + testScope.currentTime }
-    val sim = SimulatedTreadmill(bg)
+    val sim = SimulatedTreadmill(bg, dataRate = dataRate)
     val storage = InMemoryRecordingStorage()
     val recorder = JsonlWorkoutRecorder(storage, clock, recorderConfig)
     val trace = CopyOnWriteArrayList<TraceRecord>()

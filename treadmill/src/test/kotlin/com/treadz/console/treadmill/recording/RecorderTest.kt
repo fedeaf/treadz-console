@@ -20,6 +20,9 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import com.treadz.console.treadmill.simulator.SimulatedTreadmill.DataRate
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.time.ZoneOffset
@@ -33,9 +36,10 @@ class RecorderTest {
 
     // ------------------------------------------------------------------ normal session
 
-    @Test
-    fun `a session from start to stop produces a single complete and readable file`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a session from start to stop produces a single complete and readable file`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         assertEquals(RecordingStatus.Idle, rig.recorder.status.value)
         assertTrue(rig.storage.fileNames.isEmpty(), "no session, no file")
@@ -126,13 +130,15 @@ class RecorderTest {
         assertTrue(session.ofType("connection").any { it["state"] == "Connected" })
 
         // Everything received raw is also in the file: no rx is lost between start and end
-        val rxTraced = rig.trace.filterIsInstance<TraceRecord.RawReceived>().count { it.atMillis >= session.records.first()["t"] as Long - 15_000 }
-        assertTrue(rx.size >= rxTraced - 5, "rx in file ${rx.size} vs ${rxTraced}")
+        val endAt = end["t"] as Long
+        val rxTraced = rig.trace.filterIsInstance<TraceRecord.RawReceived>().count { it.atMillis in (session.records.first()["t"] as Long)..endAt }
+        assertTrue(rx.size in (rxTraced - 2)..rxTraced, "rx in file ${rx.size} vs traced while the session was open $rxTraced")
     }
 
-    @Test
-    fun `the session start includes what came before (preroll), with Request Control and the first packets`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `the session start includes what came before (preroll), with Request Control and the first packets`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.controller.start()
         delay(3_000)
@@ -149,9 +155,10 @@ class RecorderTest {
         assertTrue((session.records[1]["t"] as Long) < firstNonIdle)
     }
 
-    @Test
-    fun `two sessions in a row produce two files with different names`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `two sessions in a row produce two files with different names`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         rig.controller.stop()
         delay(8_000)
@@ -175,9 +182,10 @@ class RecorderTest {
 
     // ------------------------------------------------------------------ safety key
 
-    @Test
-    fun `the session with the key removed includes the notifications and ends when it is put back`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `the session with the key removed includes the notifications and ends when it is put back`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0, incline = 5.0)
         rig.sim.removeSafetyKey()
         delay(15_000)
@@ -199,9 +207,10 @@ class RecorderTest {
 
     // ------------------------------------------------------------------ disconnection
 
-    @Test
-    fun `losing the connection closes the session with the alert inside the file`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `losing the connection closes the session with the alert inside the file`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(5.0)
         rig.sim.dropConnection("treadmill switched off")
         delay(100)
@@ -221,9 +230,10 @@ class RecorderTest {
         assertEquals(2, rig.storage.fileNames.size)
     }
 
-    @Test
-    fun `disconnecting from the app closes the session`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `disconnecting from the app closes the session`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0)
         rig.controller.disconnect()
         val saved = rig.recorder.status.value as RecordingStatus.Saved
@@ -233,9 +243,10 @@ class RecorderTest {
 
     // ------------------------------------------------------------------ treadmill faults
 
-    @Test
-    fun `a failed start is recorded too, for debugging`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a failed start is recorded too, for debugging`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.sim.startFault = true
         val r = rig.controller.start()
@@ -249,9 +260,10 @@ class RecorderTest {
         assertEquals("idle", notNull(session.end)["reason"])
     }
 
-    @Test
-    fun `a stop accepted but not executed is recorded with the alert and the packets`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a stop accepted but not executed is recorded with the alert and the packets`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(4.0)
         rig.sim.stopFault = true
         rig.controller.stop()
@@ -269,9 +281,10 @@ class RecorderTest {
         assertTrue(after.isNotEmpty() && after.all { it["speed_kmh"] == 4.0 })
     }
 
-    @Test
-    fun `manual changes and frozen data are recorded`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `manual changes and frozen data are recorded`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.physicalSetIncline(5.0)
         delay(3_000)
@@ -287,9 +300,10 @@ class RecorderTest {
 
     // ------------------------------------------------------------------ storage failures
 
-    @Test
-    fun `if the file cannot be created it is reported and not retried on every packet`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `if the file cannot be created it is reported and not retried on every packet`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.storage.failOnCreate = java.io.IOException("storage full")
         rig.runAt(2.0)
         val st = rig.recorder.status.value
@@ -302,9 +316,10 @@ class RecorderTest {
         assertTrue(rig.recorder.status.value is RecordingStatus.Recording)
     }
 
-    @Test
-    fun `if writing fails mid-session it is reported and control continues`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `if writing fails mid-session it is reported and control continues`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         rig.storage.failOnWrite = true
         delay(3_000)

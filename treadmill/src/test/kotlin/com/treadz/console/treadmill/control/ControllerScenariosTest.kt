@@ -16,6 +16,9 @@ import com.treadz.console.treadmill.notNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import com.treadz.console.treadmill.simulator.SimulatedTreadmill.DataRate
 
 /** Full controller scenarios against the simulated treadmill, with virtual time. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -23,9 +26,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ connection
 
-    @Test
-    fun `connecting reads capabilities, subscribes and requests control (Request Control) first`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `connecting reads capabilities, subscribes and requests control (Request Control) first`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         assertEquals(ConnectionState.Disconnected, rig.controller.connection.value)
         assertNull(rig.controller.capabilities.value)
 
@@ -49,27 +53,30 @@ class ControllerScenariosTest {
 
     private fun notNullCaps(rig: Rig) = notNull(rig.controller.capabilities.value)
 
-    @Test
-    fun `the first Treadmill Data packet after connecting is discarded as stale data`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `the first Treadmill Data packet after connecting is discarded as stale data`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         val discarded = rig.samples.filter { it.discarded }
         assertEquals(1, discarded.size)
         assertTrue(rig.samples.any { !it.discarded })
     }
 
-    @Test
-    fun `connecting to an address that does not exist returns an error and leaves the connection closed`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `connecting to an address that does not exist returns an error and leaves the connection closed`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         val r = rig.controller.connect("00:00:00:00:00:00")
         assertTrue(r is CommandResult.Rejected, "result: $r")
         assertEquals(ConnectionState.Disconnected, rig.controller.connection.value)
         assertNull(rig.controller.capabilities.value)
     }
 
-    @Test
-    fun `without a connection every command returns NotConnected`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `without a connection every command returns NotConnected`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         assertEquals(CommandResult.NotConnected, rig.controller.start())
         assertEquals(CommandResult.NotConnected, rig.controller.stop())
         assertEquals(CommandResult.NotConnected, rig.controller.pause())
@@ -78,9 +85,10 @@ class ControllerScenariosTest {
         assertEquals(CommandResult.NotConnected, rig.controller.setIncline(3.0))
     }
 
-    @Test
-    fun `Request Control rejected is reported but the connection and the data go on`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `Request Control rejected is reported but the connection and the data go on`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.sim.forcedResults[0x00] = ControlPointResult.OperationFailed
         val r = rig.controller.connect(rig.sim.address)
         assertTrue(r is CommandResult.Rejected)
@@ -89,9 +97,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ start
 
-    @Test
-    fun `start, treadmill countdown and belt running at 0_5 km_h and 0 percent`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `start, treadmill countdown and belt running at 0_5 km_h and 0 percent`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         val before = rig.now
         assertEquals(CommandResult.Success, rig.controller.start())
@@ -109,16 +118,18 @@ class ControllerScenariosTest {
         assertTrue(rig.controller.state.value.elapsedSeconds >= 4)
     }
 
-    @Test
-    fun `start with the belt already running or starting is not valid`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `start with the belt already running or starting is not valid`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         assertTrue(rig.controller.start() is CommandResult.NotAllowed)
     }
 
-    @Test
-    fun `start accepted but not executed is NotVerified and alerts`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `start accepted but not executed is NotVerified and alerts`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.sim.startFault = true
         val r = rig.controller.start()
@@ -127,9 +138,10 @@ class ControllerScenariosTest {
         assertEquals(listOf(TreadmillEvent.CommandNotExecuted("start")), rig.events)
     }
 
-    @Test
-    fun `start rejected by the treadmill is Rejected`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `start rejected by the treadmill is Rejected`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.sim.forcedResults[0x07] = ControlPointResult.OperationFailed
         val r = rig.controller.start()
@@ -137,9 +149,10 @@ class ControllerScenariosTest {
         assertEquals(BeltStatus.Idle, rig.controller.state.value.status)
     }
 
-    @Test
-    fun `starting with the console buttons is neither a manual change nor an alert`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `starting with the console buttons is neither a manual change nor an alert`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.sim.physicalStart()
         delay(8_000)
@@ -151,9 +164,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ speed and incline
 
-    @Test
-    fun `a speed change is verified and the belt ramps to it`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a speed change is verified and the belt ramps to it`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         val before = rig.now
         assertEquals(CommandResult.Success, rig.controller.setSpeed(3.0))
@@ -165,9 +179,10 @@ class ControllerScenariosTest {
         assertTrue(rig.events.isEmpty(), "changes made by the app are not manual changes: ${rig.events}")
     }
 
-    @Test
-    fun `an incline change is verified with the value the treadmill reports`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `an incline change is verified with the value the treadmill reports`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         assertEquals(CommandResult.Success, rig.controller.setIncline(5.0))
         delay(2_000)
@@ -176,9 +191,10 @@ class ControllerScenariosTest {
         assertTrue(rig.events.isEmpty(), "${rig.events}")
     }
 
-    @Test
-    fun `incline with the belt stopped is NotAllowed and not sent`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `incline with the belt stopped is NotAllowed and not sent`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         val r = rig.controller.setIncline(4.0)
         assertTrue(r is CommandResult.NotAllowed, "result: $r")
@@ -187,9 +203,10 @@ class ControllerScenariosTest {
         assertTrue(rig.controller.setSpeed(4.0) is CommandResult.NotAllowed)
     }
 
-    @Test
-    fun `speed accepted but not changing is NotVerified`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `speed accepted but not changing is NotVerified`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         rig.sim.speedFault = true
         val r = rig.controller.setSpeed(6.0)
@@ -198,9 +215,10 @@ class ControllerScenariosTest {
         assertEquals(0.5, rig.controller.state.value.targetSpeedKmh, "the target does not change if it is not verified")
     }
 
-    @Test
-    fun `incline accepted but not changing is NotVerified`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `incline accepted but not changing is NotVerified`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         rig.sim.inclineFault = true
         val r = rig.controller.setIncline(6.0)
@@ -210,9 +228,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ safety limits
 
-    @Test
-    fun `commands are clamped to the treadmill range`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `commands are clamped to the treadmill range`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         assertEquals(CommandResult.Success, rig.controller.setSpeed(35.0))
         assertEquals(CommandResult.Success, rig.controller.setIncline(30.0))
@@ -223,9 +242,10 @@ class ControllerScenariosTest {
         assertTrue(rig.sim.forbiddenCommands.isEmpty())
     }
 
-    @Test
-    fun `safety limits clamp speed and incline and the treadmill never sees higher values`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `safety limits clamp speed and incline and the treadmill never sees higher values`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.controller.setLimits(SafetyLimits(maxSpeedKmh = 8.0, maxInclinePercent = 6.0))
         assertEquals(SafetyLimits(8.0, 6.0), rig.controller.limits.value)
         rig.connectAndStart()
@@ -243,9 +263,10 @@ class ControllerScenariosTest {
         assertTrue(maxSent <= 8.0, "maximum speed sent: $maxSent")
     }
 
-    @Test
-    fun `resuming also honours limits changed while paused`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `resuming also honours limits changed while paused`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(10.0, incline = 8.0)
         assertEquals(CommandResult.Success, rig.controller.pause())
         rig.controller.setLimits(SafetyLimits(maxSpeedKmh = 5.0, maxInclinePercent = 3.0))
@@ -257,9 +278,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ pause and resume
 
-    @Test
-    fun `pause and resume send speed and incline again only once the belt is running`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `pause and resume send speed and incline again only once the belt is running`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0, incline = 5.0)
         val distanceBefore = rig.controller.state.value.distanceMeters
 
@@ -293,9 +315,10 @@ class ControllerScenariosTest {
         assertTrue(rig.events.isEmpty(), "${rig.events}")
     }
 
-    @Test
-    fun `pause and resume are not valid outside their state`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `pause and resume are not valid outside their state`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         assertTrue(rig.controller.pause() is CommandResult.NotAllowed)
         assertTrue(rig.controller.resume() is CommandResult.NotAllowed)
@@ -303,9 +326,10 @@ class ControllerScenariosTest {
         assertTrue(rig.controller.resume() is CommandResult.NotAllowed)
     }
 
-    @Test
-    fun `start from pause is the same as resume`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `start from pause is the same as resume`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0, incline = 3.0)
         assertEquals(CommandResult.Success, rig.controller.pause())
         assertEquals(CommandResult.Success, rig.controller.start())
@@ -314,9 +338,10 @@ class ControllerScenariosTest {
         assertEquals(3.0, rig.controller.state.value.inclinePercent, 1e-9)
     }
 
-    @Test
-    fun `pause accepted but not executed is NotVerified with an alert`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `pause accepted but not executed is NotVerified with an alert`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.stopFault = true
         val r = rig.controller.pause()
@@ -328,9 +353,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ stop
 
-    @Test
-    fun `stop waits for the belt to reach 0 without a fixed timeout and leaves the treadmill Idle`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop waits for the belt to reach 0 without a fixed timeout and leaves the treadmill Idle`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(12.0, incline = 4.0)
         val before = rig.now
         val stopSentAt = rig.now
@@ -343,7 +369,10 @@ class ControllerScenariosTest {
         assertEquals(BeltStatus.Idle, rig.controller.state.value.status)
         // The speed went down on every packet
         val after = rig.samples.filter { it.atMillis > T0 + stopSentAt && !it.discarded }.map { it.sample.speedKmh }
-        assertTrue(after.zipWithNext().all { (a, b) -> b < a || (a == 0.0 && b == 0.0) }, "not decreasing on every packet: $after")
+        // Every distinct value is lower than the previous one (at 2 Hz each value arrives twice)
+        val distinct = after.fold(mutableListOf<Double>()) { acc, v -> if (acc.lastOrNull() != v) acc += v; acc }
+        assertTrue(distinct.zipWithNext().all { (a, b) -> b < a }, "not decreasing: $distinct")
+        assertTrue(after.size <= 2 * distinct.size, "a value repeated more than twice: $after")
         delay(3_000)
         val s = rig.controller.state.value
         assertEquals(0, s.elapsedSeconds, "the treadmill resets the session")
@@ -353,18 +382,20 @@ class ControllerScenariosTest {
         assertTrue(rig.commandsHex.contains("0801"))
     }
 
-    @Test
-    fun `stop at low speed is verified too`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop at low speed is verified too`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connectAndStart()
         assertEquals(CommandResult.Success, rig.controller.stop())
         assertEquals(BeltStatus.Idle, rig.controller.state.value.status)
         assertEquals(0.0, rig.sim.currentSpeedKmh)
     }
 
-    @Test
-    fun `stop accepted but not executed is NotVerified and raises the critical alert`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop accepted but not executed is NotVerified and raises the critical alert`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(4.0)
         rig.sim.stopFault = true // OK on the Control Point, nothing on the belt: the documented iConsole state
         val before = rig.now
@@ -378,9 +409,10 @@ class ControllerScenariosTest {
         assertEquals(4.0, rig.controller.state.value.speedKmh, 1e-9)
     }
 
-    @Test
-    fun `stop with status 02 but the speed not decreasing is NotVerified and the state goes back to Running`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop with status 02 but the speed not decreasing is NotVerified and the state goes back to Running`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(4.0)
         rig.sim.stopStatusOnlyFault = true
         val r = rig.controller.stop()
@@ -392,9 +424,10 @@ class ControllerScenariosTest {
         assertEquals(BeltStatus.Running, rig.controller.state.value.status)
     }
 
-    @Test
-    fun `stop rejected by the treadmill is Rejected with an alert`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop rejected by the treadmill is Rejected with an alert`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0)
         rig.sim.forcedResults[0x08] = ControlPointResult.OperationFailed
         val r = rig.controller.stop()
@@ -402,9 +435,10 @@ class ControllerScenariosTest {
         assertEquals(listOf(TreadmillEvent.CommandNotExecuted("stop")), rig.events)
     }
 
-    @Test
-    fun `stop during the start countdown is verified and cancels the start`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stop during the start countdown is verified and cancels the start`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         val start = async { rig.controller.start() }
         delay(1_000) // in the middle of the countdown
@@ -420,9 +454,10 @@ class ControllerScenariosTest {
         assertTrue(rig.events.none { it is TreadmillEvent.CommandNotExecuted && it.command == "stop" })
     }
 
-    @Test
-    fun `stopping with the console's physical button is reflected without alerts`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `stopping with the console's physical button is reflected without alerts`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0, incline = 2.0)
         rig.sim.physicalStop()
         delay(10_000)
@@ -432,9 +467,10 @@ class ControllerScenariosTest {
         assertTrue(rig.events.isEmpty(), "${rig.events}")
     }
 
-    @Test
-    fun `disconnecting with the belt running stops it before closing BLE`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `disconnecting with the belt running stops it before closing BLE`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0)
         rig.controller.disconnect()
         assertEquals(ConnectionState.Disconnected, rig.controller.connection.value)
@@ -450,9 +486,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ safety key
 
-    @Test
-    fun `key removed and put back`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `key removed and put back`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0, incline = 5.0)
         rig.sim.removeSafetyKey()
         delay(2_000)
@@ -486,9 +523,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ disconnection
 
-    @Test
-    fun `losing the connection during the session alerts, reconnects and discards the first stale packet`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `losing the connection during the session alerts, reconnects and discards the first stale packet`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(5.0, incline = 3.0)
         rig.sim.dropConnection()
         delay(100)
@@ -514,9 +552,10 @@ class ControllerScenariosTest {
         assertEquals(CommandResult.Success, rig.controller.start())
     }
 
-    @Test
-    fun `if the treadmill does not answer it keeps retrying until it reconnects`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `if the treadmill does not answer it keeps retrying until it reconnects`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0)
         rig.sim.refuseConnections = true
         rig.sim.dropConnection()
@@ -529,9 +568,10 @@ class ControllerScenariosTest {
         assertTrue(rig.connected)
     }
 
-    @Test
-    fun `losing the connection while Idle is not a session alert but it does reconnect`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `losing the connection while Idle is not a session alert but it does reconnect`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.sim.dropConnection()
         delay(6_000)
@@ -541,9 +581,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ frozen data
 
-    @Test
-    fun `data that stops arriving with the connection open alerts only once`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `data that stops arriving with the connection open alerts only once`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.freezeData(com.treadz.console.treadmill.simulator.SimulatedTreadmill.FreezeMode.Silent)
         delay(4_000)
@@ -561,18 +602,20 @@ class ControllerScenariosTest {
         assertEquals(2, rig.eventsOf(TreadmillEvent.DataStalled::class).size)
     }
 
-    @Test
-    fun `packets that keep arriving but are always the same with the belt running are frozen data too`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `packets that keep arriving but are always the same with the belt running are frozen data too`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.freezeData(com.treadz.console.treadmill.simulator.SimulatedTreadmill.FreezeMode.Repeat)
         delay(10_000)
         assertEquals(listOf<TreadmillEvent>(TreadmillEvent.DataStalled), rig.events)
     }
 
-    @Test
-    fun `without data during a stop, the Stop is not considered verified`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `without data during a stop, the Stop is not considered verified`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(6.0)
         val stop = async { rig.controller.stop() }
         delay(500)
@@ -584,9 +627,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ manual changes
 
-    @Test
-    fun `speed changes with the physical buttons are detected when the ramp settles`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `speed changes with the physical buttons are detected when the ramp settles`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.physicalSetSpeed(6.0)
         delay(2_000)
@@ -599,9 +643,10 @@ class ControllerScenariosTest {
         assertEquals(1, rig.events.size)
     }
 
-    @Test
-    fun `incline changes with the physical buttons are detected instantly`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `incline changes with the physical buttons are detected instantly`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0, incline = 2.0)
         rig.sim.physicalSetIncline(7.0)
         delay(2_500)
@@ -609,9 +654,10 @@ class ControllerScenariosTest {
         assertEquals(7.0, rig.controller.state.value.inclinePercent)
     }
 
-    @Test
-    fun `after a manual change the pause resumes with the console values`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `after a manual change the pause resumes with the console values`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0, incline = 2.0)
         rig.sim.physicalSetIncline(6.0)
         delay(2_500)
@@ -623,9 +669,10 @@ class ControllerScenariosTest {
 
     // ------------------------------------------------------------------ misc
 
-    @Test
-    fun `time and distance targets are never sent`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `time and distance targets are never sent`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(4.0, incline = 3.0)
         rig.controller.pause()
         rig.controller.resume()
@@ -635,9 +682,10 @@ class ControllerScenariosTest {
         assertTrue(rig.sim.receivedCommands.none { it[0].toInt() == 0x0C || it[0].toInt() == 0x0D })
     }
 
-    @Test
-    fun `only FTMS characteristics are used and the iConsole channel does not exist`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `only FTMS characteristics are used and the iConsole channel does not exist`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0)
         rig.controller.stop()
         val used = rig.trace.filterIsInstance<TraceRecord.RawSent>().map { it.characteristic.shortName }.toSet() +
@@ -646,9 +694,10 @@ class ControllerScenariosTest {
         assertTrue(used.none { it.startsWith("fff") }, "$used")
     }
 
-    @Test
-    fun `a failing recorder does not affect treadmill control`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a failing recorder does not affect treadmill control`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.storage.failOnCreate = java.io.IOException("no space left")
         rig.runAt(3.0)
         assertEquals(CommandResult.Success, rig.controller.stop())

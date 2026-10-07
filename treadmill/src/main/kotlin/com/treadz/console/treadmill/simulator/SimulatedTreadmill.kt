@@ -26,7 +26,9 @@ import kotlin.math.abs
  * in the protocol notes and verified against the treadmill:
  *
  *  - Start/Resume: ~3.4 s countdown, starts at 0.5 km/h and 0 %; Training Status ManualMode.
- *  - Speed ramps at 0.5 km/h per second (up and down).
+ *  - Speed ramps at 0.5 km/h per second (up and down). The reported speed is always a multiple of the speed step
+ *    (0.1 km/h), like the real treadmill: ramp rates that are not a multiple of the step (e.g. 0.45 km/h per second)
+ *    give steps of 0.4 and 0.5 alternately.
  *  - Incline: a target value that changes instantly, **only with the belt running**.
  *  - Pause: decelerates, keeps time/distance and lowers the incline to 0. Stop: decelerates and resets everything.
  *  - Safety key: hard stop, status 03, the incline does NOT go down; when put back, everything goes to 0.
@@ -83,7 +85,11 @@ class SimulatedTreadmill(
 
     // ---- treadmill state
     private var mode = Mode.Idle
+    /** Reported speed: always on the speed-step grid. */
     private var speed = 0.0
+
+    /** Exact (not rounded) speed the ramp works with. */
+    private var exactSpeed = 0.0
     private var targetSpeed = 0.0
     private var incline = 0.0
     private var distanceMeters = 0.0
@@ -108,8 +114,17 @@ class SimulatedTreadmill(
     /** Countdown duration after Start/Resume. */
     var countdownMs: Long = 3_400
 
-    /** Speed ramp in km/h per second (up and down). */
+    /** Speed ramp in km/h per second when accelerating (and when decelerating, unless [decelKmhPerSecond] is set). */
     var rampKmhPerSecond: Double = 0.5
+
+    /** Deceleration in km/h per second after Stop/Pause; `null` = same as [rampKmhPerSecond]. */
+    var decelKmhPerSecond: Double? = null
+
+    /**
+     * Random variation (+/- this many ms, deterministic seed) of the interval between data packets. The real
+     * treadmill, seen from Android, sends packets every 390-590 ms; use 100 to mimic it.
+     */
+    var packetJitterMs: Long = 0
 
     /** `true` = accepts Stop and Pause (answers OK) **without executing them**, like the treadmill in the iConsole state. */
     var stopFault: Boolean = false
@@ -136,6 +151,7 @@ class SimulatedTreadmill(
     var staleFirstPacket: Boolean = true
 
     private var freeze: FreezeMode? = null
+    private val jitterRandom = java.util.Random(42)
 
     /** Every packet written to the Control Point (for test assertions). */
     val receivedCommands: List<ByteArray> get() = synchronized(lock) { commandLog.toList() }
@@ -224,7 +240,7 @@ class SimulatedTreadmill(
         synchronized(lock) {
             if (mode == Mode.KeyRemoved) return
             mode = Mode.KeyRemoved
-            speed = 0.0
+            zeroSpeed()
             targetSpeed = 0.0
             emitData()
             emitStatus(byteArrayOf(0x03))
@@ -259,7 +275,7 @@ class SimulatedTreadmill(
 
     /** Console speed button: changes the target (the real speed ramps up or down). */
     fun physicalSetSpeed(kmh: Double) {
-        synchronized(lock) { if (mode == Mode.Running) targetSpeed = kmh.coerceIn(speedRange.min, speedRange.max) }
+        synchronized(lock) { if (mode == Mode.Running) targetSpeed = snap(kmh.coerceIn(speedRange.min, speedRange.max)) }
     }
 
     /** Console incline button: immediate change, with a status notification without value. */
@@ -328,7 +344,8 @@ class SimulatedTreadmill(
             tickJob = scope.launch {
                 var packet = 0L
                 while (isActive) {
-                    delay(dataRate.packetIntervalMs)
+                    val jitter = if (packetJitterMs > 0) jitterRandom.nextInt(2 * packetJitterMs.toInt() + 1) - packetJitterMs else 0L
+                    delay(dataRate.packetIntervalMs + jitter)
                     packet++
                     // At 2 Hz every second packet advances the physics; the others repeat the previous values.
                     val advance = !dataRate.repeatsEachValue || packet % 2 == 0L
@@ -348,7 +365,7 @@ class SimulatedTreadmill(
     private fun advancePhysics() {
         when (mode) {
             Mode.Running -> {
-                speed = approach(speed, targetSpeed, rampKmhPerSecond)
+                moveSpeed(targetSpeed, rampKmhPerSecond)
                 seconds++
                 distanceMeters += speed / 3.6
                 kcal += speed / 3.6 * 0.07 * (1 + incline / 10)
@@ -359,7 +376,7 @@ class SimulatedTreadmill(
                     pendingTrainingIdle = false
                     emitTraining(TRAINING_IDLE)
                 }
-                speed = approach(speed, 0.0, rampKmhPerSecond)
+                moveSpeed(0.0, decelKmhPerSecond ?: rampKmhPerSecond)
                 if (speed == 0.0 && mode == Mode.Stopping) {
                     resetSession()
                     mode = Mode.Idle
@@ -370,14 +387,27 @@ class SimulatedTreadmill(
         }
     }
 
-    private fun approach(current: Double, target: Double, step: Double): Double {
-        val d = target - current
-        val v = if (abs(d) <= step) target else current + step * (if (d > 0) 1 else -1)
-        return (Math.round(v * 100.0) / 100.0).coerceAtLeast(0.0)
+    /** Moves the exact speed towards [target] by at most [step] and reports it rounded to the speed-step grid. */
+    private fun moveSpeed(target: Double, step: Double) {
+        val d = target - exactSpeed
+        exactSpeed = (if (abs(d) <= step) target else exactSpeed + step * (if (d > 0) 1 else -1)).coerceAtLeast(0.0)
+        speed = snap(exactSpeed)
+    }
+
+    private fun zeroSpeed() {
+        speed = 0.0
+        exactSpeed = 0.0
+    }
+
+    /** Rounds to the treadmill's speed step (0.1 km/h): the real one never reports anything else. */
+    private fun snap(kmh: Double): Double {
+        val step = speedRange.step
+        if (step <= 0.0) return kmh
+        return Math.round(Math.round(kmh / step) * step * 100.0) / 100.0
     }
 
     private fun resetSession() {
-        speed = 0.0
+        zeroSpeed()
         targetSpeed = 0.0
         incline = 0.0
         distanceMeters = 0.0
@@ -517,7 +547,7 @@ class SimulatedTreadmill(
                     }
                     emitResponse(op, ControlPointResult.Success)
                     if (mode == Mode.Running && !speedFault) {
-                        targetSpeed = kmh
+                        targetSpeed = snap(kmh)
                         emitStatus(byteArrayOf(0x05, value[1], value[2]))
                         scheduleDuplicateNotice(byteArrayOf(0x05, 0x00, 0x00))
                     }

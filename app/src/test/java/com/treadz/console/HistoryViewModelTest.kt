@@ -6,13 +6,21 @@ import com.treadz.console.fakes.RecordingWorkout
 import com.treadz.console.fakes.createProfile
 import com.treadz.console.history.HistoryTab
 import com.treadz.console.history.HistoryViewModel
+import com.treadz.console.history.ExportNotice
 import com.treadz.console.history.WorkoutDetailViewModel
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
+import com.treadz.console.userdata.export.ExportError
+import com.treadz.console.userdata.export.ExportFormat
+import com.treadz.console.userdata.export.ExportStorage
+import com.treadz.console.userdata.export.SavedExport
+import com.treadz.console.userdata.export.WorkoutExporter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -94,7 +102,7 @@ class HistoryViewModelTest {
 
     @Test fun detailLoadsSamplesAndOwner() {
         val id = addWorkout(activeId, 1_000, seconds = 90)
-        val detail = WorkoutDetailViewModel(id, data).uiState.value
+        val detail = WorkoutDetailViewModel(id, data, app.exporter).uiState.value
         assertEquals(90, detail.detail!!.samples.size)
         assertTrue(detail.owner!!.isGeneric)
     }
@@ -102,7 +110,7 @@ class HistoryViewModelTest {
     @Test fun detailOfAnUnassignedWorkoutCanBeAssignedAndDeleted() {
         val ana = data.createProfile("Ana")
         val id = addWorkout(null, 1_000)
-        val vm = WorkoutDetailViewModel(id, data)
+        val vm = WorkoutDetailViewModel(id, data, app.exporter)
         assertNull(vm.uiState.value.owner)
         vm.requestAssign()
         assertTrue(vm.uiState.value.assigning)
@@ -116,7 +124,7 @@ class HistoryViewModelTest {
     }
 
     @Test fun missingWorkoutIsReported() {
-        assertTrue(WorkoutDetailViewModel(12_345, data).uiState.value.notFound)
+        assertTrue(WorkoutDetailViewModel(12_345, data, app.exporter).uiState.value.notFound)
     }
 
     @Test fun inProgressWorkoutIsMarkedAsSuchAndEndsWhenTheBeltStops() {
@@ -125,13 +133,107 @@ class HistoryViewModelTest {
             val running = state.workouts.single()
             assertTrue(running.isInProgress)
             assertEquals(30, running.stats.durationSeconds)
-            val detail = WorkoutDetailViewModel(running.id, data).uiState.value
+            val detail = WorkoutDetailViewModel(running.id, data, app.exporter).uiState.value
             assertTrue(detail.detail!!.summary.isInProgress)
             assertTrue(detail.detail.samples.isNotEmpty())
             // The belt stops: the workout is finished and listed as such.
             app.controller.showState { it.copy(status = BeltStatus.Idle, speedKmh = 0.0) }
             runBlocking { kotlinx.coroutines.withTimeout(10_000) { while (state.workouts.single().isInProgress) kotlinx.coroutines.delay(10) } }
             assertEquals(WorkoutEndReason.Stopped, state.workouts.single().endReason)
+        } finally {
+            recording.close()
+        }
+    }
+
+    // ---- Export ----
+
+    private fun waitUntilExported(vm: WorkoutDetailViewModel) = runBlocking {
+        kotlinx.coroutines.withTimeout(10_000) { vm.uiState.first { !it.exporting } }
+    }
+
+    @Test fun exportAsksForTheFormatAndSavesIt() {
+        val id = addWorkout(activeId, 1_000, seconds = 60)
+        val vm = WorkoutDetailViewModel(id, data, app.exporter)
+        assertTrue(vm.uiState.value.canExport)
+        vm.requestExport()
+        assertTrue(vm.uiState.value.choosingExport)
+        assertTrue(app.exportStorage.files.isEmpty()) // nothing is written until a format is chosen
+
+        var shared: SavedExport? = null
+        vm.export(ExportFormat.Tcx) { shared = it }
+        waitUntilExported(vm)
+        val notice = vm.uiState.value.exportNotice as ExportNotice.Saved
+        assertFalse(vm.uiState.value.choosingExport)
+        assertEquals(notice.export, shared)
+        assertEquals(ExportFormat.Tcx, shared!!.format)
+        assertTrue(shared!!.fileName.endsWith(".tcx"))
+        assertEquals(listOf(shared!!.fileName), app.exportStorage.files.keys.toList())
+    }
+
+    @Test fun exportCsvUsesTheCsvFile() {
+        val id = addWorkout(activeId, 1_000, seconds = 30)
+        val vm = WorkoutDetailViewModel(id, data, app.exporter)
+        vm.requestExport()
+        var shared: SavedExport? = null
+        vm.export(ExportFormat.Csv) { shared = it }
+        waitUntilExported(vm)
+        assertEquals("text/csv", shared!!.format.mimeType)
+        assertTrue(shared!!.fileName.endsWith(".csv"))
+    }
+
+    @Test fun cancellingTheFormatChoiceExportsNothing() {
+        val id = addWorkout(activeId, 1_000)
+        val vm = WorkoutDetailViewModel(id, data, app.exporter)
+        vm.requestExport()
+        vm.cancelExport()
+        assertFalse(vm.uiState.value.choosingExport)
+        assertTrue(app.exportStorage.files.isEmpty())
+    }
+
+    @Test fun aWorkoutWithoutSamplesReportsTheError() {
+        val id = data.addWorkout(
+            activeId,
+            WorkoutStats(durationSeconds = 0, distanceMeters = 0, calories = 0, averageSpeedKmh = 0.0, maxSpeedKmh = 0.0),
+            emptyList(),
+            1_000,
+            WorkoutEndReason.Stopped,
+        )
+        val vm = WorkoutDetailViewModel(id, data, app.exporter)
+        var shared = false
+        vm.requestExport()
+        vm.export(ExportFormat.Csv) { shared = true }
+        waitUntilExported(vm)
+        assertEquals(ExportNotice.Failed(ExportError.NoSamples), vm.uiState.value.exportNotice)
+        assertFalse(shared)
+        vm.dismissExportNotice()
+        assertNull(vm.uiState.value.exportNotice)
+    }
+
+    @Test fun storageErrorIsReported() {
+        val id = addWorkout(activeId, 1_000)
+        val failing = WorkoutExporter("0.1.0", object : ExportStorage {
+            override fun save(fileName: String, format: ExportFormat, content: ByteArray): SavedExport =
+                throw java.io.IOException("disk full")
+        }, java.time.ZoneOffset.UTC)
+        val vm = WorkoutDetailViewModel(id, data, failing)
+        vm.requestExport()
+        vm.export(ExportFormat.Tcx) { }
+        waitUntilExported(vm)
+        assertEquals(ExportNotice.Failed(ExportError.StorageError), vm.uiState.value.exportNotice)
+    }
+
+    @Test fun aWorkoutInProgressCannotBeExported() {
+        val recording = RecordingWorkout(app, seconds = 20).start()
+        try {
+            val running = state.workouts.single()
+            val vm = WorkoutDetailViewModel(running.id, data, app.exporter)
+            assertFalse(vm.uiState.value.canExport)
+            vm.requestExport()
+            assertFalse(vm.uiState.value.choosingExport)
+            var shared = false
+            vm.export(ExportFormat.Csv) { shared = true }
+            assertFalse(shared)
+            assertTrue(app.exportStorage.files.isEmpty())
         } finally {
             recording.close()
         }

@@ -6,9 +6,12 @@ import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.export.InMemoryExportStorage
+import com.treadz.console.userdata.export.WorkoutExporter
 import com.treadz.console.userdata.memory.InMemoryUserData
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * Everything the UI needs, built on fakes, with direct access to them to set up scenarios. The data layer starts
@@ -25,6 +28,11 @@ class FakeApp(
         zone = zone,
     ),
 ) : AppDependencies {
+
+    /** Where exported files end up in tests. */
+    val exportStorage = InMemoryExportStorage()
+
+    override val exporter: WorkoutExporter = WorkoutExporter("0.1.0", exportStorage, ZoneOffset.UTC)
 
     override fun shareIntent(recording: RecordingInfo): Intent = Intent(Intent.ACTION_SEND)
 

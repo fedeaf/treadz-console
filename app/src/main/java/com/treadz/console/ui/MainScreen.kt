@@ -41,9 +41,17 @@ fun MainScreen(ui: MainUiState, permissions: PermissionsUi, actions: MainActions
     val compact = layout.compact
     val wide = layout.wide
     val sizes = if (wide) {
-        LiveSizes(maxValue = 120.sp, unit = 30.sp, startHeight = 112.dp, startText = 56.sp, gap = 16.dp, unitInline = true)
+        LiveSizes(
+            maxValue = 120.sp, unit = 30.sp, startHeight = 112.dp, startText = 56.sp, gap = 16.dp, unitInline = true,
+            wide = true, stepButton = 108.dp, stepRowHeight = 112.dp, stepValue = 120.sp, presetHeight = 64.dp,
+            pauseHeight = 88.dp, pauseText = 40.sp, stopHeight = 128.dp, stopText = 88.sp,
+        )
     } else {
-        LiveSizes(maxValue = 52.sp, unit = 22.sp, startHeight = 88.dp, startText = 34.sp, gap = 12.dp, unitInline = false)
+        LiveSizes(
+            maxValue = 52.sp, unit = 22.sp, startHeight = 88.dp, startText = 34.sp, gap = 12.dp, unitInline = false,
+            wide = false, stepButton = 72.dp, stepRowHeight = 100.dp, stepValue = 60.sp, presetHeight = 52.dp,
+            pauseHeight = 64.dp, pauseText = 26.sp, stopHeight = 92.dp, stopText = 52.sp,
+        )
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -69,16 +77,19 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
     val recording = ui.recording is RecordingStatus.Recording
     if (compact) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                AppTitle(Modifier.weight(1f))
-                ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
+            // While the belt runs the phone drops the title and the theme switch: the controls need the room.
+            if (!ui.beltActive) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    AppTitle(Modifier.weight(1f))
+                    ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
+                }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 UserChip(ui.activeUser, ui.canSwitchUser, actions.onOpenUsers, Modifier.weight(1f))
                 NavButtons(ui, actions)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ConnectionChip(ui.connection, Modifier.weight(1f))
+                ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName)
                 if (recording) RecordingIndicator()
             }
         }
@@ -87,7 +98,7 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
             AppTitle()
             UserChip(ui.activeUser, ui.canSwitchUser, actions.onOpenUsers)
             NavButtons(ui, actions)
-            ConnectionChip(ui.connection, Modifier.weight(1f))
+            ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName)
             if (recording) RecordingIndicator()
             ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
         }
@@ -205,13 +216,13 @@ private fun GenericUserBanner(actions: MainActions) {
 
 /** Connection state, always visible. */
 @Composable
-fun ConnectionChip(connection: ConnectionState, modifier: Modifier = Modifier) {
+fun ConnectionChip(connection: ConnectionState, modifier: Modifier = Modifier, name: String? = (connection as? ConnectionState.Connected)?.name) {
     val unnamed = stringResource(R.string.treadmill_unnamed)
     val (text, color) = when (connection) {
         ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected) to MaterialTheme.colorScheme.error
         is ConnectionState.Connecting -> stringResource(R.string.conn_connecting) to MaterialTheme.extra.warning
         is ConnectionState.Connected ->
-            stringResource(R.string.conn_connected, connection.name ?: unnamed) to MaterialTheme.extra.ok
+            stringResource(R.string.conn_connected, name ?: unnamed) to MaterialTheme.extra.ok
         is ConnectionState.Reconnecting ->
             stringResource(R.string.conn_reconnecting, connection.attempt) to MaterialTheme.extra.warning
     }

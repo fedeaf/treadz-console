@@ -48,8 +48,8 @@
 
     <!-- Start -->
     <string name="start_button">START</string>
-    <string name="start_hint_idle">Press START and then use the console buttons to change speed and incline.</string>
-    <string name="start_hint_busy">Use the console buttons to change speed and incline, or to stop.</string>
+    <string name="start_hint_idle">Press START. After a short countdown the belt starts, and then you can change the speed and incline here.</string>
+    <string name="start_hint_busy">Sending the start command…</string>
     <string name="start_hint_disconnected">The treadmill is not connected.</string>
     <string name="start_failed_not_connected">The treadmill is not connected.</string>
     <string name="start_failed">Could not start: %1$s</string>
@@ -81,7 +81,7 @@
     <string name="perm_denied_body">Without this permission the app cannot find or connect to the treadmill. You can try again, or allow it in the system settings.</string>
     <string name="perm_denied_permanent_body">Without this permission the app cannot find or connect to the treadmill. Android will not ask again: allow \"Nearby devices\" in the app settings.</string>
     <string name="perm_open_settings">Open app settings</string>
-    <string name="notifications_denied">Notifications are off: the notice that shows the app keeps running in the background will not appear.</string>
+    <string name="notifications_denied">Notifications are off. Without them the app cannot show its running notice, which also has a STOP button for when the screen is off. Allow notifications in the system settings.</string>
 
     <!-- Theme -->
     <string name="theme_dark">Dark theme</string>
@@ -263,4 +263,50 @@
     <string name="chart_heart_rate">Heart rate (bpm)</string>
     <string name="chart_empty">No data yet</string>
     <string name="chart_no_hr">No heart rate data in this workout</string>
+
+    <!-- Manual controls -->
+    <string name="control_stop">STOP</string>
+    <string name="control_pause">PAUSE</string>
+    <string name="control_resume">RESUME</string>
+    <string name="control_resume_waiting">Wait for the belt to stop completely to resume.</string>
+    <string name="control_speed_less">Decrease speed</string>
+    <string name="control_speed_more">Increase speed</string>
+    <string name="control_incline_less">Decrease incline</string>
+    <string name="control_incline_more">Increase incline</string>
+    <string name="control_incline_zero">0 %</string>
+    <string name="control_target">→ %1$s</string>
+    <string name="control_speed_preset">%1$s km/h</string>
+    <string name="control_presets_label">Speed presets</string>
+    <string name="control_in_progress">Waiting for the treadmill…</string>
+    <string name="control_failed_speed">Could not change the speed: %1$s</string>
+    <string name="control_failed_incline">Could not change the incline: %1$s</string>
+    <string name="control_failed_pause">Could not pause: %1$s</string>
+    <string name="control_failed_resume">Could not resume: %1$s</string>
+    <string name="control_failed_not_connected">The treadmill is not connected.</string>
+    <string name="control_hint_no_user">Choose a user to use the controls.</string>
+    <string name="control_hint_running_only">Speed and incline can only be changed while the belt is running.</string>
+    <string name="stop_unreachable_title">No connection with the treadmill</string>
+    <string name="stop_unreachable_body">Use the console\'s STOP or pull the safety key.</string>
+
+    <!-- STOP bar on the other screens -->
+    <string name="session_bar_main">Main</string>
+    <string name="session_bar_speed">%1$s km/h</string>
+    <string name="session_bar_unreachable">Not connected. Use the console\'s STOP or pull the safety key.</string>
+
+    <!-- Workout export -->
+    <string name="export_button">Export</string>
+    <string name="export_title">Export workout</string>
+    <string name="export_choose">Choose the file format:</string>
+    <string name="export_csv">CSV</string>
+    <string name="export_csv_hint">For a spreadsheet or analysis on a PC</string>
+    <string name="export_tcx">TCX</string>
+    <string name="export_tcx_hint">For Strava or Garmin Connect</string>
+    <string name="export_saved">Also saved in Download/TreadZConsole/ as %1$s</string>
+    <string name="export_share_again">Share</string>
+    <string name="export_dismiss">Close</string>
+    <string name="export_exporting">Preparing the file…</string>
+    <string name="export_error_in_progress">The workout is still in progress. Export it once it has ended.</string>
+    <string name="export_error_no_samples">This workout has no data to export.</string>
+    <string name="export_error_storage">The file could not be saved. Check the free space on the device.</string>
+    <string name="export_share_title">Share workout</string>
 </resources>

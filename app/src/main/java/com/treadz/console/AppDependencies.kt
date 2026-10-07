@@ -10,6 +10,7 @@ import com.treadz.console.treadmill.WorkoutRecorder
 import com.treadz.console.treadmill.android.TreadZTreadmill
 import com.treadz.console.userdata.TreadZUserData
 import com.treadz.console.userdata.UserData
+import com.treadz.console.userdata.export.WorkoutExporter
 import java.time.LocalDate
 
 /**
@@ -21,6 +22,9 @@ interface AppDependencies {
     val recorder: WorkoutRecorder
     val settings: SettingsStore
     val userData: UserData
+
+    /** Writes workouts to CSV or TCX files in the Downloads folder. */
+    val exporter: WorkoutExporter
     fun shareIntent(recording: RecordingInfo): Intent
 
     /** Today's date in the device time zone. Injectable so tests and screenshots are deterministic. */
@@ -32,6 +36,7 @@ class RealDependencies(private val context: Context) : AppDependencies {
     override val recorder: WorkoutRecorder by lazy { TreadZTreadmill.recorder(context) }
     override val settings: SettingsStore by lazy { SharedPreferencesSettingsStore(context) }
     override val userData: UserData by lazy { TreadZUserData.get(context) }
+    override val exporter: WorkoutExporter by lazy { WorkoutExporter.create(context, BuildConfig.VERSION_NAME) }
     override fun shareIntent(recording: RecordingInfo): Intent = TreadZTreadmill.shareIntent(context, recording)
     override fun today(): LocalDate = LocalDate.now()
 }

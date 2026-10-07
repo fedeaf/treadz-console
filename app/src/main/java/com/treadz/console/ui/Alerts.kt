@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,13 +37,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.treadz.console.R
 import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.treadmill.TreadmillEvent
 
-/** Full-screen safety alert, on top of everything and not letting touches through. */
+/**
+ * Full-screen safety alert, on top of everything and not letting touches through. [onStop], when given, adds a STOP
+ * button: with the belt possibly moving, the alert must not be what stands between the user and STOP.
+ */
 @Composable
-fun AlertOverlay(alert: TreadmillAlert, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+fun AlertOverlay(alert: TreadmillAlert, onDismiss: () -> Unit, modifier: Modifier = Modifier, onStop: (() -> Unit)? = null) {
     val (titleRes, body) = when (alert) {
         TreadmillEvent.SafetyKeyRemoved -> R.string.alert_key_title to stringResource(R.string.alert_key_body)
         TreadmillEvent.ConnectionLost -> R.string.alert_connection_lost_title to stringResource(R.string.alert_connection_lost_body)
@@ -84,6 +89,15 @@ fun AlertOverlay(alert: TreadmillAlert, onDismiss: () -> Unit, modifier: Modifie
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
             )
+            if (onStop != null && (alert is TreadmillEvent.CommandNotExecuted || alert == TreadmillEvent.DataStalled)) {
+                StopButton(
+                    onStop = onStop,
+                    textSize = 44.sp,
+                    modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).height(96.dp),
+                    testTag = "alert_stop_button",
+                    onAlertBackground = true,
+                )
+            }
             Button(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).heightIn(min = 80.dp).testTag("alert_dismiss"),

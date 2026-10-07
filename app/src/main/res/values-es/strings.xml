@@ -48,8 +48,8 @@
 
     <!-- Start -->
     <string name="start_button">START</string>
-    <string name="start_hint_idle">Pulsa START y después usa los botones de la consola para cambiar velocidad e inclinación.</string>
-    <string name="start_hint_busy">Usa los botones de la consola para cambiar velocidad e inclinación, o para parar.</string>
+    <string name="start_hint_idle">Pulsa START. Tras una breve cuenta atrás arranca la banda y podrás cambiar aquí la velocidad y la inclinación.</string>
+    <string name="start_hint_busy">Enviando la orden de arranque…</string>
     <string name="start_hint_disconnected">La cinta no está conectada.</string>
     <string name="start_failed_not_connected">La cinta no está conectada.</string>
     <string name="start_failed">No se ha podido arrancar: %1$s</string>
@@ -81,7 +81,7 @@
     <string name="perm_denied_body">Sin este permiso la app no puede buscar ni conectarse a la cinta. Puedes intentarlo de nuevo o permitirlo en los ajustes del sistema.</string>
     <string name="perm_denied_permanent_body">Sin este permiso la app no puede buscar ni conectarse a la cinta. Android no volverá a preguntar: permite «Dispositivos cercanos» en los ajustes de la app.</string>
     <string name="perm_open_settings">Abrir ajustes de la app</string>
-    <string name="notifications_denied">Las notificaciones están desactivadas: no se verá el aviso de que la app sigue funcionando en segundo plano.</string>
+    <string name="notifications_denied">Las notificaciones están desactivadas. Sin ellas la app no puede mostrar su aviso de funcionamiento, que además tiene un botón STOP para cuando la pantalla está apagada. Actívalas en los ajustes del sistema.</string>
 
     <!-- Theme -->
     <string name="theme_dark">Tema oscuro</string>
@@ -263,4 +263,50 @@
     <string name="chart_heart_rate">Pulso (ppm)</string>
     <string name="chart_empty">Todavía sin datos</string>
     <string name="chart_no_hr">Este entrenamiento no tiene datos de pulso</string>
+
+    <!-- Manual controls -->
+    <string name="control_stop">STOP</string>
+    <string name="control_pause">PAUSA</string>
+    <string name="control_resume">REANUDAR</string>
+    <string name="control_resume_waiting">Espera a que la banda se detenga del todo para reanudar.</string>
+    <string name="control_speed_less">Bajar velocidad</string>
+    <string name="control_speed_more">Subir velocidad</string>
+    <string name="control_incline_less">Bajar inclinación</string>
+    <string name="control_incline_more">Subir inclinación</string>
+    <string name="control_incline_zero">0 %</string>
+    <string name="control_target">→ %1$s</string>
+    <string name="control_speed_preset">%1$s km/h</string>
+    <string name="control_presets_label">Velocidades predefinidas</string>
+    <string name="control_in_progress">Esperando a la cinta…</string>
+    <string name="control_failed_speed">No se ha podido cambiar la velocidad: %1$s</string>
+    <string name="control_failed_incline">No se ha podido cambiar la inclinación: %1$s</string>
+    <string name="control_failed_pause">No se ha podido pausar: %1$s</string>
+    <string name="control_failed_resume">No se ha podido reanudar: %1$s</string>
+    <string name="control_failed_not_connected">La cinta no está conectada.</string>
+    <string name="control_hint_no_user">Elige un usuario para usar los controles.</string>
+    <string name="control_hint_running_only">La velocidad y la inclinación solo se pueden cambiar con la banda en marcha.</string>
+    <string name="stop_unreachable_title">Sin conexión con la cinta</string>
+    <string name="stop_unreachable_body">Usa el STOP de la consola o quita la llave de seguridad.</string>
+
+    <!-- STOP bar on the other screens -->
+    <string name="session_bar_main">Principal</string>
+    <string name="session_bar_speed">%1$s km/h</string>
+    <string name="session_bar_unreachable">Sin conexión. Usa el STOP de la consola o quita la llave.</string>
+
+    <!-- Workout export -->
+    <string name="export_button">Exportar</string>
+    <string name="export_title">Exportar entrenamiento</string>
+    <string name="export_choose">Elige el formato del archivo:</string>
+    <string name="export_csv">CSV</string>
+    <string name="export_csv_hint">Para una hoja de cálculo o para analizarlo en el PC</string>
+    <string name="export_tcx">TCX</string>
+    <string name="export_tcx_hint">Para Strava o Garmin Connect</string>
+    <string name="export_saved">Guardado también en Download/TreadZConsole/ como %1$s</string>
+    <string name="export_share_again">Compartir</string>
+    <string name="export_dismiss">Cerrar</string>
+    <string name="export_exporting">Preparando el archivo…</string>
+    <string name="export_error_in_progress">El entrenamiento sigue en curso. Expórtalo cuando termine.</string>
+    <string name="export_error_no_samples">Este entrenamiento no tiene datos que exportar.</string>
+    <string name="export_error_storage">No se ha podido guardar el archivo. Comprueba el espacio libre del dispositivo.</string>
+    <string name="export_share_title">Compartir entrenamiento</string>
 </resources>

@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.treadz.console.fakes.FakeApp
+import com.treadz.console.fakes.FakeTreadmillController
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.FailureCode
@@ -51,7 +52,16 @@ class UiBehaviorTest {
         rule.onNodeWithTag("start_button").assertIsEnabled()
         app.controller.showRunning()
         rule.waitForIdle()
-        rule.onNodeWithTag("start_button").assertIsNotEnabled()
+        // Once the belt is on, START gives way to the controls.
+        rule.onNodeWithTag("start_button").assertDoesNotExist()
+        rule.onNodeWithTag("stop_button").assertIsDisplayed()
+    }
+
+    @Test fun connectionChipShowsTheRememberedNameAfterANamelessReconnection() {
+        app.settings.lastTreadmill = com.treadz.console.settings.RememberedTreadmill(FakeTreadmillController.TREADMILL_ADDRESS, "REEBOK 0517")
+        app.controller.showConnected(name = null)
+        show()
+        rule.onNodeWithText("Connected: REEBOK 0517").assertIsDisplayed()
     }
 
     @Test fun clickingStartCallsController() {

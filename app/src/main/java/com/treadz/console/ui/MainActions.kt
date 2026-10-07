@@ -2,6 +2,26 @@ package com.treadz.console.ui
 
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.RecordingInfo
+import com.treadz.console.userdata.export.SavedExport
+
+/** The manual treadmill controls. STOP never needs more than a tap. */
+data class ControlActions(
+    val onStop: () -> Unit = {},
+    val onPause: () -> Unit = {},
+    val onResume: () -> Unit = {},
+    /** A −/+ button went down (`-1` or `+1`): one step now and auto-repeat until the matching release. */
+    val onSpeedPress: (Int) -> Unit = {},
+    val onSpeedRelease: () -> Unit = {},
+    /** One step without holding (accessibility services click the button, they do not press it). */
+    val onSpeedStep: (Int) -> Unit = {},
+    val onInclinePress: (Int) -> Unit = {},
+    val onInclineRelease: () -> Unit = {},
+    val onInclineStep: (Int) -> Unit = {},
+    val onSetSpeed: (Double) -> Unit = {},
+    val onSetIncline: (Double) -> Unit = {},
+    /** Leaves any other screen for the main one (the live data), from the STOP bar. */
+    val onBackToMain: () -> Unit = {},
+)
 
 /** Actions the UI can request. Keeps the composables free of the ViewModel (easier to capture). */
 data class MainActions(
@@ -21,6 +41,9 @@ data class MainActions(
     val onOpenHistory: () -> Unit = {},
     /** Opens the editor to personalise the generic profile. */
     val onPersonalize: () -> Unit = {},
+    val controls: ControlActions = ControlActions(),
+    /** Opens the share sheet for an exported workout file. */
+    val onShareExport: (SavedExport) -> Unit = {},
 )
 
 enum class BluetoothPermission {

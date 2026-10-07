@@ -2,6 +2,7 @@ package com.treadz.console
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.controls.ManualControls
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.settings.SettingsStore
 import com.treadz.console.treadmill.BeltStatus
@@ -27,8 +28,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Observes the [TreadmillController] and the [WorkoutRecorder] and exposes a single [MainUiState].
- * The only commands it sends to the treadmill are `scan()`, `connect()` and `start()`, and `start()` is only
- * allowed with an active user.
+ * Treadmill commands: `scan()`, `connect()` and `start()` here, and the manual controls (pause, resume, STOP, speed and
+ * incline) through [controls]. Everything but STOP needs an active user.
  */
 class MainViewModel(
     private val controller: TreadmillController,
@@ -55,6 +56,9 @@ class MainViewModel(
         Local(remembered = settings.lastTreadmill, darkTheme = settings.darkTheme),
     )
 
+    /** The manual controls of the live screen (and the STOP of every screen). */
+    val controls = ManualControls(controller, viewModelScope, canOperate = { uiState.value.activeUser != null })
+
     private val people = combine(
         userData.profiles.activeUser,
         userData.workouts.unassignedWorkouts().map { it.size },
@@ -65,8 +69,8 @@ class MainViewModel(
         controller.state,
         recorder.status,
         controller.pendingAlerts,
-        combine(local, people) { local, people -> local to people },
-    ) { connection, treadmill, recording, alerts, (local, people) ->
+        combine(local, people, controls.state) { local, people, controls -> Triple(local, people, controls) },
+    ) { connection, treadmill, recording, alerts, (local, people, controls) ->
         MainUiState(
             connection = connection,
             treadmill = treadmill,
@@ -75,6 +79,7 @@ class MainViewModel(
             devices = local.devices,
             rememberedName = local.remembered?.let { it.name ?: it.address },
             rememberedAddress = local.remembered?.address,
+            rememberedDeviceName = local.remembered?.name,
             connectFailure = local.connectFailure,
             scanFailure = local.scanFailure,
             startInProgress = local.startInProgress,
@@ -87,6 +92,7 @@ class MainViewModel(
             darkTheme = local.darkTheme,
             activeUser = people.first,
             unassignedWorkoutCount = people.second,
+            controls = controls,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
 
@@ -94,12 +100,19 @@ class MainViewModel(
     private var connectJob: Job? = null
     private var autoConnectDone = false
 
+    /** The name the user picked from the scan list: Android gives no name when it connects by address alone. */
+    private var pickedName: Pair<String, String>? = null
+
     init {
-        // Remember the last treadmill connected to and clear old connection errors.
+        // Remember the last treadmill connected to and clear old connection errors. A name is never overwritten with
+        // nothing: Android gives `null` when it reconnects by itself.
         viewModelScope.launch {
             controller.connection.collect { connection ->
                 if (connection is ConnectionState.Connected) {
-                    val remembered = RememberedTreadmill(connection.address, connection.name)
+                    val name = connection.name
+                        ?: pickedName?.takeIf { it.first == connection.address }?.second
+                        ?: local.value.remembered?.takeIf { it.address == connection.address }?.name
+                    val remembered = RememberedTreadmill(connection.address, name)
                     settings.lastTreadmill = remembered
                     local.update { it.copy(remembered = remembered, connectFailure = null, scanFailure = null) }
                 }
@@ -168,6 +181,7 @@ class MainViewModel(
     private fun connect(address: String, name: String?, scanOnFailure: Boolean) {
         if (connectJob?.isActive == true) return
         stopScan()
+        if (name != null) pickedName = address to name
         local.update { it.copy(connectFailure = null, scanFailure = null) }
         connectJob = viewModelScope.launch {
             val result = controller.connect(address)

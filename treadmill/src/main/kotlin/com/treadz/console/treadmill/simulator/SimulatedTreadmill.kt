@@ -36,7 +36,10 @@ import kotlin.math.abs
  * Used by the tests (with virtual time) and to run the UI without a treadmill. Besides the simulated physical
  * controls ([removeSafetyKey], [physicalSetSpeed]…), it can inject faults ([stopFault], [freezeData]…).
  *
- * @param scope scope where the 1 Hz clock and the responses run (with `delay`, so it honours virtual time).
+ * The treadmill values only change once per second; [DataRate] chooses how often packets are sent.
+ *
+ * @param scope scope where the data clock and the responses run (with `delay`, so it honours virtual time).
+ * @param dataRate packet rate: 1 Hz like the PC client, or 2 Hz with every value repeated like Android (the default).
  */
 class SimulatedTreadmill(
     private val scope: CoroutineScope,
@@ -44,7 +47,20 @@ class SimulatedTreadmill(
     override val deviceName: String = "REEBOK SIM",
     private val speedRange: ValueRange = ValueRange(0.5, 20.0, 0.1),
     private val inclineRange: ValueRange = ValueRange(0.0, 18.0, 1.0),
+    val dataRate: DataRate = DataRate.Hz2Repeated,
 ) : FtmsTransport {
+
+    /**
+     * Treadmill Data packet rate. In both cases the treadmill state (speed, time, distance...) advances once per
+     * second; instant changes (incline, safety key) show up in the next packet.
+     */
+    enum class DataRate(val packetIntervalMs: Long, val repeatsEachValue: Boolean) {
+        /** One packet per second, each with a new value (what the PC client saw). */
+        Hz1(1_000, false),
+
+        /** One packet every 500 ms; each value arrives twice (what an Android client sees). */
+        Hz2Repeated(500, true),
+    }
 
     /** What the simulator does with Treadmill Data packets when the data is frozen. */
     enum class FreezeMode {
@@ -310,16 +326,26 @@ class SimulatedTreadmill(
         synchronized(lock) {
             tickJob?.cancel()
             tickJob = scope.launch {
+                var packet = 0L
                 while (isActive) {
-                    delay(1_000)
-                    synchronized(lock) { tick() }
+                    delay(dataRate.packetIntervalMs)
+                    packet++
+                    // At 2 Hz every second packet advances the physics; the others repeat the previous values.
+                    val advance = !dataRate.repeatsEachValue || packet % 2 == 0L
+                    synchronized(lock) { tick(advance) }
                 }
             }
         }
     }
 
-    private fun tick() {
+    private fun tick(advance: Boolean) {
         if (!connected) return
+        if (advance) advancePhysics()
+        emitData()
+    }
+
+    /** One second of treadmill life. */
+    private fun advancePhysics() {
         when (mode) {
             Mode.Running -> {
                 speed = approach(speed, targetSpeed, rampKmhPerSecond)
@@ -342,7 +368,6 @@ class SimulatedTreadmill(
 
             Mode.Idle, Mode.Countdown, Mode.KeyRemoved -> Unit
         }
-        emitData()
     }
 
     private fun approach(current: Double, target: Double, step: Double): Double {

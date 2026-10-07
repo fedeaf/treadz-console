@@ -16,6 +16,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import com.treadz.console.treadmill.simulator.SimulatedTreadmill.DataRate
 
 /** Pending alerts to acknowledge, stable failure codes and the stale data flag. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -25,9 +28,10 @@ class AlertsAndStalenessTest {
 
     // ------------------------------------------------------------------ pending alerts
 
-    @Test
-    fun `an alert stays pending even if nobody listens to events, without duplicates, until acknowledged`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `an alert stays pending even if nobody listens to events, without duplicates, until acknowledged`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(4.0)
         rig.sim.stopFault = true
         assertTrue(rig.controller.stop() is CommandResult.NotVerified)
@@ -40,9 +44,10 @@ class AlertsAndStalenessTest {
         assertTrue(rig.trace.any { it is TraceRecord.Note && it.text.contains("Alert acknowledged") }, "the acknowledgement is recorded")
     }
 
-    @Test
-    fun `manual changes and key restored are not pending alerts`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `manual changes and key restored are not pending alerts`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.physicalSetIncline(4.0)
         delay(3_000)
@@ -50,9 +55,10 @@ class AlertsAndStalenessTest {
         assertTrue(rig.pending.isEmpty(), "${rig.pending}")
     }
 
-    @Test
-    fun `the key removed alert clears itself when the key is put back`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `the key removed alert clears itself when the key is put back`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(2.0, incline = 5.0)
         rig.sim.removeSafetyKey()
         delay(2_000)
@@ -63,9 +69,10 @@ class AlertsAndStalenessTest {
         assertTrue(rig.pending.isEmpty(), "${rig.pending}")
     }
 
-    @Test
-    fun `several alerts pile up in order and are acknowledged separately`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `several alerts pile up in order and are acknowledged separately`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.freezeData(FreezeMode.Silent)
         delay(8_000)
@@ -82,9 +89,10 @@ class AlertsAndStalenessTest {
 
     // ------------------------------------------------------------------ stale data
 
-    @Test
-    fun `when the connection is lost the last values are kept and marked as stale`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `when the connection is lost the last values are kept and marked as stale`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(5.0, incline = 3.0)
         assertFalse(rig.controller.state.value.isStale)
         rig.sim.dropConnection()
@@ -100,9 +108,10 @@ class AlertsAndStalenessTest {
         assertFalse(rig.controller.state.value.isStale, "with new data after reconnecting they are current again")
     }
 
-    @Test
-    fun `data that stops arriving marks the state as stale until it comes back`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `data that stops arriving marks the state as stale until it comes back`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.freezeData(FreezeMode.Silent)
         delay(4_000)
@@ -114,9 +123,10 @@ class AlertsAndStalenessTest {
         assertFalse(rig.controller.state.value.isStale)
     }
 
-    @Test
-    fun `repeated packets with the stopwatch stuck are stale data too`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `repeated packets with the stopwatch stuck are stale data too`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.runAt(3.0)
         rig.sim.freezeData(FreezeMode.Repeat)
         delay(10_000)
@@ -126,9 +136,10 @@ class AlertsAndStalenessTest {
         assertFalse(rig.controller.state.value.isStale)
     }
 
-    @Test
-    fun `after a requested disconnect the values stay as stale`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `after a requested disconnect the values stay as stale`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         rig.controller.disconnect()
         assertEquals(ConnectionState.Disconnected, rig.controller.connection.value)
@@ -139,9 +150,10 @@ class AlertsAndStalenessTest {
 
     private fun CommandResult.code(): FailureCode? = (this as? CommandResult.Failure)?.code
 
-    @Test
-    fun `every failure carries a stable code`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `every failure carries a stable code`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         assertEquals(FailureCode.ConnectionFailed, rig.controller.connect("00:00:00:00:00:00").code())
 
         rig.connect()
@@ -160,9 +172,10 @@ class AlertsAndStalenessTest {
         assertEquals(FailureCode.StillMoving, rig.controller.stop().code())
     }
 
-    @Test
-    fun `a command interrupted by a stop is Preempted and raises no alert`() = runTest {
-        val rig = Rig(this)
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a command interrupted by a stop is Preempted and raises no alert`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
         rig.connect()
         val start = async { rig.controller.start() }
         delay(1_000)

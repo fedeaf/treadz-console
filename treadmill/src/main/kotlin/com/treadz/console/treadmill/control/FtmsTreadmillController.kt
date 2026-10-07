@@ -45,13 +45,19 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
-/** Timings and thresholds of the safety layer. The defaults are tuned for the real Z-Tech. */
+/**
+ * Timings and thresholds of the safety layer. The defaults are tuned for the real Z-Tech.
+ *
+ * Every threshold is expressed in **time** (measured with the injected [Clock]), never in number of packets: the
+ * packet rate depends on the client (about 1 Hz from a PC, about 2 Hz on Android where each value arrives twice) and
+ * the treadmill values only change about once per second.
+ */
 data class ControllerConfig(
     /** No Treadmill Data packet at all for this long (with the connection open) -> `DataStalled`. */
     val stallTimeoutMs: Long = 5_000,
     val watchdogIntervalMs: Long = 1_000,
-    /** Consecutive packets with the elapsed time not advancing while the belt is running -> `DataStalled`. */
-    val frozenPackets: Int = 5,
+    /** The elapsed time has not advanced for this long while the belt is running -> `DataStalled`. */
+    val frozenDataMs: Long = 5_000,
     /** Wait for the Control Point indication after writing a command. */
     val controlPointResponseTimeoutMs: Long = 3_000,
     /** After Start/Resume the treadmill runs a ~3-4 s countdown. */
@@ -60,10 +66,22 @@ data class ControllerConfig(
     val stopStatusTimeoutMs: Long = 3_000,
     /** If no data arrives for this long while stopping, the stop is reported as not verified. */
     val noDataTimeoutMs: Long = 5_000,
-    /** Consecutive packets without the speed decreasing while stopping -> not verified. */
-    val stopNonDecreasingPackets: Int = 3,
-    /** Packets without getting closer to the speed/incline target -> not verified. */
-    val approachPackets: Int = 5,
+    /** The speed has not decreased for this long while stopping/pausing -> not verified. */
+    val stopNotDecreasingMs: Long = 3_000,
+    /** The belt is considered stopped but has not decelerated for this long -> corrected back to Running. */
+    val stoppedButMovingMs: Long = 3_000,
+    /** The measured value has not got closer to the speed/incline target within this window -> not verified. */
+    val approachWindowMs: Long = 5_000,
+    /**
+     * A speed different from the expected one only counts as a manual (console button) change once it has not
+     * changed for this long: while the belt ramps the speed changes about every second.
+     */
+    val manualChangeSettleMs: Long = 1_500,
+    /**
+     * After Start/Resume the belt ramps up to its starting speed and speed changes are not reported as manual
+     * changes until it has reached and held it. This is the maximum duration of that phase.
+     */
+    val startRampTimeoutMs: Long = 20_000,
     val reconnectDelaysMs: List<Long> = listOf(1_000, 2_000, 3_000, 5_000),
 )
 
@@ -73,7 +91,8 @@ data class ControllerConfig(
  * See the Z-Tech protocol notes, Safety section.
  *
  * Main rules:
- *  - Stop/Pause: the 02 status must arrive and the speed must decrease packet by packet down to 0 (no fixed timeout).
+ *  - Stop/Pause: the 02 status must arrive and the speed must keep decreasing (at least once every
+ *    [ControllerConfig.stopNotDecreasingMs]) down to 0 (no fixed timeout).
  *  - Speed/incline: the measured value approaches the target.
  *  - Safety key (status 03) and its restoration (02 + Idle + all zeros).
  *  - Frozen data -> `DataStalled`; connection loss -> `ConnectionLost` and reconnection.
@@ -169,8 +188,19 @@ class FtmsTreadmillController(
     private var silentStallReported = false
     private var frozenStallReported = false
     private var lastElapsed = -1
-    private var sameElapsedCount = 0
-    private var stoppedButMovingCount = 0
+
+    /** Time at which the elapsed time last advanced (or the belt entered Running). */
+    private var elapsedChangedAt = 0L
+
+    /** Time at which the current speed value first showed up. */
+    private var speedChangedAt = 0L
+
+    /** Since when the belt is considered stopped but is not decelerating (-1 = not in that situation). */
+    private var stoppedButMovingSince = -1L
+
+    /** The belt is ramping up after Start/Resume: speed changes are not manual changes yet. */
+    private var startRampActive = false
+    private var startRampSince = 0L
 
     private var userDisconnected = false
     private var targetAddress: String? = null
@@ -185,7 +215,7 @@ class FtmsTreadmillController(
     private sealed interface Obs {
         val seq: Long
 
-        class Data(override val seq: Long, val sample: TreadmillSample) : Obs
+        class Data(override val seq: Long, val sample: TreadmillSample, val at: Long) : Obs
         class Status(override val seq: Long, val status: MachineStatus) : Obs
         class Training(override val seq: Long) : Obs
         class Control(override val seq: Long, val response: ControlPointResponse) : Obs
@@ -288,8 +318,10 @@ class FtmsTreadmillController(
             silentStallReported = false
             frozenStallReported = false
             lastElapsed = -1
-            sameElapsedCount = 0
-            stoppedButMovingCount = 0
+            elapsedChangedAt = now()
+            speedChangedAt = now()
+            stoppedButMovingSince = -1L
+            startRampActive = false
             stale = false
             _state.value = TreadmillState()
             trace(TraceRecord.StateChanged(now(), _state.value, "new-connection"))
@@ -496,7 +528,7 @@ class FtmsTreadmillController(
             // A new packet makes the data current again, unless the elapsed time is still frozen.
             stale = frozenStallReported
             publishState(at, "data")
-            appendObs { Obs.Data(it, sample) }
+            appendObs { Obs.Data(it, sample, at) }
         }
         events.forEach(::emitEvent)
     }
@@ -505,6 +537,7 @@ class FtmsTreadmillController(
     private fun processSample(at: Long, s: TreadmillSample, events: MutableList<TreadmillEvent>) {
         val prev = lastSample
         val prevSpeed = prev?.speedKmh ?: 0.0
+        if (prev == null || abs(s.speedKmh - prev.speedKmh) >= SPEED_EPS) speedChangedAt = at
         when (status) {
             BeltStatus.Idle, BeltStatus.Paused, BeltStatus.Starting -> {
                 // After Stop/Pause the belt keeps decelerating (speed>0 but decreasing): that is not starting.
@@ -514,13 +547,13 @@ class FtmsTreadmillController(
                 } else {
                     if (status != BeltStatus.Starting && s.speedKmh > 0.0 && prev != null && s.speedKmh >= prevSpeed - SPEED_EPS) {
                         // Considered stopped, but the belt is not decelerating: the data wins.
-                        stoppedButMovingCount++
-                        if (stoppedButMovingCount >= config.stopNonDecreasingPackets) {
-                            trace(TraceRecord.Note(at, "State ${status.name} but the belt is still at ${s.speedKmh} km/h without decelerating: corrected to Running"))
+                        if (stoppedButMovingSince < 0) stoppedButMovingSince = at
+                        if (at - stoppedButMovingSince >= config.stoppedButMovingMs) {
+                            trace(TraceRecord.Note(at, "State ${status.name} but the belt is still at ${s.speedKmh} km/h without decelerating for ${at - stoppedButMovingSince} ms: corrected to Running"))
                             enterRunning(s, observedBaseline = true)
                         }
                     } else {
-                        stoppedButMovingCount = 0
+                        stoppedButMovingSince = -1L
                     }
                     if (status != BeltStatus.Running && status != BeltStatus.Idle && s.isAllZero && prev != null && prev.elapsedSeconds > 0) {
                         // The treadmill reset the session without us receiving the Idle notification.
@@ -533,8 +566,8 @@ class FtmsTreadmillController(
                 if (s.isAllZero && prev != null && prev.elapsedSeconds > 0) {
                     becomeIdle()
                 } else {
-                    detectManualChanges(s, prev, events)
-                    detectFrozen(s, events)
+                    detectManualChanges(at, s, events)
+                    detectFrozen(at, s, events)
                 }
             }
 
@@ -544,7 +577,7 @@ class FtmsTreadmillController(
             }
         }
         if (status != BeltStatus.Running) {
-            sameElapsedCount = 0
+            elapsedChangedAt = at
             frozenStallReported = false
         }
     }
@@ -552,23 +585,28 @@ class FtmsTreadmillController(
     private fun enterRunning(s: TreadmillSample, observedBaseline: Boolean) {
         status = BeltStatus.Running
         intent = Intent.None
-        stoppedButMovingCount = 0
+        stoppedButMovingSince = -1L
         if (observedBaseline) {
             // Connected with the belt already running (or it did not stop): what we see is the baseline.
             expectedSpeed = s.speedKmh
             expectedIncline = s.inclinePercent
+            startRampActive = false
         } else {
             // Start/Resume: the treadmill starts at its minimum speed and 0 % (it does not restore previous values).
             expectedSpeed = knownSpeedRange.min
             expectedIncline = 0.0
+            // The belt is still ramping up to that speed (it may even still be at 0): not manual changes.
+            startRampActive = true
+            startRampSince = now()
         }
-        sameElapsedCount = 0
+        elapsedChangedAt = now()
         lastElapsed = s.elapsedSeconds
     }
 
     private fun becomeIdle() {
         status = BeltStatus.Idle
         intent = Intent.None
+        startRampActive = false
         expectedSpeed = null
         expectedIncline = null
         savedSpeed = null
@@ -577,13 +615,14 @@ class FtmsTreadmillController(
 
     private fun becomePaused() {
         status = BeltStatus.Paused
+        startRampActive = false
         savedSpeed = expectedSpeed
         savedIncline = expectedIncline
         expectedIncline = 0.0 // the treadmill lowers the incline to 0 when pausing
     }
 
     /** Changes made with the physical buttons: they show up in Treadmill Data within < 1 s. Called with [lock] held. */
-    private fun detectManualChanges(s: TreadmillSample, prev: TreadmillSample?, events: MutableList<TreadmillEvent>) {
+    private fun detectManualChanges(at: Long, s: TreadmillSample, events: MutableList<TreadmillEvent>) {
         if (intent != Intent.None) return
         var manualSpeed: Double? = null
         var manualIncline: Double? = null
@@ -596,27 +635,35 @@ class FtmsTreadmillController(
         }
 
         // The real speed ramps up and down (~0.5 km/h per second): it only counts as a manual change
-        // once it has settled on a value different from the expected one.
+        // once it has settled (unchanged for a while) on a value different from the expected one.
         val es = expectedSpeed
-        if (!speedCommandInFlight && es != null && abs(s.speedKmh - es) >= SPEED_TOLERANCE) {
-            val settled = prev != null && abs(s.speedKmh - prev.speedKmh) < SPEED_EPS
-            if (settled) {
-                expectedSpeed = s.speedKmh
-                manualSpeed = s.speedKmh
+        val settled = at - speedChangedAt >= config.manualChangeSettleMs
+        if (startRampActive) {
+            // After Start/Resume the belt ramps up to its starting speed: not manual changes until it has
+            // reached that speed and held it (or the ramp phase has taken too long).
+            val reached = es != null && abs(s.speedKmh - es) < SPEED_TOLERANCE
+            if (reached && settled) {
+                startRampActive = false
+            } else if (at - startRampSince >= config.startRampTimeoutMs) {
+                startRampActive = false
+                trace(TraceRecord.Note(at, "Start ramp did not settle within ${config.startRampTimeoutMs} ms: manual change detection enabled"))
             }
+        } else if (!speedCommandInFlight && es != null && abs(s.speedKmh - es) >= SPEED_TOLERANCE && settled) {
+            expectedSpeed = s.speedKmh
+            manualSpeed = s.speedKmh
         }
         if (manualSpeed != null || manualIncline != null) {
             events += TreadmillEvent.ManualChange(manualSpeed, manualIncline)
         }
     }
 
-    private fun detectFrozen(s: TreadmillSample, events: MutableList<TreadmillEvent>) {
-        if (s.elapsedSeconds == lastElapsed) sameElapsedCount++ else {
-            sameElapsedCount = 0
+    private fun detectFrozen(at: Long, s: TreadmillSample, events: MutableList<TreadmillEvent>) {
+        if (s.elapsedSeconds != lastElapsed) {
+            elapsedChangedAt = at
             frozenStallReported = false
         }
         lastElapsed = s.elapsedSeconds
-        if (sameElapsedCount >= config.frozenPackets && !frozenStallReported) {
+        if (at - elapsedChangedAt >= config.frozenDataMs && !frozenStallReported) {
             frozenStallReported = true
             events += TreadmillEvent.DataStalled
         }
@@ -687,6 +734,7 @@ class FtmsTreadmillController(
         if (status == BeltStatus.SafetyKeyRemoved) return
         status = BeltStatus.SafetyKeyRemoved
         intent = Intent.None
+        startRampActive = false
         keyStopSeen = false
         keyIdleSeen = false
         keyZerosSeen = false
@@ -928,20 +976,29 @@ class FtmsTreadmillController(
 
     /**
      * Stop/Pause verified with the data (no fixed timeout: deceleration depends on the speed):
-     * the 02 (or 03) status arrives and the speed decreases on every packet down to 0.
+     * the 02 (or 03) status arrives and the speed keeps decreasing (never [ControllerConfig.stopNotDecreasingMs] without
+     * a decrease) down to 0. Time-based, not packet-based: at 2 Hz each value arrives twice.
      */
     private suspend fun verifyStopped(name: String, cursor: Cursor): CommandResult {
         val sentAt = now()
         var sawStatus = false
         var lastSpeed = synchronized(lock) { lastSample?.speedKmh ?: 0.0 }
-        var nonDecreasing = 0
+        var lastDecreaseAt = sentAt
         while (true) {
             val wait = if (sawStatus) config.noDataTimeoutMs
             else minOf(config.noDataTimeoutMs, sentAt + config.stopStatusTimeoutMs - now())
             val obs = nextObs(cursor, wait)
             if (obs == null) {
                 return if (!sawStatus && now() >= sentAt + config.stopStatusTimeoutMs) {
-                    CommandResult.NotVerified(FailureCode.StopNotConfirmed, "$name: the treadmill accepted the command but the stop status (02) never arrived")
+                    if (lastSpeed > 0.0 && lastDecreaseAt <= sentAt) {
+                        // Neither the status nor any deceleration: what the user needs to know is that the belt is still moving.
+                        CommandResult.NotVerified(
+                            FailureCode.StillMoving,
+                            "$name: the speed is not decreasing ($lastSpeed km/h, no stop status (02) after ${now() - sentAt} ms): press STOP or pull the key",
+                        )
+                    } else {
+                        CommandResult.NotVerified(FailureCode.StopNotConfirmed, "$name: the treadmill accepted the command but the stop status (02) never arrived")
+                    }
                 } else {
                     CommandResult.NotVerified(FailureCode.DataLost, "$name: data stopped arriving while the belt was stopping")
                 }
@@ -957,11 +1014,12 @@ class FtmsTreadmillController(
                         if (sawStatus) return CommandResult.Success
                         // Speed 0 but no 02 status: wait for it until its deadline.
                     } else {
-                        if (v < lastSpeed - SPEED_EPS) nonDecreasing = 0 else nonDecreasing++
-                        if (nonDecreasing >= config.stopNonDecreasingPackets) {
+                        if (v < lastSpeed - SPEED_EPS) {
+                            lastDecreaseAt = obs.at
+                        } else if (obs.at - lastDecreaseAt >= config.stopNotDecreasingMs) {
                             return CommandResult.NotVerified(
                                 FailureCode.StillMoving,
-                                "$name: the speed is not decreasing ($v km/h after $nonDecreasing packets): press STOP or pull the key",
+                                "$name: the speed is not decreasing ($v km/h for ${obs.at - lastDecreaseAt} ms): press STOP or pull the key",
                             )
                         }
                     }
@@ -1034,7 +1092,7 @@ class FtmsTreadmillController(
         measure: (TreadmillSample) -> Double,
     ): CommandResult {
         val baseline = synchronized(lock) { lastSample?.let(measure) } ?: target
-        var packets = 0
+        val startedAt = now()
         while (true) {
             val obs = nextObs(cursor, config.noDataTimeoutMs)
                 ?: return CommandResult.NotVerified(FailureCode.DataLost, "No data arriving to verify the change")
@@ -1050,11 +1108,10 @@ class FtmsTreadmillController(
                     val v = measure(obs.sample)
                     if (abs(v - target) <= tolerance) return CommandResult.Success
                     if (abs(v - target) < abs(baseline - target) - SPEED_EPS) return CommandResult.Success
-                    packets++
-                    if (packets >= config.approachPackets) {
+                    if (obs.at - startedAt >= config.approachWindowMs) {
                         return CommandResult.NotVerified(
                             FailureCode.TargetNotReached,
-                            "The treadmill accepted the command but the value is not approaching the target ($v vs $target)",
+                            "The treadmill accepted the command but the value is not approaching the target ($v vs $target after ${obs.at - startedAt} ms)",
                         )
                     }
                 }

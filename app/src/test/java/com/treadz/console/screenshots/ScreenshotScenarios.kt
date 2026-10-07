@@ -50,7 +50,7 @@ abstract class ScreenshotScenarios(private val prefix: String) {
         permissions: PermissionsUi = PermissionsUi(),
     ) {
         rule.setContent {
-            TreadZRoot(viewModel = app.viewModel, permissions = permissions, actions = MainActions())
+            TreadZRoot(dependencies = app, viewModel = app.viewModel, permissions = permissions, actions = MainActions(), navigation = app.navigation)
         }
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("build/outputs/roborazzi/${prefix}_$name.png")

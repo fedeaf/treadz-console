@@ -11,6 +11,7 @@ import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
+import com.treadz.console.userdata.UserData
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,12 +27,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Observes the [TreadmillController] and the [WorkoutRecorder] and exposes a single [MainUiState].
- * The only commands it sends to the treadmill are `scan()`, `connect()` and `start()`.
+ * The only commands it sends to the treadmill are `scan()`, `connect()` and `start()`, and `start()` is only
+ * allowed with an active user.
  */
 class MainViewModel(
     private val controller: TreadmillController,
     private val recorder: WorkoutRecorder,
     private val settings: SettingsStore,
+    private val userData: UserData,
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -52,13 +55,18 @@ class MainViewModel(
         Local(remembered = settings.lastTreadmill, darkTheme = settings.darkTheme),
     )
 
+    private val people = combine(
+        userData.profiles.activeUser,
+        userData.workouts.unassignedWorkouts().map { it.size },
+    ) { user, unassigned -> user to unassigned }
+
     val uiState: StateFlow<MainUiState> = combine(
         controller.connection,
         controller.state,
         recorder.status,
         controller.pendingAlerts,
-        local,
-    ) { connection, treadmill, recording, alerts, local ->
+        combine(local, people) { local, people -> local to people },
+    ) { connection, treadmill, recording, alerts, (local, people) ->
         MainUiState(
             connection = connection,
             treadmill = treadmill,
@@ -77,6 +85,8 @@ class MainViewModel(
                 (it is RecordingStatus.Saved || it is RecordingStatus.Failed) && it != local.dismissedRecording
             },
             darkTheme = local.darkTheme,
+            activeUser = people.first,
+            unassignedWorkoutCount = people.second,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
 

@@ -40,7 +40,7 @@ class UiBehaviorTest {
     private fun show() {
         app.viewModel
         rule.setContent {
-            TreadZRoot(app.viewModel, PermissionsUi(), MainActions(onShare = { shared = it }))
+            TreadZRoot(app, app.viewModel, PermissionsUi(), MainActions(onShare = { shared = it }), app.navigation)
         }
         rule.waitForIdle()
     }

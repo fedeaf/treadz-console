@@ -16,6 +16,11 @@ data class MainActions(
     val onDarkThemeChange: (Boolean) -> Unit = {},
     val onRequestPermissions: () -> Unit = {},
     val onOpenSettings: () -> Unit = {},
+    val onOpenUsers: () -> Unit = {},
+    val onOpenWeight: () -> Unit = {},
+    val onOpenHistory: () -> Unit = {},
+    /** Opens the editor to personalise the generic profile. */
+    val onPersonalize: () -> Unit = {},
 )
 
 enum class BluetoothPermission {

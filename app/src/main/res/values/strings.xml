@@ -108,4 +108,159 @@
     <string name="failure_connection_lost">the connection was lost.</string>
     <string name="failure_preempted">interrupted by a stop.</string>
     <string name="failure_internal_error">internal app error.</string>
+
+    <!-- Common -->
+    <string name="nav_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_ok">OK</string>
+    <string name="error_storage">The data could not be saved. Try again.</string>
+    <string name="no_user_chosen">Choose a user first.</string>
+    <string name="choose_date">Choose date</string>
+
+    <!-- Users: main screen -->
+    <string name="generic_user_label">User</string>
+    <string name="user_none">No user</string>
+    <string name="user_chip_change">Change</string>
+    <string name="user_chip_locked">Locked</string>
+    <string name="main_weight">Weight</string>
+    <string name="main_history">History</string>
+    <string name="start_hint_no_user">Choose a user to start.</string>
+    <string name="generic_banner_title">You are using the generic user</string>
+    <string name="generic_banner_short">Generic user</string>
+    <string name="generic_banner_body">Create your profile to keep your own weight and workouts.</string>
+    <string name="generic_banner_action">Create my profile</string>
+
+    <!-- Users: selection -->
+    <string name="users_title">Who is training?</string>
+    <string name="users_subtitle">Choose a user to continue.</string>
+    <string name="users_subtitle_nobody">Nobody is selected. The treadmill cannot be used until you choose a user.</string>
+    <string name="users_locked">The belt is not stopped. The user can only be changed once it stops.</string>
+    <string name="users_add">Add user</string>
+    <string name="users_personalize">Personalize</string>
+    <string name="user_age">%1$d years old</string>
+    <string name="tag_active">Active</string>
+    <string name="tag_generic">Generic profile</string>
+
+    <!-- Users: editor -->
+    <string name="editor_title_create">New user</string>
+    <string name="editor_title_edit">Edit user</string>
+    <string name="editor_title_personalize">Personalize your profile</string>
+    <string name="editor_personalize_intro">Replace the generic user with your own data, so your weight, workouts and heart rate zones are yours.</string>
+    <string name="editor_not_found">This user no longer exists.</string>
+    <string name="field_name">Name</string>
+    <string name="field_sex">Sex</string>
+    <string name="sex_male">Male</string>
+    <string name="sex_female">Female</string>
+    <string name="field_height">Height (cm)</string>
+    <string name="hint_height_range">Between %1$d and %2$d cm</string>
+    <string name="field_birth_date">Birth date</string>
+    <string name="field_weight_personalize">Your current weight (kg)</string>
+    <string name="hint_weight_personalize">Optional. Without it, the made-up 80 kg stays until you enter your weight.</string>
+    <string name="field_resting_hr">Resting heart rate (bpm), optional</string>
+    <string name="field_max_hr">Maximum heart rate (bpm), optional</string>
+    <string name="hint_max_hr_estimated">Estimated: %1$d bpm, calculated from your age. Leave it empty to use the estimate.</string>
+    <string name="hint_max_hr_needs_birth">It is estimated from your age once you choose the birth date.</string>
+    <string name="field_fitness">Fitness level (optional)</string>
+    <string name="fitness_beginner">Beginner</string>
+    <string name="fitness_intermediate">Intermediate</string>
+    <string name="fitness_advanced">Advanced</string>
+    <string name="field_goal">Goal (optional)</string>
+    <string name="goal_lose_weight">Lose weight</string>
+    <string name="goal_maintain_weight">Maintain weight</string>
+    <string name="goal_improve_fitness">Improve fitness</string>
+    <string name="goal_build_endurance">Build endurance</string>
+    <string name="option_not_set">Not set</string>
+    <string name="editor_delete">Delete user</string>
+    <string name="delete_user_title">Delete %1$s?</string>
+    <string name="delete_user_body">This also deletes all the weights and workouts of this user. It cannot be undone.</string>
+    <string name="delete_user_locked">The belt is running: this user cannot be deleted now.</string>
+
+    <!-- Validation messages (next to the field) -->
+    <string name="err_required">Required</string>
+    <string name="err_name_blank">Enter a name</string>
+    <string name="err_height_blank">Enter the height</string>
+    <string name="err_birth_blank">Choose the birth date</string>
+    <string name="err_weight_blank">Enter the weight</string>
+    <string name="err_too_long">At most %1$d characters</string>
+    <string name="err_name_taken">Another user already has this name</string>
+    <string name="err_height_range">Enter a height between %1$d and %2$d cm</string>
+    <string name="err_age_range">The age must be between %1$d and %2$d years</string>
+    <string name="err_bpm_range">Enter a value between %1$d and %2$d bpm</string>
+    <string name="err_weight_range">Enter a weight between %1$d and %2$d kg</string>
+    <string name="err_date_invalid">Choose a valid date</string>
+    <string name="err_in_future">The date cannot be in the future</string>
+    <string name="err_resting_not_below_max">Must be lower than the maximum heart rate</string>
+
+    <!-- Weight -->
+    <string name="weight_title">Weight</string>
+    <string name="unit_kg">kg</string>
+    <string name="weight_current">Current weight</string>
+    <string name="weight_target">Target weight</string>
+    <string name="weight_target_none">Not set</string>
+    <string name="weight_target_reached">Target reached</string>
+    <string name="weight_above_target">%1$s kg above the target</string>
+    <string name="weight_below_target">%1$s kg below the target</string>
+    <string name="weight_set_target">Set target weight</string>
+    <string name="weight_change_target">Change target weight</string>
+    <string name="weight_add">Add weight</string>
+    <string name="weight_add_title">Add weight</string>
+    <string name="weight_edit_title">Edit weight</string>
+    <string name="weight_target_title">Target weight</string>
+    <string name="weight_clear_target">Remove target</string>
+    <string name="weight_date">Date</string>
+    <string name="weight_field">Weight (kg)</string>
+    <string name="weight_placeholder_tag">Placeholder</string>
+    <string name="weight_placeholder_title">Your weight is a placeholder</string>
+    <string name="weight_placeholder_body">The %1$s kg shown is a made-up value for the generic user. Enter your real weight so calories and charts are right.</string>
+    <string name="weight_enter_real">Enter my weight</string>
+    <string name="weight_empty">No weights recorded yet.</string>
+    <string name="weight_delete_title">Delete this weight?</string>
+    <string name="weight_delete_body">%1$s: %2$s kg</string>
+    <string name="weight_chart_target">Target %1$s kg</string>
+    <string name="weight_chart_description">Weight over time</string>
+
+    <!-- Workout history -->
+    <string name="history_title">Workouts</string>
+    <string name="history_tab_mine">Mine (%1$d)</string>
+    <string name="history_tab_unassigned">Unassigned (%1$d)</string>
+    <string name="history_unassigned_note">These workouts were recorded while nobody was selected. Assign each one to a user, or delete it.</string>
+    <string name="history_empty">No workouts yet. Press START on the main screen to record one.</string>
+    <string name="history_in_progress">In progress</string>
+    <string name="stat_duration">Duration</string>
+    <string name="stat_distance">Distance</string>
+    <string name="stat_calories">Calories</string>
+    <string name="stat_avg_speed">Average speed</string>
+    <string name="stat_max_speed">Maximum speed</string>
+    <string name="stat_max_incline">Maximum incline</string>
+    <string name="stat_avg_hr">Average heart rate</string>
+    <string name="stat_max_hr">Maximum heart rate</string>
+    <string name="stat_avg_speed_short">Avg speed</string>
+    <string name="stat_avg_hr_short">Avg HR</string>
+    <string name="stat_max_hr_short">Max HR</string>
+    <string name="end_stopped">Stopped</string>
+    <string name="end_key_removed">Safety key removed</string>
+    <string name="end_connection_lost">Connection lost</string>
+    <string name="end_disconnected">Disconnected</string>
+    <string name="end_closed">Closed by the app</string>
+    <string name="end_interrupted">Interrupted</string>
+    <string name="workout_assign">Assign to a user</string>
+    <string name="assign_title">Whose workout is it?</string>
+    <string name="workout_delete">Delete workout</string>
+    <string name="workout_delete_title">Delete this workout?</string>
+    <string name="workout_delete_body">The summary and all its data are deleted. It cannot be undone.</string>
+    <string name="detail_title">Workout</string>
+    <string name="detail_owner">User: %1$s</string>
+    <string name="detail_unassigned">Not assigned to any user</string>
+    <string name="detail_unassigned_note">This workout was recorded with nobody selected.</string>
+    <string name="workout_assign_short">Assign</string>
+    <string name="detail_not_found">This workout no longer exists.</string>
+    <string name="detail_in_progress_note">This workout is still being recorded. The data updates every few seconds.</string>
+    <string name="chart_speed">Speed (km/h)</string>
+    <string name="chart_incline">Incline (%)</string>
+    <string name="chart_heart_rate">Heart rate (bpm)</string>
+    <string name="chart_empty">No data yet</string>
+    <string name="chart_no_hr">No heart rate data in this workout</string>
 </resources>

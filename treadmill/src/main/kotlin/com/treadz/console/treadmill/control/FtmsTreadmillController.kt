@@ -2,6 +2,7 @@ package com.treadz.console.treadmill.control
 
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.FailureCode
@@ -22,13 +23,19 @@ import com.treadz.console.treadmill.ftms.GattPacket
 import com.treadz.console.treadmill.ftms.MachineStatus
 import com.treadz.console.treadmill.ftms.TrainingStatus
 import com.treadz.console.treadmill.ftms.TransportDisconnect
+import com.treadz.console.treadmill.ftms.TransportException
 import com.treadz.console.treadmill.ftms.TreadmillSample
 import com.treadz.console.treadmill.ftms.toHex
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -83,7 +90,16 @@ data class ControllerConfig(
      * changes until it has reached and held it. This is the maximum duration of that phase.
      */
     val startRampTimeoutMs: Long = 20_000,
-    val reconnectDelaysMs: List<Long> = listOf(1_000, 2_000, 3_000, 5_000),
+    /**
+     * Wait before each reconnection attempt (the last value repeats). It grows to 30 s so that a treadmill that is off
+     * or out of range does not keep the radio busy; each attempt also runs one short scan ([locateTimeoutMs]), so the
+     * scans stay far below Android's limit of 5 scan starts per 30 s.
+     */
+    val reconnectDelaysMs: List<Long> = listOf(1_000, 2_000, 3_000, 5_000, 10_000, 20_000, 30_000),
+    /** Before connecting (user connect and every reconnection attempt) the treadmill is looked for with a scan this long. */
+    val locateTimeoutMs: Long = 8_000,
+    /** After Bluetooth is turned on again the adapter needs a moment before it can scan and connect. */
+    val bluetoothOnSettleMs: Long = 1_500,
 )
 
 /**
@@ -150,6 +166,11 @@ class FtmsTreadmillController(
         trace(TraceRecord.Note(now(), "Safety limits: speed<=${limits.maxSpeedKmh}, incline<=${limits.maxInclinePercent}"))
     }
 
+    override val bluetoothEnabled: StateFlow<Boolean> get() = transport.bluetoothEnabled
+
+    private val _connectionProblem = MutableStateFlow<ConnectionProblem?>(null)
+    override val connectionProblem: StateFlow<ConnectionProblem?> = _connectionProblem.asStateFlow()
+
     override fun scan(): Flow<DiscoveredTreadmill> = transport.scan()
 
     // ------------------------------------------------------------------ internal state
@@ -203,9 +224,17 @@ class FtmsTreadmillController(
     private var startRampActive = false
     private var startRampSince = 0L
 
-    private var userDisconnected = false
+    @Volatile private var userDisconnected = false
     private var targetAddress: String? = null
-    private var reconnectJob: Job? = null
+    @Volatile private var reconnectJob: Job? = null
+    private var lastBluetoothTraced: Boolean? = null
+
+    /** Handshake of the user-started connect in progress, so that [disconnect] can abandon it. */
+    @Volatile private var connectHandshake: Job? = null
+
+    /** The last scan saw the treadmill (used to tell "not found" from other connection failures). */
+    @Volatile private var lastLocateSeen: Boolean? = null
+    private var nameFromReadable: String? = null
     private var knownSpeedRange: ValueRange = SafetyClamp.DEFAULT_SPEED_RANGE
     private var knownInclineRange: ValueRange = SafetyClamp.DEFAULT_INCLINE_RANGE
     private var nextCommandId = 1L
@@ -253,6 +282,9 @@ class FtmsTreadmillController(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transport.disconnections.collect { handleTransportDisconnect(it) }
         }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.bluetoothEnabled.collect { handleBluetoothState(it) }
+        }
         scope.launch {
             while (isActive) {
                 delay(config.watchdogIntervalMs)
@@ -268,30 +300,84 @@ class FtmsTreadmillController(
     // ------------------------------------------------------------------ connection
 
     override suspend fun connect(address: String): CommandResult = scope.async {
+        if (!transport.bluetoothEnabled.value) {
+            trace(TraceRecord.Note(now(), "connect($address) refused: Bluetooth is off"))
+            _connectionProblem.value = ConnectionProblem.BluetoothOff
+            return@async CommandResult.Rejected(FailureCode.ConnectionFailed, "Bluetooth is off", ConnectionProblem.BluetoothOff)
+        }
+        // A pending reconnection gives way to the explicit request (and releases the connection lock quickly).
+        userDisconnected = false
+        reconnectJob?.cancelAndJoin()
         connectMutex.withLock {
             val current = _connection.value
             if (current is ConnectionState.Connected && current.address == address) return@withLock CommandResult.Success
             userDisconnected = false
-            reconnectJob?.cancel()
             targetAddress = address
             setConnection(ConnectionState.Connecting(address), null)
             try {
-                handshake(address)
+                handshakeAbandonable(address)
             } catch (e: CancellationException) {
-                throw e
+                // disconnect() abandoned this attempt (the caller itself is still active) or the caller was cancelled.
+                withContext(NonCancellable) { runCatching { transport.disconnect() } }
+                if (!currentCoroutineContext().isActive) throw e
+                trace(TraceRecord.Note(now(), "Connection attempt to $address abandoned by disconnect()"))
+                _capabilities.value = null
+                setConnection(ConnectionState.Disconnected, "connection attempt abandoned")
+                return@withLock CommandResult.NotConnected
             } catch (e: Exception) {
                 trace(TraceRecord.Note(now(), "Failed to connect to $address: $e"))
                 runCatching { transport.disconnect() }
                 _capabilities.value = null
+                val problem = problemOf(e)
+                _connectionProblem.value = problem
                 setConnection(ConnectionState.Disconnected, "connection failed: ${e.message}")
-                return@withLock CommandResult.Rejected(FailureCode.ConnectionFailed, "Could not connect: ${e.message ?: e::class.simpleName}")
+                return@withLock CommandResult.Rejected(
+                    FailureCode.ConnectionFailed,
+                    "Could not connect: ${e.message ?: e::class.simpleName}",
+                    problem,
+                )
             }
+            _connectionProblem.value = null
             requestControlLocked()
         }
     }.await()
 
+    /**
+     * Runs the handshake as its own job so that [disconnect] can cancel it without cancelling the caller. A failure
+     * is rethrown to the caller instead of propagating to [scope].
+     */
+    private suspend fun handshakeAbandonable(address: String) {
+        val outcome = CompletableDeferred<Throwable?>()
+        val job = scope.launch {
+            try {
+                handshake(address)
+                outcome.complete(null)
+            } catch (e: CancellationException) {
+                outcome.cancel(e)
+                throw e
+            } catch (e: Throwable) {
+                outcome.complete(e)
+            }
+        }
+        connectHandshake = job
+        try {
+            outcome.await()?.let { throw it }
+        } finally {
+            if (connectHandshake === job) connectHandshake = null
+        }
+    }
+
+    /** Stable reason for a failed attempt: what the transport said, or "not found" if the scan never saw the treadmill. */
+    private fun problemOf(e: Throwable): ConnectionProblem {
+        val p = (e as? TransportException)?.problem ?: ConnectionProblem.Other
+        if (p != ConnectionProblem.Other) return p
+        if (!transport.bluetoothEnabled.value) return ConnectionProblem.BluetoothOff
+        return if (lastLocateSeen == false) ConnectionProblem.DeviceNotFound else ConnectionProblem.Other
+    }
+
     /** Connect, read capabilities, subscribe and get the controller ready. Throws if anything essential fails. */
     private suspend fun handshake(address: String) {
+        locate(address)
         transport.connect(address)
         resetForNewConnection()
         val (info, caps) = readDeviceInfo(address)
@@ -304,7 +390,34 @@ class FtmsTreadmillController(
         transport.subscribe(FtmsCharacteristic.TrainingStatus)
         transport.subscribe(FtmsCharacteristic.ControlPoint)
         synchronized(lock) { lastPacketAt = now() }
-        setConnection(ConnectionState.Connected(address, transport.deviceName), null)
+        setConnection(ConnectionState.Connected(address, nameFromReadable ?: transport.deviceName), null)
+    }
+
+    /**
+     * Short scan for the treadmill before connecting. The system only knows the address type (the treadmill uses a
+     * random static address) and the name once a scan has seen the device; connecting blindly by address fails.
+     * Not seeing the treadmill is not fatal (the transport still tries a direct connection), but it is remembered to
+     * report [ConnectionProblem.DeviceNotFound] if that fails too. Bluetooth off or a missing permission abort the attempt.
+     */
+    private suspend fun locate(address: String) {
+        lastLocateSeen = null
+        val seen = try {
+            transport.locate(address, config.locateTimeoutMs)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: TransportException) {
+            if (e.problem == ConnectionProblem.BluetoothOff || e.problem == ConnectionProblem.PermissionMissing) throw e
+            trace(TraceRecord.Note(now(), "Scan for $address failed, trying a direct connection: ${e.message}"))
+            null
+        }
+        lastLocateSeen = seen != null
+        trace(
+            TraceRecord.Note(
+                now(),
+                if (seen != null) "Scan saw the treadmill $address (name=${seen.name}, rssi=${seen.rssi})"
+                else "Scan did not see the treadmill $address within ${config.locateTimeoutMs} ms: trying a direct connection",
+            ),
+        )
     }
 
     private fun resetForNewConnection() {
@@ -345,13 +458,22 @@ class FtmsTreadmillController(
         val features: FtmsFeatures? = featureBytes?.let(FtmsCodec::decodeFeatures)
         val speed = readRaw(FtmsCharacteristic.SupportedSpeedRange)?.let(FtmsCodec::decodeSpeedRange)
         val incline = readRaw(FtmsCharacteristic.SupportedInclinationRange)?.let(FtmsCodec::decodeInclineRange)
+        // Android has no name when it connects without having seen the device in a scan: ask the device itself
+        // (standard Device Name characteristic). Last on purpose, and a failed read is harmless.
+        nameFromReadable = if (transport.deviceName.isNullOrBlank()) {
+            readString(FtmsCharacteristic.DeviceName).also {
+                trace(TraceRecord.Note(now(), "Name unknown to the system: Device Name read gave ${it ?: "nothing"}"))
+            }
+        } else {
+            null
+        }
         val defaults = speed == null || incline == null
         if (defaults) trace(TraceRecord.Note(now(), "Could not read the ranges: using the documented ones (0.5-20 km/h, 0-18 %)"))
         knownSpeedRange = speed ?: SafetyClamp.DEFAULT_SPEED_RANGE
         knownInclineRange = incline ?: SafetyClamp.DEFAULT_INCLINE_RANGE
         val info = FtmsDeviceInfo(
             address = address,
-            name = transport.deviceName,
+            name = nameFromReadable ?: transport.deviceName,
             manufacturer = manufacturer,
             model = model,
             firmware = firmware,
@@ -400,10 +522,14 @@ class FtmsTreadmillController(
 
     override suspend fun disconnect() {
         scope.async {
+            // Abandon whatever is in progress first (a pending reconnection, a scan, a connection attempt): they hold
+            // the connection lock, and waiting for them to finish on their own could take a long time.
+            userDisconnected = true
+            reconnectJob?.cancelAndJoin()
+            reconnectJob = null
+            connectHandshake?.cancelAndJoin()
             connectMutex.withLock {
                 userDisconnected = true
-                reconnectJob?.cancel()
-                reconnectJob = null
                 val wasConnected = _connection.value is ConnectionState.Connected
                 val moving = synchronized(lock) { status == BeltStatus.Running || status == BeltStatus.Starting }
                 if (wasConnected && moving) {
@@ -414,6 +540,7 @@ class FtmsTreadmillController(
                 runCatching { transport.disconnect() }
                 _capabilities.value = null
                 markStale("disconnected")
+                _connectionProblem.value = null
                 setConnection(ConnectionState.Disconnected, "disconnect requested")
                 appendObs { Obs.Lost(it) }
             }
@@ -442,31 +569,60 @@ class FtmsTreadmillController(
         startReconnect(address)
     }
 
+    /**
+     * Reconnection loop. Each attempt waits its backoff ([ControllerConfig.reconnectDelaysMs]), looks for the treadmill
+     * with a short scan and connects. While Bluetooth is off it does not try at all (no counted attempts, no scans): it
+     * waits for the adapter and goes on right after it is back. [disconnect] cancels it at any point.
+     */
     private fun startReconnect(address: String) {
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             var attempt = 1
             while (isActive && !userDisconnected) {
                 setConnection(ConnectionState.Reconnecting(address, attempt), null)
-                val delays = config.reconnectDelaysMs
-                delay(delays[minOf(attempt - 1, delays.lastIndex)])
+                if (!transport.bluetoothEnabled.value) {
+                    _connectionProblem.value = ConnectionProblem.BluetoothOff
+                    trace(TraceRecord.Note(now(), "Reconnection paused: Bluetooth is off"))
+                    transport.bluetoothEnabled.first { it }
+                    trace(TraceRecord.Note(now(), "Bluetooth is back on: resuming the reconnection"))
+                    delay(config.bluetoothOnSettleMs)
+                } else {
+                    val delays = config.reconnectDelaysMs
+                    delay(delays[minOf(attempt - 1, delays.lastIndex)])
+                }
                 if (userDisconnected) return@launch
+                if (!transport.bluetoothEnabled.value) continue
                 try {
                     connectMutex.withLock {
                         if (userDisconnected) return@launch
                         handshake(address)
+                        _connectionProblem.value = null
                         requestControlLocked()
                     }
                     return@launch
                 } catch (e: CancellationException) {
+                    withContext(NonCancellable) { runCatching { transport.disconnect() } }
                     throw e
                 } catch (e: Exception) {
                     trace(TraceRecord.Note(now(), "Reconnection $attempt failed: $e"))
                     runCatching { transport.disconnect() }
-                    attempt++
+                    val problem = problemOf(e)
+                    _connectionProblem.value = problem
+                    // A failure caused by Bluetooth going off is not a failed attempt: the loop waits for it above.
+                    if (problem != ConnectionProblem.BluetoothOff) attempt++
                 }
             }
         }
+    }
+
+    private fun handleBluetoothState(enabled: Boolean) {
+        val changed = enabled != lastBluetoothTraced
+        lastBluetoothTraced = enabled
+        if (changed) trace(TraceRecord.Bluetooth(now(), enabled))
+        if (enabled || !changed) return
+        // Turning Bluetooth off drops the link: same as any unrequested connection loss (the transport reports it as
+        // well, whichever comes first wins and the other is ignored).
+        handleTransportDisconnect(TransportDisconnect("Bluetooth turned off"))
     }
 
     private fun setConnection(state: ConnectionState, detail: String?) {

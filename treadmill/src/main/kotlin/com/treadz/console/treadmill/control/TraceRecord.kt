@@ -38,6 +38,9 @@ sealed interface TraceRecord {
 
     data class Connection(override val atMillis: Long, val state: ConnectionState, val detail: String?) : TraceRecord
 
+    /** The Bluetooth adapter was turned on or off (also the initial state when the controller starts). */
+    data class Bluetooth(override val atMillis: Long, val enabled: Boolean) : TraceRecord
+
     /** Device data and capabilities, right after connecting. */
     data class Device(
         override val atMillis: Long,

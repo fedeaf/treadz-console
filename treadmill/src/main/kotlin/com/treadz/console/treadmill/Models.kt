@@ -69,6 +69,24 @@ data class SafetyLimits(
     val maxInclinePercent: Double? = null,
 )
 
+/**
+ * Why a scan, a connection attempt or an automatic reconnection could not be done. Stable values, for the UI to
+ * translate (the exception and `reason` texts are English and only meant for the log).
+ */
+enum class ConnectionProblem {
+    /** The Bluetooth adapter is off (or the device has none). Nothing is attempted until it is turned on. */
+    BluetoothOff,
+
+    /** A Bluetooth permission (scan or connect) is missing: the UI has to ask the user for it. */
+    PermissionMissing,
+
+    /** The treadmill was not seen by a scan and could not be reached directly: off, out of range or busy. */
+    DeviceNotFound,
+
+    /** Anything else (the details are in the recording). */
+    Other,
+}
+
 /** Stable failure reason, for the UI to translate. Each result's `reason` text is only for the log. */
 enum class FailureCode {
     /** The BLE connection could not be established or the essential treadmill data could not be read. */
@@ -136,10 +154,20 @@ sealed interface CommandResult {
     sealed interface Failure : CommandResult {
         val code: FailureCode
         val reason: String
+
+        /**
+         * For a failed connection ([FailureCode.ConnectionFailed]): why it failed, to show the right message and
+         * action (turn Bluetooth on, grant a permission, get closer to the treadmill). `null` for everything else.
+         */
+        val problem: ConnectionProblem? get() = null
     }
 
-    /** The treadmill rejected the command, or the connection failed. */
-    data class Rejected(override val code: FailureCode, override val reason: String) : Failure
+    /** The treadmill rejected the command, or the connection failed (then [problem] says why, when known). */
+    data class Rejected(
+        override val code: FailureCode,
+        override val reason: String,
+        override val problem: ConnectionProblem? = null,
+    ) : Failure
 
     /** The treadmill answered OK (or did not answer) but the data do not confirm the command in the expected time. */
     data class NotVerified(override val code: FailureCode, override val reason: String) : Failure

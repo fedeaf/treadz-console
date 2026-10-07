@@ -3,8 +3,9 @@ package com.treadz.console.treadmill.ftms
 import com.treadz.console.treadmill.ValueRange
 
 /**
- * GATT characteristics the app may touch. It is a closed list on purpose: neither the iConsole channel
- * (`FFF0`/`FFF1`/`FFF2`) nor the OTA service (`02f00000-…-fe00`) can be addressed from here.
+ * GATT characteristics the app may touch. It is a closed list on purpose (FTMS plus standard read-only
+ * information): neither the iConsole channel (`FFF0`/`FFF1`/`FFF2`) nor the OTA service (`02f00000-…-fe00`)
+ * can be addressed from here.
  */
 enum class FtmsCharacteristic(val shortUuid: Int, val serviceShortUuid: Int) {
     TreadmillData(0x2ACD, FtmsUuids.FTMS_SERVICE),
@@ -17,7 +18,10 @@ enum class FtmsCharacteristic(val shortUuid: Int, val serviceShortUuid: Int) {
     ManufacturerName(0x2A29, FtmsUuids.DEVICE_INFORMATION_SERVICE),
     ModelNumber(0x2A24, FtmsUuids.DEVICE_INFORMATION_SERVICE),
     HardwareRevision(0x2A27, FtmsUuids.DEVICE_INFORMATION_SERVICE),
-    FirmwareRevision(0x2A26, FtmsUuids.DEVICE_INFORMATION_SERVICE);
+    FirmwareRevision(0x2A26, FtmsUuids.DEVICE_INFORMATION_SERVICE),
+
+    /** Device Name of the standard Generic Access service: a harmless read, used when Android does not know the name. */
+    DeviceName(0x2A00, FtmsUuids.GENERIC_ACCESS_SERVICE);
 
     /** Short UUID in hex (e.g. `2acd`), as written in the recordings. */
     val shortName: String get() = "%04x".format(shortUuid)
@@ -32,6 +36,7 @@ enum class FtmsCharacteristic(val shortUuid: Int, val serviceShortUuid: Int) {
 object FtmsUuids {
     const val FTMS_SERVICE = 0x1826
     const val DEVICE_INFORMATION_SERVICE = 0x180A
+    const val GENERIC_ACCESS_SERVICE = 0x1800
 
     /** Client Characteristic Configuration Descriptor (CCCD) for notifications/indications. */
     const val CCCD = 0x2902

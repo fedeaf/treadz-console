@@ -34,7 +34,7 @@ class Rig(
 ) {
     private val bg = testScope.backgroundScope
     val clock = Clock { T0 + testScope.currentTime }
-    val sim = SimulatedTreadmill(bg, dataRate = dataRate)
+    val sim = SimulatedTreadmill(bg, dataRate = dataRate, timeSource = { clock.nowMillis() })
     val storage = InMemoryRecordingStorage()
     val recorder = JsonlWorkoutRecorder(storage, clock, recorderConfig)
     val trace = CopyOnWriteArrayList<TraceRecord>()

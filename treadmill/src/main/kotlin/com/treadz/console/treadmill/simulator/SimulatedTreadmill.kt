@@ -1,5 +1,6 @@
 package com.treadz.console.treadmill.simulator
 
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.ValueRange
 import com.treadz.console.treadmill.ftms.ControlPointResult
@@ -14,7 +15,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
@@ -38,6 +42,11 @@ import kotlin.math.abs
  * Used by the tests (with virtual time) and to run the UI without a treadmill. Besides the simulated physical
  * controls ([removeSafetyKey], [physicalSetSpeed]…), it can inject faults ([stopFault], [freezeData]…).
  *
+ * It also models how the connection can fail on a phone: a Bluetooth adapter that can be turned off and on
+ * ([setBluetoothEnabled]), a treadmill that is not advertising ([advertising]), a random static address that only
+ * connects after a scan has seen the device ([requireScanBeforeConnect]), the platform's scan throttling
+ * ([emulateScanThrottling]) and a name that the system may not know ([systemKnowsName], [gapNameReadable]).
+ *
  * The treadmill values only change once per second; [DataRate] chooses how often packets are sent.
  *
  * @param scope scope where the data clock and the responses run (with `delay`, so it honours virtual time).
@@ -46,10 +55,13 @@ import kotlin.math.abs
 class SimulatedTreadmill(
     private val scope: CoroutineScope,
     val address: String = "SI:MU:LA:TE:D0:01",
-    override val deviceName: String = "REEBOK SIM",
+    /** Advertised BLE name. */
+    val name: String = "REEBOK SIM",
     private val speedRange: ValueRange = ValueRange(0.5, 20.0, 0.1),
     private val inclineRange: ValueRange = ValueRange(0.0, 18.0, 1.0),
     val dataRate: DataRate = DataRate.Hz2Repeated,
+    /** Time source for [scanStartTimes] and the scan throttling model (tests pass their virtual clock). */
+    private val timeSource: () -> Long = { System.currentTimeMillis() },
 ) : FtmsTransport {
 
     /**
@@ -147,6 +159,51 @@ class SimulatedTreadmill(
     /** If `true`, `connect()` fails (treadmill off or out of range). */
     var refuseConnections: Boolean = false
 
+    /** The treadmill is advertising: scans see it. `false` = off or out of range (a direct connection fails too). */
+    var advertising: Boolean = true
+
+    /**
+     * `true` = like Android with a random static address: `connect()` by address fails (GATT status 133) unless a scan
+     * has seen the device since Bluetooth was last turned on. A [locate] or [scan] that sees it satisfies the condition.
+     */
+    var requireScanBeforeConnect: Boolean = false
+
+    /** Name carried by the scan results (`null` = the advertisement has no name). */
+    var scanName: String? = name
+
+    /** `false` = the system does not know the name when the connection was made without a scan (Android gives `null`). */
+    var systemKnowsName: Boolean = true
+
+    /** Whether the Device Name characteristic (0x2A00) can be read; `false` = the read returns nothing. */
+    var gapNameReadable: Boolean = true
+
+    /** `true` = reading the Device Name fails with an error. */
+    var gapNameReadFails: Boolean = false
+
+    /** Time a scan takes to see an advertising treadmill. */
+    var scanLatencyMs: Long = 200
+
+    /**
+     * `true` = Android scan throttling: from the 6th scan start within 30 s the scan silently returns nothing.
+     * Whoever starts scans too often finds the treadmill "not advertising".
+     */
+    var emulateScanThrottling: Boolean = false
+
+    /** Times (per [timeSource]) of every scan start ([locate] calls and [scan] collections). */
+    val scanStartTimes: List<Long> get() = synchronized(lock) { scanStarts.toList() }
+    private val scanStarts = mutableListOf<Long>()
+
+    /** Number of scans that were silently throttled. */
+    var throttledScans: Int = 0
+        private set
+
+    private val _bluetoothEnabled = MutableStateFlow(true)
+    override val bluetoothEnabled: StateFlow<Boolean> = _bluetoothEnabled.asStateFlow()
+
+    private var seenByScan = false
+    private var connectedName: String? = null
+    override val deviceName: String? get() = connectedName
+
     /** If `true`, on reconnect the first data packet is the last one sent before the drop. */
     var staleFirstPacket: Boolean = true
 
@@ -174,16 +231,66 @@ class SimulatedTreadmill(
     // ------------------------------------------------------------------ FtmsTransport
 
     override fun scan(): Flow<DiscoveredTreadmill> = flow {
+        requireBluetooth()
+        val visible = registerScanStart()
         while (scope.isActive) {
-            emit(DiscoveredTreadmill(address, deviceName, rssi = -55))
+            requireBluetooth()
+            if (advertising && visible) {
+                synchronized(lock) { seenByScan = true }
+                emit(DiscoveredTreadmill(address, scanName, rssi = -55))
+            }
             delay(1_000)
         }
     }
 
+    override suspend fun locate(address: String, timeoutMs: Long): DiscoveredTreadmill? {
+        requireBluetooth()
+        val visible = registerScanStart()
+        if (address != this.address || !advertising || !visible || scanLatencyMs > timeoutMs) {
+            delay(timeoutMs)
+            requireBluetooth()
+            return null
+        }
+        delay(scanLatencyMs)
+        requireBluetooth()
+        synchronized(lock) { seenByScan = true }
+        return DiscoveredTreadmill(address, scanName, rssi = -55)
+    }
+
+    private fun requireBluetooth() {
+        if (!_bluetoothEnabled.value) throw TransportException("Bluetooth off or unavailable", problem = ConnectionProblem.BluetoothOff)
+    }
+
+    /** Records a scan start; `false` if the platform would throttle it. */
+    private fun registerScanStart(): Boolean = synchronized(lock) {
+        val now = timeSource()
+        scanStarts += now
+        val inWindow = scanStarts.count { it > now - 30_000 }
+        val throttled = emulateScanThrottling && inWindow > 5
+        if (throttled) throttledScans++
+        !throttled
+    }
+
+    /** Turns the simulated Bluetooth adapter off or on. Turning it off drops the connection, if any. */
+    fun setBluetoothEnabled(enabled: Boolean) {
+        if (_bluetoothEnabled.value == enabled) return
+        _bluetoothEnabled.value = enabled
+        if (!enabled) {
+            synchronized(lock) { seenByScan = false }
+            dropConnection("Bluetooth turned off")
+        }
+    }
+
     override suspend fun connect(address: String) {
+        requireBluetooth()
         delay(50)
+        requireBluetooth()
         synchronized(lock) {
-            if (refuseConnections || address != this.address) throw TransportException("Could not connect to $address")
+            if (refuseConnections || address != this.address || !advertising) throw TransportException("Could not connect to $address")
+            if (requireScanBeforeConnect && !seenByScan) {
+                throw TransportException("Connection failed (GATT status 133): unknown address type, no scan has seen $address")
+            }
+            connectedName = if (seenByScan) scanName else if (systemKnowsName) name else null
             connected = true
             connectCount++
             subscribed.clear()
@@ -209,6 +316,11 @@ class SimulatedTreadmill(
             FtmsCharacteristic.ModelNumber -> "SI3019".toByteArray()
             FtmsCharacteristic.FirmwareRevision -> "07".toByteArray()
             FtmsCharacteristic.HardwareRevision -> "3D.00.1F.01".toByteArray()
+            FtmsCharacteristic.DeviceName -> when {
+                gapNameReadFails -> throw TransportException("Read of the Device Name failed")
+                gapNameReadable -> name.toByteArray()
+                else -> null
+            }
             // Distance, incline, elevation, steps, energy, HR and time; speed and incline targets (and more).
             FtmsCharacteristic.MachineFeature -> byteArrayOf(0x5C, 0x16, 0, 0, 0xF3.toByte(), 0x1F, 0, 0)
             FtmsCharacteristic.SupportedSpeedRange -> FtmsCodec.encodeSpeedRange(speedRange)

@@ -34,6 +34,9 @@ internal object RecordSerializer {
                 putConnection(m, r.state)
                 m["detail"] = r.detail
             }
+            is TraceRecord.Bluetooth -> {
+                m["type"] = "bluetooth"; m["enabled"] = r.enabled
+            }
             is TraceRecord.Device -> {
                 m["type"] = "device"
                 m.putAll(deviceFields(r))
@@ -149,7 +152,9 @@ internal object RecordSerializer {
     fun resultFields(r: CommandResult): Map<String, Any?> = when (r) {
         is CommandResult.Success -> linkedMapOf("result" to "Success")
         is CommandResult.NotConnected -> linkedMapOf("result" to "NotConnected")
-        is CommandResult.Rejected -> linkedMapOf("result" to "Rejected", "code" to r.code.name, "reason" to r.reason)
+        is CommandResult.Rejected -> linkedMapOf<String, Any?>("result" to "Rejected", "code" to r.code.name, "reason" to r.reason).also {
+            if (r.problem != null) it["problem"] = r.problem?.name
+        }
         is CommandResult.NotVerified -> linkedMapOf("result" to "NotVerified", "code" to r.code.name, "reason" to r.reason)
         is CommandResult.NotAllowed -> linkedMapOf("result" to "NotAllowed", "code" to r.code.name, "reason" to r.reason)
     }

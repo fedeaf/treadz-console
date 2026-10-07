@@ -564,7 +564,7 @@ class ControllerScenariosTest {
         assertTrue(c is ConnectionState.Reconnecting && c.attempt >= 4, "$c")
         assertEquals(1, rig.events.size, "ConnectionLost only once")
         rig.sim.refuseConnections = false
-        delay(10_000)
+        delay(25_000) // the backoff grows (up to 30 s between attempts): the next attempt comes within that time
         assertTrue(rig.connected)
     }
 

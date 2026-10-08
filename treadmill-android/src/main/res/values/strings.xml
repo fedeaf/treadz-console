@@ -3,9 +3,8 @@
     <!-- Foreground service notification. Prefixed to avoid clashing with the app's resources. -->
     <string name="treadz_service_title">TreadZ Console</string>
     <string name="treadz_service_channel">Treadmill connection</string>
-    <string name="treadz_service_disconnected">Disconnected</string>
-    <string name="treadz_service_connecting">Connecting to the treadmill…</string>
-    <string name="treadz_service_reconnecting">Connection lost: reconnecting (attempt %1$d)</string>
+    <string name="treadz_service_connection_lost_stopped">Connection lost: the treadmill has stopped by itself</string>
+    <string name="treadz_service_connection_lost">Connection lost</string>
     <string name="treadz_service_idle">Connected · stopped</string>
     <string name="treadz_service_starting">Connected · starting</string>
     <string name="treadz_service_running">Connected · running %1$.1f km/h</string>
@@ -17,6 +16,7 @@
     <string name="treadz_service_data_stalled">No data from the treadmill: the belt state is unknown. If needed, press STOP on the console or pull the safety key.</string>
     <!-- Same word in both languages, like the app's START button. -->
     <string name="treadz_action_stop">STOP</string>
+    <string name="treadz_action_exit">Exit</string>
 
     <!-- High-priority alert when the belt could not be stopped. -->
     <string name="treadz_alert_channel">Treadmill alerts</string>

@@ -6,13 +6,14 @@ import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
+import com.treadz.console.treadmill.lifecycle.ConnectionLossNotice
 
-/** What the notification of the foreground service says. The Android layer maps each one to a string resource. */
+/**
+ * What the notification of the foreground service says. The Android layer maps each one to a string resource.
+ * There is no message for "not connected": the notification exists only while connected (plus the short notice after
+ * a connection loss in the background).
+ */
 enum class NotificationMessage {
-    Disconnected,
-    Connecting,
-    Reconnecting,
-
     /** Connected, belt stopped. */
     Idle,
     Starting,
@@ -31,6 +32,12 @@ enum class NotificationMessage {
 
     /** No current data while the belt may be moving: use the console's STOP or the safety key. */
     DataStalled,
+
+    /** The connection was lost while the app was in the background and the belt was not idle: it stopped by itself. */
+    ConnectionLostBeltStopped,
+
+    /** The connection was lost while the app was in the background and the belt was idle. */
+    ConnectionLost,
 }
 
 /**
@@ -65,27 +72,38 @@ data class ServiceNotificationModel(
     val message: NotificationMessage,
     /** Belt speed in km/h rounded to 0.1, for the messages that show it. */
     val speedKmh: Double? = null,
-    /** Reconnection attempt, for [NotificationMessage.Reconnecting]. */
-    val attempt: Int? = null,
     /** Show the STOP action (it calls `TreadmillController.stop()`). */
     val showStopAction: Boolean = false,
+    /**
+     * Show the Exit action (it calls `AppLifecycle.exitApp()`). Only while the belt is idle, and never together with
+     * [showStopAction].
+     */
+    val showExitAction: Boolean = false,
     /** The user must notice this now (failure to stop): the Android layer also raises a high-priority alert. */
     val urgent: Boolean = false,
 )
 
 object ServiceNotificationMapper {
 
+    /**
+     * The notification for the given situation, or `null` when there must be none: the notification is shown only
+     * while [ConnectionState.Connected], plus the [lossNotice] after a connection loss in the background (the
+     * lifecycle manager removes that one after a few seconds). While scanning, connecting, reconnecting, disconnected
+     * or with Bluetooth off there is no notification.
+     */
     fun map(
         connection: ConnectionState,
         state: TreadmillState,
         alerts: List<TreadmillAlert>,
         stopRequest: StopRequest,
-    ): ServiceNotificationModel {
-        when (connection) {
-            is ConnectionState.Disconnected -> return ServiceNotificationModel(NotificationMessage.Disconnected)
-            is ConnectionState.Connecting -> return ServiceNotificationModel(NotificationMessage.Connecting)
-            is ConnectionState.Reconnecting -> return ServiceNotificationModel(NotificationMessage.Reconnecting, attempt = connection.attempt)
-            is ConnectionState.Connected -> Unit
+        lossNotice: ConnectionLossNotice? = null,
+    ): ServiceNotificationModel? {
+        if (connection !is ConnectionState.Connected) {
+            return when (lossNotice) {
+                ConnectionLossNotice.BeltStoppedByItself -> ServiceNotificationModel(NotificationMessage.ConnectionLostBeltStopped)
+                ConnectionLossNotice.Neutral -> ServiceNotificationModel(NotificationMessage.ConnectionLost)
+                null -> null
+            }
         }
         val speed = Math.round(state.speedKmh * 10) / 10.0
         val moving = state.isBeltMoving()
@@ -116,7 +134,13 @@ object ServiceNotificationMapper {
             BeltStatus.SafetyKeyRemoved -> NotificationMessage.KeyRemoved
         }
         val showsSpeed = message == NotificationMessage.Running || message == NotificationMessage.Pausing || message == NotificationMessage.Stopping
-        return ServiceNotificationModel(message, speedKmh = if (showsSpeed) speed else null, showStopAction = stopCanBeSent)
+        return ServiceNotificationModel(
+            message,
+            speedKmh = if (showsSpeed) speed else null,
+            showStopAction = stopCanBeSent,
+            // Exit only when the belt is completely idle; STOP and Exit are mutually exclusive by construction.
+            showExitAction = message == NotificationMessage.Idle && !stopCanBeSent,
+        )
     }
 
     private val STOP_COMMANDS = setOf("stop", "pause")

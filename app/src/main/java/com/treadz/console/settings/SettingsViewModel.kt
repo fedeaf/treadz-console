@@ -47,9 +47,16 @@ data class SettingsUiState(
      */
     val error: SyncError? get() = actionError ?: sync.error.takeIf { sync.setup != SyncSetup.NotConfigured }
 
-    /** The token is wrong or cannot write: a new one can be pasted without unlinking first. */
+    /**
+     * The token is wrong, cannot write or cannot see the repository: a new one can be pasted without unlinking first.
+     * The field also stays while a replacement the user typed has just failed, so the rejected attempt is not lost
+     * (the device keeps its previous, working token).
+     */
     val canReplaceToken: Boolean
-        get() = linked && error?.code.let { it == SyncErrorCode.Unauthorized || it == SyncErrorCode.NoWriteAccess }
+        get() = linked && (
+            error?.code.let { it == SyncErrorCode.Unauthorized || it == SyncErrorCode.NoWriteAccess || it == SyncErrorCode.RepositoryNotFound } ||
+                (actionError != null && tokenInput.isNotBlank())
+            )
 
     val showsTokenField: Boolean get() = sync.setup == SyncSetup.NotConfigured || canReplaceToken
 
@@ -123,17 +130,31 @@ class SettingsViewModel(
 
     fun confirmFirstLink() = runSetup { sync.confirmFirstLink() }
 
-    fun cancelFirstLink() {
+    /** Gives up the first-link confirmation: the token and the repository are forgotten, nothing is uploaded. */
+    fun cancelFirstLink() = cancelSetup()
+
+    /** Gives up choosing among several repositories: the token is forgotten. */
+    fun cancelChoice() = cancelSetup()
+
+    /**
+     * Dismisses a leftover error while nothing is set up. Typed text stays. Anywhere else it only forgets the error
+     * the user was shown: it never gives up a setup in progress and never unlinks.
+     */
+    fun dismissError() {
+        if (uiState.value.sync.setup != SyncSetup.NotConfigured) {
+            local.update { it.copy(actionError = null) }
+            return
+        }
         viewModelScope.launch {
-            sync.cancelFirstLink()
-            local.update { it.copy(actionError = null, tokenInput = "") }
+            sync.cancelSetup()
+            local.update { it.copy(actionError = null) }
         }
     }
 
-    /** Gives up choosing among several repositories: the token is forgotten. */
-    fun cancelChoice() {
+    /** [SyncService.cancelSetup] never unlinks a linked device, whatever the screen state was. */
+    private fun cancelSetup() {
         viewModelScope.launch {
-            sync.clear()
+            sync.cancelSetup()
             local.update { it.copy(actionError = null, tokenInput = "") }
         }
     }

@@ -191,6 +191,17 @@ abstract class SettingsScreenshotScenarios(private val prefix: String) {
         capture("s12_linked_invalid_token")
     }
 
+    @Test fun s12b_linked_replacement_token_other_repository() {
+        app = FakeApp(sync = FakeSyncService(privateRepositories = listOf(other)))
+        app.sync.emit(linked(error = SyncError(SyncErrorCode.Unauthorized)))
+        capture("s12b_linked_replacement_other_repository") {
+            type("token_field", "github_pat_11ABCDEFG0123456789")
+            click("token_visibility")
+            click("token_save")
+            scrollTo("sync_error")
+        }
+    }
+
     @Test fun s13_linked_rate_limited() {
         app.sync.emit(linked(error = SyncError(SyncErrorCode.RateLimited, retryAfterMillis = 540_000L)))
         capture("s13_linked_rate_limited")

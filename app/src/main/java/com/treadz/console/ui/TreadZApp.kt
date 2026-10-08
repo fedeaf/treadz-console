@@ -181,6 +181,7 @@ fun TreadZRoot(
                                     onConfirmFirstLink = vm::confirmFirstLink,
                                     onCancelFirstLink = vm::cancelFirstLink,
                                     onCancelChoice = vm::cancelChoice,
+                                    onDismissError = vm::dismissError,
                                     onSyncNow = vm::syncNow,
                                     onUnlink = vm::requestUnlink,
                                     onConfirmUnlink = vm::confirmUnlink,

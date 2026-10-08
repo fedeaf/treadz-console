@@ -46,6 +46,8 @@ data class SyncSettingsActions(
     val onCancelFirstLink: () -> Unit = {},
     /** Gives up choosing a repository: forgets the token. */
     val onCancelChoice: () -> Unit = {},
+    /** Dismisses an error left over while nothing is set up. */
+    val onDismissError: () -> Unit = {},
     val onSyncNow: () -> Unit = {},
     val onUnlink: () -> Unit = {},
     val onConfirmUnlink: () -> Unit = {},
@@ -122,7 +124,17 @@ private fun TokenEntry(state: SettingsUiState, actions: SyncSettingsActions, rep
             modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("token_field"),
         )
         // While replacing the token the error is already shown above, with the status.
-        if (!replacing) state.error?.let { ErrorText(syncErrorText(it), Modifier.testTag("sync_error")) }
+        if (!replacing) {
+            state.error?.let { error ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ErrorText(syncErrorText(error), Modifier.weight(1f).testTag("sync_error"))
+                    // Nothing is set up: the leftover error can be dismissed.
+                    TextButton(onClick = actions.onDismissError, modifier = Modifier.heightIn(min = 48.dp).testTag("sync_error_dismiss")) {
+                        Text(stringResource(R.string.action_dismiss))
+                    }
+                }
+            }
+        }
         if (state.busy) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
@@ -197,7 +209,7 @@ private fun LinkedStatus(state: SettingsUiState, actions: SyncSettingsActions) {
                 Text(stringResource(R.string.sync_syncing), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
         }
-        state.error?.let { ErrorText(syncErrorText(it), Modifier.testTag("sync_error")) }
+        state.error?.let { ErrorText(syncErrorText(it, linked = true), Modifier.testTag("sync_error")) }
         if (state.canReplaceToken) TokenEntry(state, actions, replacing = true)
         BigButton(
             text = stringResource(R.string.sync_now),

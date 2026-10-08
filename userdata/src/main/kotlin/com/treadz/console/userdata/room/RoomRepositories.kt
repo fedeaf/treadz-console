@@ -30,11 +30,22 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
+/**
+ * Produces the version stamp of a change: the time (never behind the record's previous stamp, so a local edit made
+ * after applying a change from a device with a faster clock still wins) and the id of this device.
+ */
+internal class Stamper(private val clock: Clock, val deviceId: String, private val uuidSource: () -> String) {
+    fun at(previousMillis: Long = 0): Long = maxOf(clock.nowMillis(), previousMillis + 1)
+
+    fun newUuid(): String = uuidSource()
+}
+
 internal class RoomProfileRepository(
     private val db: UserDataDatabase,
     private val clock: Clock,
     private val zone: ZoneId,
     seedGenericProfile: Boolean,
+    private val stamper: Stamper,
 ) : ProfileRepository {
     private val dao = db.users()
     private val weightDao = db.weights()
@@ -75,18 +86,7 @@ internal class RoomProfileRepository(
     private fun today(): LocalDate = Instant.ofEpochMilli(clock.nowMillis()).atZone(zone).toLocalDate()
 
     /** Must run inside a transaction. */
-    private suspend fun insertGeneric(makeActive: Boolean): Long {
-        val today = today()
-        val input = GenericProfile.input(today)
-        val id = dao.insert(input.toEntity(id = 0, targetWeightKg = null, createdAtMillis = clock.nowMillis(), isGeneric = true))
-        weightDao.insert(
-            WeightEntryEntity(
-                userId = id, epochDay = today.toEpochDay(), weightKg = GenericProfile.WEIGHT_KG, isPlaceholder = true,
-            ),
-        )
-        if (makeActive) dao.setActive(ActiveUserEntity(userId = id))
-        return id
-    }
+    private suspend fun insertGeneric(makeActive: Boolean): Long = insertGenericProfile(dao, weightDao, clock, stamper, today(), makeActive)
 
     override suspend fun create(input: ProfileInput): DataResult<UserProfile> {
         ensureSeeded()
@@ -98,7 +98,7 @@ internal class RoomProfileRepository(
                     return@withTransaction DataResult.Invalid(listOf(nameTaken))
                 }
                 val first = dao.count() == 0 // only possible with seeding disabled (tests)
-                val id = dao.insert(input.toEntity(id = 0, targetWeightKg = null, createdAtMillis = clock.nowMillis()))
+                val id = dao.insert(input.toEntity(id = 0, targetWeightKg = null, createdAtMillis = clock.nowMillis()).fresh())
                 if (first) dao.setActive(ActiveUserEntity(userId = id))
                 DataResult.Success(dao.get(id)!!.toProfile())
             }
@@ -121,7 +121,7 @@ internal class RoomProfileRepository(
                 val result = save(id, input)
                 if (result is DataResult.Success && weightKg != null) {
                     weightDao.deletePlaceholders(id)
-                    weightDao.insert(WeightEntryEntity(userId = id, epochDay = today.toEpochDay(), weightKg = weightKg, isPlaceholder = false))
+                    weightDao.insert(newWeight(stamper, id, today.toEpochDay(), weightKg, isPlaceholder = false))
                 }
                 result
             }
@@ -137,7 +137,12 @@ internal class RoomProfileRepository(
         if (!stillGeneric && dao.countWithName(Validation.nameKey(input.name), exceptId = id) > 0) {
             return DataResult.Invalid(listOf(nameTaken))
         }
-        dao.update(input.toEntity(id, current.targetWeightKg, current.createdAtMillis, isGeneric = stillGeneric))
+        val edited = input.toEntity(id, current.targetWeightKg, current.createdAtMillis, isGeneric = stillGeneric)
+            .copy(uuid = current.uuid, updatedAtMillis = current.updatedAtMillis, updatedBy = current.updatedBy, dirty = current.dirty)
+        // An edit that changes nothing is not a change: it must not be uploaded.
+        if (edited != current) {
+            dao.update(edited.copy(updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true))
+        }
         return DataResult.Success(dao.get(id)!!.toProfile())
     }
 
@@ -145,8 +150,8 @@ internal class RoomProfileRepository(
         ensureSeeded()
         return guarded {
             db.withTransaction {
-                // Foreign keys cascade to weights and workouts, and clear the active user.
-                if (dao.delete(id) == 0) return@withTransaction DataResult.NotFound
+                val current = dao.get(id) ?: return@withTransaction DataResult.NotFound
+                softDeleteUser(db, current, stamper)
                 if (dao.count() == 0) insertGeneric(makeActive = true)
                 DataResult.Success(Unit)
             }
@@ -164,6 +169,9 @@ internal class RoomProfileRepository(
         }
     }
 
+    /** Identity and version of a record that is created now. */
+    private fun UserEntity.fresh() = copy(uuid = stamper.newUuid(), updatedAtMillis = stamper.at(), updatedBy = stamper.deviceId, dirty = true)
+
     private fun ProfileInput.toEntity(id: Long, targetWeightKg: Double?, createdAtMillis: Long, isGeneric: Boolean = false) = UserEntity(
         id = id,
         name = Validation.normalizedName(name),
@@ -178,6 +186,11 @@ internal class RoomProfileRepository(
         targetWeightKg = targetWeightKg,
         createdAtMillis = createdAtMillis,
         isGeneric = isGeneric,
+        uuid = "",
+        updatedAtMillis = 0,
+        updatedBy = "",
+        deleted = false,
+        dirty = false,
     )
 
     private companion object {
@@ -189,6 +202,7 @@ internal class RoomWeightRepository(
     private val db: UserDataDatabase,
     private val clock: Clock,
     private val zone: ZoneId,
+    private val stamper: Stamper,
 ) : WeightRepository {
     private val users = db.users()
     private val dao = db.weights()
@@ -208,7 +222,7 @@ internal class RoomWeightRepository(
             db.withTransaction {
                 if (users.get(userId) == null) return@withTransaction DataResult.NotFound
                 dao.deletePlaceholders(userId)
-                val id = dao.insert(WeightEntryEntity(userId = userId, epochDay = date.toEpochDay(), weightKg = weightKg, isPlaceholder = false))
+                val id = dao.insert(newWeight(stamper, userId, date.toEpochDay(), weightKg, isPlaceholder = false))
                 DataResult.Success(dao.get(id)!!.toEntry())
             }
         }
@@ -220,14 +234,21 @@ internal class RoomWeightRepository(
         return guarded {
             db.withTransaction {
                 val current = dao.get(entryId) ?: return@withTransaction DataResult.NotFound
-                dao.update(current.copy(epochDay = date.toEpochDay(), weightKg = weightKg, isPlaceholder = false))
+                val edited = current.copy(epochDay = date.toEpochDay(), weightKg = weightKg, isPlaceholder = false)
+                if (edited != current) {
+                    dao.update(edited.copy(updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true))
+                }
                 DataResult.Success(dao.get(entryId)!!.toEntry())
             }
         }
     }
 
     override suspend fun delete(entryId: Long): DataResult<Unit> = guarded {
-        if (dao.delete(entryId) == 0) DataResult.NotFound else DataResult.Success(Unit)
+        db.withTransaction {
+            val current = dao.get(entryId) ?: return@withTransaction DataResult.NotFound
+            dao.markDeleted(entryId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            DataResult.Success(Unit)
+        }
     }
 
     override suspend fun setTargetWeight(userId: Long, weightKg: Double?): DataResult<Unit> {
@@ -235,11 +256,22 @@ internal class RoomWeightRepository(
             val issues = Validation.targetWeight(weightKg)
             if (issues.isNotEmpty()) return DataResult.Invalid(issues)
         }
-        return guarded { if (users.setTargetWeight(userId, weightKg) == 0) DataResult.NotFound else DataResult.Success(Unit) }
+        return guarded {
+            db.withTransaction {
+                val current = users.get(userId) ?: return@withTransaction DataResult.NotFound
+                if (current.targetWeightKg != weightKg) {
+                    users.setTargetWeight(userId, weightKg, stamper.at(current.updatedAtMillis), stamper.deviceId)
+                }
+                DataResult.Success(Unit)
+            }
+        }
     }
 }
 
-internal class RoomWorkoutRepository(private val db: UserDataDatabase) : WorkoutHistoryRepository, WorkoutSessionStore {
+internal class RoomWorkoutRepository(
+    private val db: UserDataDatabase,
+    private val stamper: Stamper,
+) : WorkoutHistoryRepository, WorkoutSessionStore {
     private val users = db.users()
     private val dao = db.workouts()
 
@@ -254,14 +286,21 @@ internal class RoomWorkoutRepository(private val db: UserDataDatabase) : Workout
         WorkoutDetail(workout.toSummary(), dao.samples(workoutId).map { it.toSample() })
     }
 
+    /** Soft delete: the workout becomes a tombstone (so the deletion can be synchronised) and its samples are dropped. */
     override suspend fun delete(workoutId: Long): DataResult<Unit> = guarded {
-        if (dao.delete(workoutId) == 0) DataResult.NotFound else DataResult.Success(Unit)
+        db.withTransaction {
+            val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
+            dao.markDeleted(workoutId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            dao.deleteSamples(workoutId)
+            DataResult.Success(Unit)
+        }
     }
 
     override suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit> = guarded {
         db.withTransaction {
-            if (users.get(userId) == null || dao.get(workoutId) == null) return@withTransaction DataResult.NotFound
-            dao.assign(workoutId, userId)
+            val current = dao.get(workoutId)
+            if (users.get(userId) == null || current == null) return@withTransaction DataResult.NotFound
+            if (current.userId != userId) dao.assign(workoutId, userId, stamper.at(current.updatedAtMillis), stamper.deviceId)
             DataResult.Success(Unit)
         }
     }
@@ -282,6 +321,11 @@ internal class RoomWorkoutRepository(private val db: UserDataDatabase) : Workout
             averageHeartRateBpm = null,
             maxHeartRateBpm = null,
             maxInclinePercent = 0.0,
+            uuid = stamper.newUuid(),
+            updatedAtMillis = stamper.at(),
+            updatedBy = stamper.deviceId,
+            deleted = false,
+            dirty = true,
         ),
     )
 
@@ -296,7 +340,8 @@ internal class RoomWorkoutRepository(private val db: UserDataDatabase) : Workout
         reason: WorkoutEndReason,
     ): Boolean = db.withTransaction {
         if (!write(workoutId, samples, stats)) return@withTransaction false
-        dao.markEnded(workoutId, endedAtMillis, reason.name)
+        val previous = dao.get(workoutId)?.updatedAtMillis ?: 0
+        dao.markEnded(workoutId, endedAtMillis, reason.name, stamper.at(previous), stamper.deviceId)
         true
     }
 
@@ -318,8 +363,75 @@ internal class RoomWorkoutRepository(private val db: UserDataDatabase) : Workout
     }
 
     override suspend fun discard(workoutId: Long) {
-        dao.delete(workoutId)
+        dao.hardDelete(workoutId)
     }
 
-    override suspend fun closeInterrupted(): Int = dao.closeInterrupted(WorkoutEndReason.Interrupted.name)
+    override suspend fun closeInterrupted(): Int = dao.closeInterrupted(WorkoutEndReason.Interrupted.name, stamper.at(), stamper.deviceId)
+}
+
+/** A new weight entry, with its identity and version. */
+internal fun newWeight(stamper: Stamper, userId: Long, epochDay: Long, weightKg: Double, isPlaceholder: Boolean) = WeightEntryEntity(
+    userId = userId,
+    epochDay = epochDay,
+    weightKg = weightKg,
+    isPlaceholder = isPlaceholder,
+    uuid = stamper.newUuid(),
+    updatedAtMillis = stamper.at(),
+    updatedBy = stamper.deviceId,
+    deleted = false,
+    dirty = true,
+)
+
+/**
+ * Inserts the generic profile with its placeholder weight. Must run inside a transaction. It is flagged as changed
+ * like any record, but it is not eligible for synchronisation until it is personalised.
+ */
+internal suspend fun insertGenericProfile(
+    users: UserDao,
+    weights: WeightDao,
+    clock: Clock,
+    stamper: Stamper,
+    today: LocalDate,
+    makeActive: Boolean,
+): Long {
+    val input = GenericProfile.input(today)
+    val id = users.insert(
+        UserEntity(
+            name = "",
+            nameKey = "",
+            sex = input.sex.name,
+            heightCm = input.heightCm,
+            birthEpochDay = input.birthDate.toEpochDay(),
+            restingHeartRateBpm = null,
+            maxHeartRateBpm = null,
+            fitnessLevel = null,
+            goal = null,
+            targetWeightKg = null,
+            createdAtMillis = clock.nowMillis(),
+            isGeneric = true,
+            uuid = stamper.newUuid(),
+            updatedAtMillis = stamper.at(),
+            updatedBy = stamper.deviceId,
+            deleted = false,
+            dirty = true,
+        ),
+    )
+    weights.insert(newWeight(stamper, id, today.toEpochDay(), GenericProfile.WEIGHT_KG, isPlaceholder = true))
+    if (makeActive) users.setActive(ActiveUserEntity(userId = id))
+    return id
+}
+
+/**
+ * Deletes a profile as a tombstone, together with its weights and workouts (also tombstones: the profile's own
+ * tombstone covers them, so they are not uploaded one by one) and clears the active user if it was this one.
+ * Must run inside a transaction.
+ */
+internal suspend fun softDeleteUser(db: UserDataDatabase, user: UserEntity, stamper: Stamper) {
+    val at = stamper.at(user.updatedAtMillis)
+    val by = stamper.deviceId
+    db.users().markDeleted(user.id, at, by)
+    db.weights().markDeletedForUser(user.id, at, by)
+    db.workouts().deleteSamplesForUser(user.id)
+    db.workouts().markDeletedForUser(user.id, at, by)
+    db.users().clearActiveIf(user.id)
 }

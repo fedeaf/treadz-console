@@ -1,13 +1,27 @@
 package com.treadz.console.userdata.room
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 // Enums are stored by name (stable codes). Dates as epoch days, instants as epoch milliseconds.
+//
+// Since schema version 2 users, weight entries and workouts also carry the synchronisation bookkeeping:
+//  - uuid: global identity, the same on every device (the Long ids are local keys only).
+//  - updatedAtMillis / updatedBy: version of the record (last change and the device that made it): last writer wins.
+//  - deleted: tombstone. Rows are never removed when the user deletes them, so the deletion can be synchronised;
+//    every query that serves the UI filters them out.
+//  - dirty: the record changed since it was last synchronised (whether it is *eligible* for upload is decided by the
+//    sync queries: generic profile, placeholder weights, workouts in progress or without an owner never are).
 
-@Entity(tableName = "users", indices = [Index(value = ["nameKey"], unique = true)])
+@Entity(
+    tableName = "users",
+    // Not unique: two devices may create a profile with the same name; the name rule is enforced by the repository
+    // against live profiles only.
+    indices = [Index(value = ["nameKey"]), Index(value = ["uuid"], unique = true)],
+)
 internal data class UserEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
@@ -24,6 +38,11 @@ internal data class UserEntity(
     val createdAtMillis: Long,
     /** The generic default profile (empty name, nameKey ""). */
     val isGeneric: Boolean,
+    @ColumnInfo(defaultValue = "''") val uuid: String,
+    @ColumnInfo(defaultValue = "0") val updatedAtMillis: Long,
+    @ColumnInfo(defaultValue = "''") val updatedBy: String,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean,
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean,
 )
 
 /** Single row (id 1) holding the active user; cleared by the database itself when that user is deleted. */
@@ -58,15 +77,20 @@ internal data class ActiveUserEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index(value = ["userId", "epochDay"])],
+    indices = [Index(value = ["userId", "epochDay"]), Index(value = ["uuid"], unique = true)],
 )
 internal data class WeightEntryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val userId: Long,
     val epochDay: Long,
     val weightKg: Double,
-    /** Made-up weight of the generic profile; replaced by the first real entry. */
+    /** Made-up weight of the generic profile; replaced by the first real entry. Never synchronised. */
     val isPlaceholder: Boolean,
+    @ColumnInfo(defaultValue = "''") val uuid: String,
+    @ColumnInfo(defaultValue = "0") val updatedAtMillis: Long,
+    @ColumnInfo(defaultValue = "''") val updatedBy: String,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean,
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean,
 )
 
 @Entity(
@@ -79,7 +103,7 @@ internal data class WeightEntryEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("userId"), Index("startedAtMillis")],
+    indices = [Index("userId"), Index("startedAtMillis"), Index(value = ["uuid"], unique = true)],
 )
 internal data class WorkoutEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -98,6 +122,11 @@ internal data class WorkoutEntity(
     val averageHeartRateBpm: Int?,
     val maxHeartRateBpm: Int?,
     val maxInclinePercent: Double,
+    @ColumnInfo(defaultValue = "''") val uuid: String,
+    @ColumnInfo(defaultValue = "0") val updatedAtMillis: Long,
+    @ColumnInfo(defaultValue = "''") val updatedBy: String,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean,
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean,
 )
 
 @Entity(

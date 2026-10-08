@@ -39,7 +39,7 @@ class RestGitHubClient(
 
     // ---- repositories ----
 
-    override suspend fun privateRepositories(): List<RepositoryRef> {
+    override suspend fun privateRepositories(token: String?): List<RepositoryRef> {
         val result = ArrayList<RepositoryRef>()
         for (page in 1..MAX_REPO_PAGES) {
             val url = url("user", "repos").newBuilder()
@@ -47,7 +47,7 @@ class RestGitHubClient(
                 .addQueryParameter("per_page", PAGE_SIZE.toString())
                 .addQueryParameter("page", page.toString())
                 .build()
-            val items = parseArray(call(get(url)))
+            val items = parseArray(call(request(url, token).get().build()))
             for (i in 0 until items.length()) {
                 val item = items.optJSONObject(i) ?: continue
                 // A fine-grained token also lists the owner's public repositories, and `permissions` describes the
@@ -175,8 +175,8 @@ class RestGitHubClient(
 
     private fun repoUrl(repo: RepositoryRef, vararg segments: String): HttpUrl = url("repos", repo.owner, repo.name, *segments)
 
-    private fun request(url: HttpUrl): Request.Builder {
-        val t = token()?.takeIf { it.isNotBlank() } ?: throw GitHubException(GitHubFailure.Unauthorized, message = "No token is set")
+    private fun request(url: HttpUrl, tokenOverride: String? = null): Request.Builder {
+        val t = (tokenOverride ?: token())?.takeIf { it.isNotBlank() } ?: throw GitHubException(GitHubFailure.Unauthorized, message = "No token is set")
         return Request.Builder().url(url)
             .header("Authorization", "Bearer $t")
             .header("Accept", "application/vnd.github+json")

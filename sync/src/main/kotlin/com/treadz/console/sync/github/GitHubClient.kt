@@ -87,8 +87,13 @@ class GitHubException(
  */
 interface GitHubClient {
 
-    /** The **private** repositories the token can see (the listing also includes public ones, which are dropped). */
-    suspend fun privateRepositories(): List<RepositoryRef>
+    /**
+     * The **private** repositories a token can see (the listing also includes public ones, which are dropped).
+     *
+     * @param token a candidate token to try without storing it (used to validate a token before it replaces the one
+     *   in use); `null` uses the stored one.
+     */
+    suspend fun privateRepositories(token: String? = null): List<RepositoryRef>
 
     suspend fun branchState(repo: RepositoryRef, branch: String): BranchState
 

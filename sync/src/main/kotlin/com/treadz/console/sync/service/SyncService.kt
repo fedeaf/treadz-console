@@ -2,6 +2,7 @@ package com.treadz.console.sync.service
 
 import com.treadz.console.sync.FirstLinkSummary
 import com.treadz.console.sync.SyncError
+import com.treadz.console.sync.SyncErrorCode
 import com.treadz.console.sync.github.RepositoryRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,14 +53,24 @@ data class SyncStatus(
  *    - One private repository: it is used automatically (the user never types its name).
  *    - Several: [SyncStatus.setup] becomes [SyncSetup.ChoosingRepository]; the user picks one: [selectRepository].
  *    - None, or the token is rejected: an error is returned (and shown in [SyncStatus.error]) and nothing is stored.
+ *    A token that fails never changes anything that was already set up: if a token is already stored (the device is
+ *    linked, or in the middle of the setup), the previous token and [SyncStatus.setup] stay exactly as they were and
+ *    only [SyncStatus.error] changes. A token that works replaces the previous one.
+ *    - Replacing the token of a **linked** device: if the new token can use the linked repository, the device stays
+ *      linked (no new confirmation) and synchronises. If it cannot (it only gives access to other repositories), it is
+ *      rejected with [SyncErrorCode.RepositoryNotFound] and nothing changes: a linked device never switches repository
+ *      silently. To use another repository, [clear] first (unlink) and then [configure] again.
  * 2. If this device already has data to upload, [SyncSetup.AwaitingFirstLinkConfirmation] shows what would be sent
  *    ([SyncStatus.firstLink]); [confirmFirstLink] uploads it (merging with whatever the repository holds, nothing is
- *    overwritten) and [cancelFirstLink] forgets the token and the repository again. Without local data to upload the
+ *    overwritten) and [cancelSetup] forgets the token and the repository again. Without local data to upload the
  *    device is linked right away.
  * 3. [SyncSetup.Linked]: from then on every change is queued for upload (background work, needs network only),
  *    changes of other devices are downloaded when the app opens ([onAppOpened]) and on [syncNow].
  *
  * [clear] removes the token and the link; local data is never touched by this.
+ *
+ * [SyncStatus.error] is cleared by the next [configure] attempt, by [cancelSetup] and by [clear], besides by a
+ * successful synchronisation.
  */
 interface SyncService {
 
@@ -68,7 +79,12 @@ interface SyncService {
     /** Local ids of the workouts whose latest state is not uploaded yet (for a per-workout indicator in the history). */
     val pendingWorkoutIds: Flow<Set<Long>>
 
-    /** Stores and validates [token]. Returns the error, or `null` on success (then see [status] for the next step). */
+    /**
+     * Validates [token] and, if it works, stores it (replacing the previous one). Returns the error, or `null` on
+     * success (then see [status] for the next step). On failure nothing that was set up changes (see the class
+     * documentation); the error is also in [SyncStatus.error] until the next attempt. Starting a new attempt clears
+     * the previous [SyncStatus.error].
+     */
     suspend fun configure(token: String): SyncError?
 
     /** Chooses one of [SyncStatus.repositories] (or changes to another one: the link is then confirmed again). */
@@ -77,7 +93,15 @@ interface SyncService {
     /** Uploads what [SyncStatus.firstLink] listed and links the device. Returns the sync error, if any. */
     suspend fun confirmFirstLink(): SyncError?
 
-    /** Gives up linking: forgets the token and the repository. */
+    /**
+     * Gives up a setup that is not finished ([SyncSetup.ChoosingRepository] or [SyncSetup.AwaitingFirstLinkConfirmation],
+     * also [SyncSetup.NotConfigured] to dismiss a leftover error): forgets the token and the repository, clears
+     * [SyncStatus.error] and returns to [SyncSetup.NotConfigured]. Uploads nothing and keeps the local data. Does
+     * nothing when [SyncSetup.Linked] (use [clear] to unlink).
+     */
+    suspend fun cancelSetup()
+
+    /** Same as [cancelSetup]; kept for existing callers. */
     suspend fun cancelFirstLink()
 
     /** Downloads what changed in the repository and uploads what changed here, now. Returns the error, or `null`. Does nothing when not linked. */

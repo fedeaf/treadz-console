@@ -47,6 +47,7 @@ kotlin {
 dependencies {
     implementation(project(":treadmill-android"))
     implementation(project(":userdata"))
+    implementation(project(":sync"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

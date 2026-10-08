@@ -238,4 +238,24 @@ class HistoryViewModelTest {
             recording.close()
         }
     }
+
+    @Test fun pendingUploadsAreOnlyReportedWhileSyncIsLinked() {
+        val first = addWorkout(activeId, startedAt = 1_000)
+        val second = addWorkout(activeId, startedAt = 2_000)
+        app.sync.setPendingWorkouts(setOf(first))
+        val synced = HistoryViewModel(data, app.sync)
+        // Not linked: everything is local, nothing is "pending".
+        assertTrue(synced.uiState.value.pendingUploadIds.isEmpty())
+        app.sync.emit(com.treadz.console.sync.service.SyncStatus(setup = com.treadz.console.sync.service.SyncSetup.Linked))
+        assertEquals(setOf(first), synced.uiState.value.pendingUploadIds)
+        app.sync.setPendingWorkouts(setOf(first, second))
+        assertEquals(setOf(first, second), synced.uiState.value.pendingUploadIds)
+        app.sync.emit(com.treadz.console.sync.service.SyncStatus())
+        assertTrue(synced.uiState.value.pendingUploadIds.isEmpty())
+    }
+
+    @Test fun withoutASyncServiceThereAreNoPendingUploads() {
+        addWorkout(activeId, startedAt = 1_000)
+        assertTrue(vm.uiState.value.pendingUploadIds.isEmpty())
+    }
 }

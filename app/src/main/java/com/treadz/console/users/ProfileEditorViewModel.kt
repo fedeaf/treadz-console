@@ -16,10 +16,12 @@ import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.Validation
 import com.treadz.console.userdata.ValidationCode
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -67,6 +69,8 @@ data class ProfileEditorUiState(
     /** The profile is the active user and the belt is running: it cannot be deleted now. */
     val deleteLockedByBelt: Boolean = false,
     val confirmingDelete: Boolean = false,
+    /** Synchronisation is linked: a deleted user disappears from every linked device, which the confirmation says. */
+    val syncLinked: Boolean = false,
 )
 
 /**
@@ -78,6 +82,8 @@ class ProfileEditorViewModel(
     private val profiles: ProfileRepository,
     controller: TreadmillController,
     private val today: () -> LocalDate,
+    /** `true` while this device is linked to a GitHub repository. */
+    syncLinked: Flow<Boolean> = flowOf(false),
 ) : ViewModel() {
 
     private val state = MutableStateFlow(
@@ -91,6 +97,7 @@ class ProfileEditorViewModel(
 
     init {
         viewModelScope.launch { controller.beltBusy.collect { beltBusy = it; refreshDeleteLock() } }
+        viewModelScope.launch { syncLinked.collect { linked -> state.update { it.copy(syncLinked = linked) } } }
         if (profileId != null) {
             viewModelScope.launch {
                 val loaded = profiles.profile(profileId).first()

@@ -327,4 +327,105 @@
     <string name="exit_confirm">Exit</string>
     <string name="exit_keep_background">Keep in background</string>
     <string name="exit_belt_moving">The belt is moving: press STOP before exiting</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_open">Settings</string>
+    <string name="settings_sync_problem_marker">Sync problem</string>
+    <string name="settings_belt_locked">Available when the belt is stopped.</string>
+
+    <!-- Settings: sync with GitHub -->
+    <string name="sync_title">Sync with GitHub</string>
+    <string name="sync_intro">Optional. Shares users, weights and workouts between the devices linked to the same private GitHub repository, and keeps a copy there. Without it everything stays on this device.</string>
+    <string name="sync_token_label">GitHub token</string>
+    <string name="sync_token_show">Show</string>
+    <string name="sync_token_hide">Hide</string>
+    <string name="sync_token_save">Link</string>
+    <string name="sync_token_checking">Checking the token…</string>
+    <string name="sync_token_saved">Token saved on this device, encrypted. It is never shown again.</string>
+    <string name="sync_token_help_title">How to create the token</string>
+    <string name="sync_token_help_body">On github.com open Settings, Developer settings, Personal access tokens, Fine-grained tokens, and create a token. Under \"Repository access\" choose \"Only select repositories\" and pick your private data repository. Under permissions give \"Contents\" read and write access. Copy the token and paste it here.</string>
+    <string name="sync_replace_token_title">Use a new token</string>
+    <string name="sync_choose_title">Choose the repository</string>
+    <string name="sync_choose_body">The token gives access to several private repositories. Pick the one that holds your TreadZ data.</string>
+    <string name="sync_first_link_title">Link this device?</string>
+    <string name="sync_first_link_body">Nothing has been uploaded yet. If you confirm, this device uploads the records below to %1$s. What is already in the repository is kept and merged: nothing is overwritten.</string>
+    <string name="sync_first_link_cancel_note">Cancel uploads nothing and forgets the token.</string>
+    <string name="sync_first_link_confirm">Upload and link</string>
+    <string name="sync_first_link_pending">Waiting for your confirmation before uploading anything.</string>
+    <string name="sync_user_profile">Profile</string>
+    <plurals name="sync_count_weights">
+        <item quantity="one">%d weight entry</item>
+        <item quantity="other">%d weight entries</item>
+    </plurals>
+    <plurals name="sync_count_workouts">
+        <item quantity="one">%d workout</item>
+        <item quantity="other">%d workouts</item>
+    </plurals>
+    <plurals name="sync_count_programs">
+        <item quantity="one">%d program</item>
+        <item quantity="other">%d programs</item>
+    </plurals>
+    <plurals name="sync_remote_users">
+        <item quantity="one">%d user is already in the repository.</item>
+        <item quantity="other">%d users are already in the repository.</item>
+    </plurals>
+    <string name="sync_label_repository">Repository</string>
+    <string name="sync_label_last_sync">Last sync</string>
+    <string name="sync_label_pending">Waiting to upload</string>
+    <string name="sync_never">Never</string>
+    <string name="sync_pending_none">Nothing</string>
+    <plurals name="sync_pending_changes">
+        <item quantity="one">%d change</item>
+        <item quantity="other">%d changes</item>
+    </plurals>
+    <string name="sync_syncing">Syncing…</string>
+    <string name="sync_now">Sync now</string>
+    <string name="sync_unlink">Unlink this device</string>
+    <string name="sync_unlink_title">Unlink this device?</string>
+    <string name="sync_unlink_body">The token is removed from this device and it stops syncing. Your users, weights and workouts stay on this device, and nothing is deleted from the repository. Changes that were not uploaded yet will not be sent.</string>
+    <string name="sync_unlink_confirm">Unlink</string>
+    <string name="sync_error_no_network">No connection to GitHub. Your changes are kept and uploaded when the network is back.</string>
+    <string name="sync_error_unauthorized">GitHub rejected the token. It may be wrong, expired or revoked. Create a new one and paste it again.</string>
+    <string name="sync_error_no_private_repository">The token does not give access to any private repository. Create it with access to your private data repository.</string>
+    <string name="sync_error_repository_not_found">The repository cannot be found with this token. It may have been deleted or renamed, or the access removed.</string>
+    <string name="sync_error_no_write_access">The token can read the repository but not write to it. Give it \"Contents\" read and write permission.</string>
+    <string name="sync_error_rate_limited">GitHub\'s request limit was reached. It will be tried again later.</string>
+    <string name="sync_error_rate_limited_minutes">GitHub\'s request limit was reached. Try again in about %1$d min.</string>
+    <string name="sync_error_server">GitHub is having problems. It will be tried again later.</string>
+    <string name="sync_error_conflict">Other devices were uploading at the same time. It will be tried again.</string>
+    <string name="sync_error_too_large">The repository is too big to be synced.</string>
+    <string name="sync_error_invalid_response">GitHub\'s answer was not understood. Try again later.</string>
+    <string name="sync_error_unknown">Something went wrong on this device. Try again.</string>
+
+    <!-- Settings: users, treadmill, appearance, language, permissions, about -->
+    <string name="settings_users_title">Users</string>
+    <string name="settings_users_body">Create, edit or delete the people who train here. To switch quickly, tap the user at the top of the main screen.</string>
+    <string name="settings_users_button">Manage users</string>
+    <string name="delete_user_body_synced">This also deletes all the weights and workouts of this user, on this device and on every device linked through GitHub. It cannot be undone.</string>
+    <string name="settings_treadmill_title">Treadmill</string>
+    <string name="settings_treadmill_none">No treadmill remembered. The app will search for treadmills when it opens.</string>
+    <string name="settings_treadmill_unnamed">A treadmill is remembered.</string>
+    <string name="settings_treadmill_forget">Forget treadmill</string>
+    <string name="settings_treadmill_forget_note">The app will search for treadmills the next time it connects.</string>
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_language_title">Language</string>
+    <string name="language_automatic">Automatic (system)</string>
+    <string name="language_spanish">Español</string>
+    <string name="language_english">English</string>
+    <string name="settings_language_note">The same setting as Android\'s per-app language.</string>
+    <string name="settings_permissions_title">Permissions</string>
+    <string name="settings_perm_bluetooth">Bluetooth (nearby devices)</string>
+    <string name="settings_perm_notifications">Notifications</string>
+    <string name="settings_perm_allowed">Allowed</string>
+    <string name="settings_perm_missing">Not allowed</string>
+    <string name="settings_perm_help">Something is missing. You can allow it in the app settings.</string>
+    <string name="settings_about_title">About</string>
+    <string name="settings_about_version">Version %1$s</string>
+    <string name="settings_recordings_body">Every session is recorded for debugging in the Downloads folder, inside TreadZConsole.</string>
+    <string name="settings_recordings_open">Open Downloads</string>
+    <string name="settings_recordings_share">Share last recording</string>
+
+    <!-- History: sync indicator -->
+    <string name="history_pending_upload">Not uploaded yet</string>
 </resources>

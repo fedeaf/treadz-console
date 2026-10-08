@@ -2,8 +2,12 @@ package com.treadz.console
 
 import android.content.Context
 import android.content.Intent
+import com.treadz.console.settings.AndroidLanguageSettings
+import com.treadz.console.settings.LanguageSettings
 import com.treadz.console.settings.SettingsStore
 import com.treadz.console.settings.SharedPreferencesSettingsStore
+import com.treadz.console.sync.TreadZSync
+import com.treadz.console.sync.service.SyncService
 import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
@@ -24,6 +28,12 @@ interface AppDependencies {
     val settings: SettingsStore
     val userData: UserData
 
+    /** Optional synchronisation with a private GitHub repository (inactive until a token is configured). */
+    val sync: SyncService
+
+    /** The app's own language (Android 13+ per-app language). */
+    val language: LanguageSettings
+
     /** App visibility reported to the backend, and the one way to leave the app. */
     val appLifecycle: AppLifecycle
 
@@ -40,6 +50,8 @@ class RealDependencies(private val context: Context) : AppDependencies {
     override val recorder: WorkoutRecorder by lazy { TreadZTreadmill.recorder(context) }
     override val settings: SettingsStore by lazy { SharedPreferencesSettingsStore(context) }
     override val userData: UserData by lazy { TreadZUserData.get(context) }
+    override val sync: SyncService by lazy { TreadZSync.get(context) }
+    override val language: LanguageSettings by lazy { AndroidLanguageSettings(context) }
     override val appLifecycle: AppLifecycle by lazy { TreadZTreadmill.lifecycle(context) }
     override val exporter: WorkoutExporter by lazy { WorkoutExporter.create(context, BuildConfig.VERSION_NAME) }
     override fun shareIntent(recording: RecordingInfo): Intent = TreadZTreadmill.shareIntent(context, recording)

@@ -2,6 +2,7 @@ package com.treadz.console
 
 import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
+import com.treadz.console.sync.SyncError
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionProblem
@@ -44,6 +45,8 @@ data class MainUiState(
     val activeUser: UserProfile? = null,
     /** Workouts recorded with no active user, waiting to be assigned. */
     val unassignedWorkoutCount: Int = 0,
+    /** The last synchronisation attempt failed with this (only while linked): a discreet mark on the settings button. */
+    val syncError: SyncError? = null,
     /** Pending targets, commands in flight and the last failure of the manual controls. */
     val controls: ControlsState = ControlsState(),
 ) {
@@ -82,6 +85,12 @@ data class MainUiState(
     /** The active user can only change while the belt is stopped (a workout belongs to one person). */
     val canSwitchUser: Boolean
         get() = treadmill.status == BeltStatus.Idle && !startInProgress
+
+    /** Settings are reachable only with the belt at rest, like switching user. */
+    val canOpenSettings: Boolean get() = canSwitchUser
+
+    /** There is a remembered treadmill and the belt is at rest. */
+    val canForgetTreadmill: Boolean get() = rememberedAddress != null && !beltActive && !startInProgress
 
     /**
      * The belt is not at rest: a session is on (starting, running, paused, key removed) or it is still decelerating

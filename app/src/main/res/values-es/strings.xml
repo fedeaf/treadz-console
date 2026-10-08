@@ -327,4 +327,105 @@
     <string name="exit_confirm">Salir</string>
     <string name="exit_keep_background">Dejar en segundo plano</string>
     <string name="exit_belt_moving">La cinta está en marcha: pulsa STOP antes de salir</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_open">Ajustes</string>
+    <string name="settings_sync_problem_marker">Problema de sincronización</string>
+    <string name="settings_belt_locked">Disponible cuando la banda está parada.</string>
+
+    <!-- Settings: sync with GitHub -->
+    <string name="sync_title">Sincronizar con GitHub</string>
+    <string name="sync_intro">Opcional. Comparte usuarios, pesos y entrenamientos entre los dispositivos enlazados al mismo repositorio privado de GitHub y guarda allí una copia. Sin esto, todo se queda en este dispositivo.</string>
+    <string name="sync_token_label">Token de GitHub</string>
+    <string name="sync_token_show">Mostrar</string>
+    <string name="sync_token_hide">Ocultar</string>
+    <string name="sync_token_save">Enlazar</string>
+    <string name="sync_token_checking">Comprobando el token…</string>
+    <string name="sync_token_saved">Token guardado cifrado en este dispositivo. No se vuelve a mostrar.</string>
+    <string name="sync_token_help_title">Cómo crear el token</string>
+    <string name="sync_token_help_body">En github.com abre Settings, Developer settings, Personal access tokens, Fine-grained tokens y crea un token. En \"Repository access\" elige \"Only select repositories\" y selecciona tu repositorio privado de datos. En los permisos da acceso de lectura y escritura a \"Contents\". Copia el token y pégalo aquí.</string>
+    <string name="sync_replace_token_title">Usar un token nuevo</string>
+    <string name="sync_choose_title">Elige el repositorio</string>
+    <string name="sync_choose_body">El token da acceso a varios repositorios privados. Elige el que guarda tus datos de TreadZ.</string>
+    <string name="sync_first_link_title">¿Enlazar este dispositivo?</string>
+    <string name="sync_first_link_body">Todavía no se ha subido nada. Si confirmas, este dispositivo sube los registros siguientes a %1$s. Lo que ya hay en el repositorio se conserva y se combina: no se sobrescribe nada.</string>
+    <string name="sync_first_link_cancel_note">Cancelar no sube nada y olvida el token.</string>
+    <string name="sync_first_link_confirm">Subir y enlazar</string>
+    <string name="sync_first_link_pending">Esperando tu confirmación antes de subir nada.</string>
+    <string name="sync_user_profile">Perfil</string>
+    <plurals name="sync_count_weights">
+        <item quantity="one">%d registro de peso</item>
+        <item quantity="other">%d registros de peso</item>
+    </plurals>
+    <plurals name="sync_count_workouts">
+        <item quantity="one">%d entrenamiento</item>
+        <item quantity="other">%d entrenamientos</item>
+    </plurals>
+    <plurals name="sync_count_programs">
+        <item quantity="one">%d programa</item>
+        <item quantity="other">%d programas</item>
+    </plurals>
+    <plurals name="sync_remote_users">
+        <item quantity="one">Ya hay %d usuario en el repositorio.</item>
+        <item quantity="other">Ya hay %d usuarios en el repositorio.</item>
+    </plurals>
+    <string name="sync_label_repository">Repositorio</string>
+    <string name="sync_label_last_sync">Última sincronización</string>
+    <string name="sync_label_pending">Pendiente de subir</string>
+    <string name="sync_never">Nunca</string>
+    <string name="sync_pending_none">Nada</string>
+    <plurals name="sync_pending_changes">
+        <item quantity="one">%d cambio</item>
+        <item quantity="other">%d cambios</item>
+    </plurals>
+    <string name="sync_syncing">Sincronizando…</string>
+    <string name="sync_now">Sincronizar ahora</string>
+    <string name="sync_unlink">Desvincular este dispositivo</string>
+    <string name="sync_unlink_title">¿Desvincular este dispositivo?</string>
+    <string name="sync_unlink_body">El token se borra de este dispositivo y deja de sincronizar. Tus usuarios, pesos y entrenamientos se quedan en este dispositivo y no se borra nada del repositorio. Los cambios que aún no se hayan subido no se enviarán.</string>
+    <string name="sync_unlink_confirm">Desvincular</string>
+    <string name="sync_error_no_network">Sin conexión con GitHub. Tus cambios se guardan y se suben cuando vuelva la red.</string>
+    <string name="sync_error_unauthorized">GitHub ha rechazado el token. Puede ser incorrecto, haber caducado o estar revocado. Crea uno nuevo y pégalo otra vez.</string>
+    <string name="sync_error_no_private_repository">El token no da acceso a ningún repositorio privado. Créalo con acceso a tu repositorio privado de datos.</string>
+    <string name="sync_error_repository_not_found">No se encuentra el repositorio con este token. Puede haberse borrado o renombrado, o haberse quitado el acceso.</string>
+    <string name="sync_error_no_write_access">El token puede leer el repositorio pero no escribir en él. Dale permiso de lectura y escritura en \"Contents\".</string>
+    <string name="sync_error_rate_limited">Se alcanzó el límite de peticiones de GitHub. Se volverá a intentar más tarde.</string>
+    <string name="sync_error_rate_limited_minutes">Se alcanzó el límite de peticiones de GitHub. Inténtalo de nuevo en unos %1$d min.</string>
+    <string name="sync_error_server">GitHub tiene problemas. Se volverá a intentar más tarde.</string>
+    <string name="sync_error_conflict">Otros dispositivos estaban subiendo a la vez. Se volverá a intentar.</string>
+    <string name="sync_error_too_large">El repositorio es demasiado grande para sincronizarlo.</string>
+    <string name="sync_error_invalid_response">No se entendió la respuesta de GitHub. Inténtalo más tarde.</string>
+    <string name="sync_error_unknown">Algo falló en este dispositivo. Inténtalo de nuevo.</string>
+
+    <!-- Settings: users, treadmill, appearance, language, permissions, about -->
+    <string name="settings_users_title">Usuarios</string>
+    <string name="settings_users_body">Crea, edita o elimina a las personas que entrenan aquí. Para cambiar rápido, toca el usuario en la parte superior de la pantalla principal.</string>
+    <string name="settings_users_button">Gestionar usuarios</string>
+    <string name="delete_user_body_synced">También se eliminan todos los pesos y entrenamientos de este usuario, en este dispositivo y en todos los dispositivos enlazados por GitHub. No se puede deshacer.</string>
+    <string name="settings_treadmill_title">Cinta</string>
+    <string name="settings_treadmill_none">No hay ninguna cinta recordada. La app buscará cintas al abrirse.</string>
+    <string name="settings_treadmill_unnamed">Hay una cinta recordada.</string>
+    <string name="settings_treadmill_forget">Olvidar cinta</string>
+    <string name="settings_treadmill_forget_note">La app buscará cintas la próxima vez que se conecte.</string>
+    <string name="settings_appearance_title">Apariencia</string>
+    <string name="settings_language_title">Idioma</string>
+    <string name="language_automatic">Automático (sistema)</string>
+    <string name="language_spanish">Español</string>
+    <string name="language_english">English</string>
+    <string name="settings_language_note">Es el mismo ajuste que el idioma por app de Android.</string>
+    <string name="settings_permissions_title">Permisos</string>
+    <string name="settings_perm_bluetooth">Bluetooth (dispositivos cercanos)</string>
+    <string name="settings_perm_notifications">Notificaciones</string>
+    <string name="settings_perm_allowed">Permitido</string>
+    <string name="settings_perm_missing">No permitido</string>
+    <string name="settings_perm_help">Falta algún permiso. Puedes permitirlo en los ajustes de la app.</string>
+    <string name="settings_about_title">Acerca de</string>
+    <string name="settings_about_version">Versión %1$s</string>
+    <string name="settings_recordings_body">Cada sesión se graba para depuración en la carpeta Descargas, dentro de TreadZConsole.</string>
+    <string name="settings_recordings_open">Abrir Descargas</string>
+    <string name="settings_recordings_share">Compartir la última grabación</string>
+
+    <!-- History: sync indicator -->
+    <string name="history_pending_upload">Aún sin subir</string>
 </resources>

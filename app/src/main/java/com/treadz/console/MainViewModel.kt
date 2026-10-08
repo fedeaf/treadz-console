@@ -6,6 +6,9 @@ import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.settings.SettingsStore
+import com.treadz.console.sync.SyncError
+import com.treadz.console.sync.service.SyncService
+import com.treadz.console.sync.service.SyncSetup
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionProblem
@@ -20,11 +23,13 @@ import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -45,6 +50,8 @@ class MainViewModel(
     private val settings: SettingsStore,
     private val userData: UserData,
     private val appLifecycle: AppLifecycle,
+    /** Only used to show a discreet error indicator on the settings button; `null` when there is no synchronisation. */
+    sync: SyncService? = null,
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -68,16 +75,23 @@ class MainViewModel(
     /** The manual controls of the live screen (and the STOP of every screen). */
     val controls = ManualControls(controller, viewModelScope, canOperate = { uiState.value.activeUser != null })
 
+    /** The error of the last synchronisation attempt, only while the device is linked. */
+    private val syncError: Flow<SyncError?> =
+        sync?.status?.map { status -> status.error.takeIf { status.setup == SyncSetup.Linked } }?.distinctUntilChanged()
+            ?: flowOf(null)
+
     private val people = combine(
         userData.profiles.activeUser,
         userData.workouts.unassignedWorkouts().map { it.size },
-    ) { user, unassigned -> user to unassigned }
+        syncError,
+    ) { user, unassigned, syncError -> Triple(user, unassigned, syncError) }
 
     /** Everything the state needs besides the controller's connection, treadmill, recording and alerts. */
     private data class Extras(
         val local: Local,
         val user: UserProfile?,
         val unassigned: Int,
+        val syncError: SyncError?,
         val controls: ControlsState,
         val bluetoothEnabled: Boolean,
         val reconnectProblem: ConnectionProblem?,
@@ -90,7 +104,7 @@ class MainViewModel(
         controller.bluetoothEnabled,
         controller.connectionProblem,
     ) { local, people, controls, bluetooth, reconnectProblem ->
-        Extras(local, people.first, people.second, controls, bluetooth, reconnectProblem)
+        Extras(local, people.first, people.second, people.third, controls, bluetooth, reconnectProblem)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -122,6 +136,7 @@ class MainViewModel(
             darkTheme = local.darkTheme,
             activeUser = extras.user,
             unassignedWorkoutCount = extras.unassigned,
+            syncError = extras.syncError,
             controls = extras.controls,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
@@ -358,6 +373,17 @@ class MainViewModel(
 
     fun dismissRecordingNotice() {
         local.update { it.copy(dismissedRecording = recorder.status.value) }
+    }
+
+    /**
+     * Forgets the remembered treadmill, so the app scans next time instead of reconnecting. Only while the belt is at
+     * rest. An open connection is left alone: it is only the memory of it that goes.
+     */
+    fun forgetTreadmill() {
+        if (!uiState.value.canForgetTreadmill) return
+        settings.lastTreadmill = null
+        pickedName = null
+        local.update { it.copy(remembered = null) }
     }
 
     fun setDarkTheme(dark: Boolean) {

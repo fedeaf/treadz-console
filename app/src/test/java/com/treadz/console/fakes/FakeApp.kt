@@ -4,6 +4,7 @@ import android.content.Intent
 import com.treadz.console.AppDependencies
 import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
+import com.treadz.console.sync.service.FakeSyncService
 import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.export.InMemoryExportStorage
@@ -28,6 +29,8 @@ class FakeApp(
         clock = Clock { date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli() },
         zone = zone,
     ),
+    override val sync: FakeSyncService = FakeSyncService(now = { date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli() }),
+    override val language: FakeLanguageSettings = FakeLanguageSettings(),
 ) : AppDependencies {
 
     /** Where exported files end up in tests. */
@@ -39,7 +42,7 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
-    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle) }
+    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync) }
 
     /** A new navigation state, as when the app opens (create it after setting up the profiles). */
     fun newNavigation(): NavigationViewModel = NavigationViewModel(userData.profiles)

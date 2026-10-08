@@ -37,9 +37,13 @@ data class MainActions(
     val onDismissAlert: () -> Unit = {},
     val onDismissRecordingNotice: () -> Unit = {},
     val onShare: (RecordingInfo) -> Unit = {},
-    val onDarkThemeChange: (Boolean) -> Unit = {},
     val onRequestPermissions: () -> Unit = {},
+    /** Opens Android's settings of this app (permissions). */
     val onOpenSettings: () -> Unit = {},
+    /** Opens the app's own settings screen. */
+    val onOpenSettingsScreen: () -> Unit = {},
+    /** Opens Android's Downloads (where the debug recordings are saved). */
+    val onOpenDownloads: () -> Unit = {},
     val onOpenUsers: () -> Unit = {},
     val onOpenWeight: () -> Unit = {},
     val onOpenHistory: () -> Unit = {},
@@ -70,4 +74,6 @@ enum class BluetoothPermission {
 data class PermissionsUi(
     val bluetooth: BluetoothPermission = BluetoothPermission.Granted,
     val notificationsDenied: Boolean = false,
+    /** The notification permission is granted right now (the settings screen shows it even before it was ever asked). */
+    val notificationsGranted: Boolean = true,
 )

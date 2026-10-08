@@ -320,4 +320,11 @@
     <string name="export_error_no_samples">Este entrenamiento no tiene datos que exportar.</string>
     <string name="export_error_storage">No se ha podido guardar el archivo. Comprueba el espacio libre del dispositivo.</string>
     <string name="export_share_title">Compartir entrenamiento</string>
+
+    <!-- Leaving the app (Back on the main screen) -->
+    <string name="exit_title">¿Salir de TreadZ?</string>
+    <string name="exit_body_connected">Se desconectará de la cinta.</string>
+    <string name="exit_confirm">Salir</string>
+    <string name="exit_keep_background">Dejar en segundo plano</string>
+    <string name="exit_belt_moving">La cinta está en marcha: pulsa STOP antes de salir</string>
 </resources>

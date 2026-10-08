@@ -15,6 +15,7 @@ import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
 import com.treadz.console.treadmill.ftms.TransportException
+import com.treadz.console.treadmill.lifecycle.AppLifecycle
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
 import kotlinx.coroutines.CancellationException
@@ -34,12 +35,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Observes the [TreadmillController] and the [WorkoutRecorder] and exposes a single [MainUiState].
  * Treadmill commands: `scan()`, `connect()` and `start()` here, and the manual controls (pause, resume, STOP, speed and
  * incline) through [controls]. Everything but STOP needs an active user.
+ *
+ * It also reconnects by itself, like at app start, when the app comes back to the foreground after the connection
+ * ended without the user's doing (the backend lets go of an idle treadmill after a while in the background).
  */
 class MainViewModel(
     private val controller: TreadmillController,
     private val recorder: WorkoutRecorder,
     private val settings: SettingsStore,
     private val userData: UserData,
+    private val appLifecycle: AppLifecycle,
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -126,6 +131,12 @@ class MainViewModel(
     private var permissionsGranted = false
     private var autoConnectDone = false
 
+    /** The connection ended by itself (or a connection attempt was cut short): reconnect when the app is visible. */
+    private var reconnectWhenVisible = false
+
+    /** The user closed the connection (Exit, "Stop reconnecting"): nothing to resume until they connect again. */
+    private var userEndedConnection = false
+
     /** The name the user picked from the scan list: Android gives no name when it connects by address alone. */
     private var pickedName: Pair<String, String>? = null
 
@@ -151,6 +162,35 @@ class MainViewModel(
             }
         }
 
+        // Tells apart a connection that ended by itself (to resume it when the user is back) from one the user ended.
+        viewModelScope.launch {
+            var previous = controller.connection.value
+            controller.connection.collect { connection ->
+                when (connection) {
+                    is ConnectionState.Connecting, is ConnectionState.Connected -> {
+                        reconnectWhenVisible = false
+                        userEndedConnection = false
+                    }
+                    ConnectionState.Disconnected ->
+                        if ((previous is ConnectionState.Connected || previous is ConnectionState.Reconnecting) && !userEndedConnection) {
+                            reconnectWhenVisible = true
+                        }
+                    is ConnectionState.Reconnecting -> {}
+                }
+                previous = connection
+            }
+        }
+
+        // Exit (from the Back dialog or the notification) disconnects on purpose: the app is not to reconnect.
+        viewModelScope.launch {
+            appLifecycle.exitRequests.collect { userEnded() }
+        }
+
+        // Back in the foreground: pick up a connection that ended by itself while the app was away.
+        viewModelScope.launch {
+            appLifecycle.appInForeground.collect { resumeConnection() }
+        }
+
         // Bluetooth off: nothing is scanned or attempted. Back on: forget the old "Bluetooth is off" error and do the
         // automatic connection that was waiting for it.
         viewModelScope.launch {
@@ -158,6 +198,7 @@ class MainViewModel(
                 if (enabled) {
                     local.update { if (it.problem == ConnectionProblem.BluetoothOff) it.copy(problem = null) else it }
                     autoConnect()
+                    resumeConnection()
                 } else {
                     stopScan()
                 }
@@ -174,6 +215,7 @@ class MainViewModel(
     fun onPermissionsGranted() {
         permissionsGranted = true
         autoConnect()
+        resumeConnection()
     }
 
     /** Once, when the app has its permissions and Bluetooth is on (it waits for either). */
@@ -186,6 +228,24 @@ class MainViewModel(
         } else if (remembered == null) {
             startScan()
         }
+    }
+
+    private fun userEnded() {
+        userEndedConnection = true
+        reconnectWhenVisible = false
+    }
+
+    /**
+     * Reconnects to the remembered treadmill, as at app start, if the connection ended by itself and the app is visible,
+     * has its permissions and has Bluetooth on. Whatever is missing, it is tried again when it arrives.
+     */
+    private fun resumeConnection() {
+        if (!reconnectWhenVisible || !permissionsGranted) return
+        if (!appLifecycle.appInForeground.value || !controller.bluetoothEnabled.value) return
+        val remembered = local.value.remembered ?: return
+        if (controller.connection.value !is ConnectionState.Disconnected) return
+        reconnectWhenVisible = false
+        connect(remembered.address, remembered.name, scanOnFailure = true)
     }
 
     fun startScan() = startScan(keepProblem = false)
@@ -243,10 +303,19 @@ class MainViewModel(
         local.update { it.copy(problem = null) }
         connectJob = viewModelScope.launch {
             val result = controller.connect(address)
-            if (result !is CommandResult.Success) {
-                val problem = (result as? CommandResult.Failure)?.problem ?: ConnectionProblem.Other
-                local.update { it.copy(problem = problem) }
-                if (scanOnFailure && problem != ConnectionProblem.BluetoothOff) startScan(keepProblem = true)
+            val inBackground = !appLifecycle.appInForeground.value
+            when {
+                result is CommandResult.Success -> {}
+                // Refused, or abandoned, because the app is in the background: not an error to show, and nothing to
+                // fall back to. If the app was away, try again when it is back.
+                result is CommandResult.NotAllowed || (result is CommandResult.NotConnected && inBackground) -> {
+                    if (inBackground && !userEndedConnection) reconnectWhenVisible = true
+                }
+                else -> {
+                    val problem = (result as? CommandResult.Failure)?.problem ?: ConnectionProblem.Other
+                    local.update { it.copy(problem = problem) }
+                    if (scanOnFailure && problem != ConnectionProblem.BluetoothOff) startScan(keepProblem = true)
+                }
             }
         }
     }
@@ -261,6 +330,7 @@ class MainViewModel(
      */
     fun stopReconnecting() {
         if (controller.connection.value !is ConnectionState.Reconnecting) return
+        userEnded()
         viewModelScope.launch {
             controller.disconnect()
             local.update { it.copy(problem = null) }

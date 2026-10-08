@@ -320,4 +320,11 @@
     <string name="export_error_no_samples">This workout has no data to export.</string>
     <string name="export_error_storage">The file could not be saved. Check the free space on the device.</string>
     <string name="export_share_title">Share workout</string>
+
+    <!-- Leaving the app (Back on the main screen) -->
+    <string name="exit_title">Exit TreadZ?</string>
+    <string name="exit_body_connected">It will disconnect from the treadmill.</string>
+    <string name="exit_confirm">Exit</string>
+    <string name="exit_keep_background">Keep in background</string>
+    <string name="exit_belt_moving">The belt is moving: press STOP before exiting</string>
 </resources>

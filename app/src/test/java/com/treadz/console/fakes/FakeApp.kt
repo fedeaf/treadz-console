@@ -23,6 +23,7 @@ class FakeApp(
     override val settings: InMemorySettingsStore = InMemorySettingsStore(),
     val date: LocalDate = TODAY,
     zone: ZoneId = ZoneId.systemDefault(),
+    override val appLifecycle: FakeAppLifecycle = FakeAppLifecycle(controller),
     override val userData: InMemoryUserData = InMemoryUserData(
         clock = Clock { date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli() },
         zone = zone,
@@ -38,7 +39,7 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
-    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData) }
+    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle) }
 
     /** A new navigation state, as when the app opens (create it after setting up the profiles). */
     fun newNavigation(): NavigationViewModel = NavigationViewModel(userData.profiles)

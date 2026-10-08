@@ -37,7 +37,7 @@ class ManualControlsSimulatorTest {
     private class Rig(scope: TestScope) {
         val sim = SimulatedTreadmill(scope.backgroundScope)
         val controller = FtmsTreadmillController(sim, scope.backgroundScope, Clock { scope.currentTime })
-        val vm = MainViewModel(controller, FakeWorkoutRecorder(), InMemorySettingsStore(), FakeApp().userData)
+        val vm = FakeApp().let { MainViewModel(controller, FakeWorkoutRecorder(), InMemorySettingsStore(), it.userData, it.appLifecycle) }
 
         /** Speed commands (opcode 0x02) written to the treadmill so far. */
         val speedCommandCount get() = sim.receivedCommands.count { it.toHex().startsWith("02") }

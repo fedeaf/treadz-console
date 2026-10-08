@@ -2,6 +2,8 @@ package com.treadz.console
 
 import android.app.Application
 import android.util.Log
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.treadz.console.lifecycle.ForegroundReporter
 import com.treadz.console.treadmill.android.TreadZTreadmill
 import com.treadz.console.userdata.TreadZUserData
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +23,8 @@ class TreadZApplication : Application() {
         TreadZUserData.get(this)
             .workoutObserver(TreadZTreadmill.controller(this), onError = { Log.e(TAG, "Workout history error", it) })
             .start(processScope)
+        // The backend needs to know whether the app is visible (no scanning or connecting in the background).
+        ForegroundReporter(dependencies.appLifecycle).attachTo(ProcessLifecycleOwner.get())
     }
 
     private companion object {

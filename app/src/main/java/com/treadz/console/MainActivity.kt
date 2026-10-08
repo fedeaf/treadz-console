@@ -23,6 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import com.treadz.console.lifecycle.finishOnExit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
@@ -43,7 +45,7 @@ class MainActivity : ComponentActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData) as T
+                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle) as T
         }
     }
 
@@ -55,6 +57,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // An accepted exit (the Back dialog, or Exit in the notification) closes the task. Collected for the whole life
+        // of the activity, not only while it is visible: the notification's Exit also reaches a stopped activity.
+        finishOnExit(lifecycleScope, dependencies.appLifecycle, ::finishAndRemoveTask)
         setContent {
             var permissions by remember { mutableStateOf(currentPermissions(asked = false)) }
             var asked by rememberSaveable { mutableStateOf(false) }
@@ -101,6 +106,8 @@ class MainActivity : ComponentActivity() {
                     onRequestPermissions = request,
                     onEnableBluetooth = enableBluetooth,
                     onOpenSettings = ::openAppSettings,
+                    onFinish = ::finishAndRemoveTask,
+                    onMoveToBackground = { moveTaskToBack(true) },
                 ),
             )
         }

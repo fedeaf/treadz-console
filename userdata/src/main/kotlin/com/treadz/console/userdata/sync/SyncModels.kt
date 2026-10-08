@@ -47,6 +47,12 @@ data class SyncWeightEntry(
     val deleted: Boolean,
     val date: LocalDate,
     val weightKg: Double,
+    /**
+     * When the entry was created. With [date] and [uuid] it orders the entries identically on every device (see
+     * `WeightEntry`). Repositories written before this field existed lack it: then it is the entry's last change time,
+     * which is also what the schema migration assigns to entries that already exist.
+     */
+    val createdAtMillis: Long = version.updatedAtMillis,
 )
 
 /**

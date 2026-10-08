@@ -250,6 +250,7 @@ internal class RoomSyncStore(
         deleted = deleted,
         date = LocalDate.ofEpochDay(epochDay),
         weightKg = weightKg,
+        createdAtMillis = createdAtMillis,
     )
 
     private fun SyncWeightEntry.toEntity(id: Long, userId: Long) = WeightEntryEntity(
@@ -263,6 +264,7 @@ internal class RoomSyncStore(
         updatedBy = version.deviceId,
         deleted = deleted,
         dirty = false,
+        createdAtMillis = createdAtMillis,
     )
 
     private fun WorkoutEntity.toSync(userUuid: String, ownerName: String) = SyncWorkout(

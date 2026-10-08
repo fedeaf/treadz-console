@@ -66,6 +66,15 @@ abstract class WorkoutObserverContractTest {
             test.runCurrent()
         }
 
+        private var stamp = 0L
+
+        /** One data packet of the real controller at ~2 Hz: every packet is a different state, even with equal values. */
+        suspend fun packet(s: com.treadz.console.treadmill.TreadmillState) {
+            push(s.copy(updatedAtMillis = ++stamp))
+            test.advanceTimeBy(500)
+            test.runCurrent()
+        }
+
         suspend fun wait(seconds: Int) {
             test.advanceTimeBy(seconds * 1000L)
             test.runCurrent()
@@ -136,12 +145,18 @@ abstract class WorkoutObserverContractTest {
 
         val detail = data.workouts.detail(w.id)!!
         assertEquals(w, detail.summary)
-        // Starting + 10 running + 1 decelerating; the final Idle/0 state is not a sample
-        assertEquals(12, detail.samples.size)
-        assertEquals((0..11).toList(), detail.samples.map { it.seq })
+        // Starting + 10 running + 1 decelerating + the packet that reports the belt stopped
+        assertEquals(13, detail.samples.size)
+        assertEquals((0..12).toList(), detail.samples.map { it.seq })
         assertEquals(BeltStatus.Starting, detail.samples.first().beltStatus)
-        assertEquals(BeltStatus.Idle, detail.samples.last().beltStatus)
-        assertEquals(2.0, detail.samples.last().speedKmh, 0.0)
+        assertEquals(2.0, detail.samples[11].speedKmh, 0.0)
+        val last = detail.samples.last()
+        assertEquals(BeltStatus.Idle, last.beltStatus)
+        assertEquals(0.0, last.speedKmh, 0.0)
+        // the treadmill zeroes distance, time and calories in that packet: the sample keeps what the session reached
+        assertEquals(10, last.elapsedSeconds)
+        assertEquals(20, last.distanceMeters)
+        assertEquals(10, last.calories)
         val fifth = detail.samples[5]
         assertEquals(6.0, fifth.speedKmh, 0.0)
         assertEquals(5, fifth.elapsedSeconds)
@@ -173,7 +188,7 @@ abstract class WorkoutObserverContractTest {
         assertTrue("stored ${stored.size}", stored.size in 9..11)
         assertTrue(live.stats.durationSeconds in 8..10)
         stopBelt()
-        assertEquals(12, data.workouts.detail(live.id)!!.samples.size)
+        assertEquals(13, data.workouts.detail(live.id)!!.samples.size)
     }
 
     @Test fun `paused session keeps going and averages ignore the standing time`() = scenario {
@@ -202,9 +217,118 @@ abstract class WorkoutObserverContractTest {
         stopBelt()
         val statuses = data.workouts.detail(only().id)!!.samples.map { it.beltStatus }
         assertEquals(
-            listOf(BeltStatus.Starting, BeltStatus.Running, BeltStatus.Running, BeltStatus.Paused, BeltStatus.Idle),
+            listOf(BeltStatus.Starting, BeltStatus.Running, BeltStatus.Running, BeltStatus.Paused, BeltStatus.Idle, BeltStatus.Idle),
             statuses,
         )
+    }
+
+    // ---- The last sample is the real stop ----
+
+    /** Running for `seconds` at 4 km/h with every packet repeated, as the real treadmill reports it. */
+    private suspend fun Rig.runAt2Hz(seconds: Int, speed: Double = 4.0) {
+        for (second in 1..seconds) {
+            repeat(2) { packet(state(BeltStatus.Running, speed, distance = second, elapsed = second, calories = second / 5)) }
+        }
+    }
+
+    @Test fun `a stop recorded from a 2 Hz stream ends with the belt really stopped`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(10)
+        // Real stop: the belt reports Idle while it decelerates 0.5 km/h per second, keeping distance and time; the
+        // packet that finally reports 0 km/h resets distance, time and calories.
+        for (speed in listOf(3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5, 0.1)) {
+            repeat(2) { packet(state(BeltStatus.Idle, speed, distance = 10, elapsed = 10, calories = 2).copy(targetSpeedKmh = null)) }
+            assertTrue("still recording while the belt moves at $speed", only().isInProgress)
+        }
+        val stopAt = clock.nowMillis()
+        packet(state(BeltStatus.Idle, 0.0).copy(targetSpeedKmh = null))
+
+        val w = only()
+        assertEquals(WorkoutEndReason.Stopped, w.endReason)
+        val samples = data.workouts.detail(w.id)!!.samples
+        val last = samples.last()
+        assertEquals(BeltStatus.Idle, last.beltStatus)
+        assertEquals(0.0, last.speedKmh, 0.0)
+        assertEquals(stopAt, last.timestampMillis)
+        assertEquals(stopAt, w.endedAtMillis)
+        assertEquals("the sample before the stop is the last one still moving", 0.1, samples[samples.size - 2].speedKmh, 0.0)
+        assertEquals(10, last.elapsedSeconds)
+        assertEquals(10, last.distanceMeters)
+        assertEquals(2, last.calories)
+        assertEquals(10, w.stats.durationSeconds)
+        assertEquals(10, w.stats.distanceMeters)
+        assertEquals("belt standing still does not count in the average", 4.0, samples.filter { it.beltStatus == BeltStatus.Running }.map { it.speedKmh }.average(), 0.0)
+        // Only the packets until the stop are stored: the Idle packets after it do not start anything.
+        repeat(6) { packet(state(BeltStatus.Idle, 0.0)) }
+        assertEquals(1, all().size)
+        assertEquals(samples.size, data.workouts.detail(w.id)!!.samples.size)
+    }
+
+    @Test fun `a long deceleration from a high speed is recorded to the end`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(5, speed = 18.0)
+        // 18 km/h at 0.5 km/h per second takes 36 s, much longer than the time without progress that ends a session
+        var speed = 17.5
+        while (speed > 0.0) {
+            repeat(2) { packet(state(BeltStatus.Idle, speed, distance = 5, elapsed = 5)) }
+            speed = maxOf(0.0, (speed * 10 - 5).toDouble() / 10)
+            if (speed == 0.0) break
+        }
+        assertTrue("still in progress at the end of the deceleration", only().isInProgress)
+        packet(state(BeltStatus.Idle, 0.0))
+        val samples = data.workouts.detail(only().id)!!.samples
+        assertEquals(0.0, samples.last().speedKmh, 0.0)
+        assertEquals(WorkoutEndReason.Stopped, only().endReason)
+    }
+
+    @Test fun `the belt that never reports speed 0 ends the session after a few seconds without progress`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(5)
+        repeat(2) { packet(state(BeltStatus.Idle, 0.3, distance = 5, elapsed = 5)) }
+        val firstIdleAt = clock.nowMillis() - 1_000
+        repeat(8) { packet(state(BeltStatus.Idle, 0.3, distance = 5, elapsed = 5)) }
+        assertTrue("4 s without progress: still recording", only().isInProgress)
+        repeat(4) { packet(state(BeltStatus.Idle, 0.3, distance = 5, elapsed = 5)) }
+
+        val w = only()
+        assertEquals(WorkoutEndReason.Stopped, w.endReason)
+        val samples = data.workouts.detail(w.id)!!.samples
+        assertEquals(0.3, samples.last().speedKmh, 0.0)
+        assertTrue("ended ${w.endedAtMillis} after the first idle packet at $firstIdleAt", w.endedAtMillis!! in (firstIdleAt + 5_000)..(firstIdleAt + 7_000))
+        val storedAtEnd = samples.size
+        repeat(4) { packet(state(BeltStatus.Idle, 0.3)) } // nothing more is stored
+        assertEquals(storedAtEnd, data.workouts.detail(w.id)!!.samples.size)
+    }
+
+    @Test fun `a silent controller does not keep a decelerating session open`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(5)
+        packet(state(BeltStatus.Idle, 1.0, distance = 5, elapsed = 5))
+        wait(10) // no more states; the flush ticks notice
+        assertEquals(WorkoutEndReason.Stopped, only().endReason)
+        assertEquals(1.0, data.workouts.detail(only().id)!!.samples.last().speedKmh, 0.0)
+    }
+
+    @Test fun `a safety key removal that decelerates to 0 ends as SafetyKeyRemoved with the stopped sample last`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(5)
+        repeat(2) { packet(state(BeltStatus.SafetyKeyRemoved, 3.0, distance = 5, elapsed = 5)) }
+        repeat(2) { packet(state(BeltStatus.Idle, 1.5, distance = 5, elapsed = 5)) }
+        packet(state(BeltStatus.Idle, 0.0))
+        val w = only()
+        assertEquals(WorkoutEndReason.SafetyKeyRemoved, w.endReason)
+        assertEquals(0.0, data.workouts.detail(w.id)!!.samples.last().speedKmh, 0.0)
+    }
+
+    @Test fun `a connection lost while the belt decelerates still ends as ConnectionLost`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        runAt2Hz(5)
+        repeat(2) { packet(state(BeltStatus.Idle, 1.5, distance = 5, elapsed = 5)) }
+        controller.connection.value = ConnectionState.Reconnecting("AA:BB", 1)
+        settle()
+        val w = only()
+        assertEquals(WorkoutEndReason.ConnectionLost, w.endReason)
+        assertEquals(1.5, data.workouts.detail(w.id)!!.samples.last().speedKmh, 0.0)
     }
 
     // ---- How sessions end ----
@@ -264,7 +388,10 @@ abstract class WorkoutObserverContractTest {
         assertEquals(WorkoutEndReason.SafetyKeyRemoved, w.endReason)
         assertEquals(6, w.stats.durationSeconds)
         assertEquals(13, w.stats.distanceMeters)
-        assertEquals(BeltStatus.SafetyKeyRemoved, data.workouts.detail(w.id)!!.samples.last().beltStatus)
+        val samples = data.workouts.detail(w.id)!!.samples
+        assertEquals(BeltStatus.SafetyKeyRemoved, samples[samples.size - 2].beltStatus)
+        assertEquals(BeltStatus.Idle, samples.last().beltStatus) // the treadmill is idle again: the last sample
+        assertEquals(0.0, samples.last().speedKmh, 0.0)
     }
 
     @Test fun `data stored before a safety key removal is not lost if the connection drops during it`() = scenario {
@@ -297,8 +424,8 @@ abstract class WorkoutObserverContractTest {
         assertEquals(WorkoutEndReason.Stopped, second.endReason)
         assertTrue(second.startedAtMillis >= first.endedAtMillis!!)
         assertEquals(0, data.workouts.detail(second.id)!!.samples.first().seq)
-        assertEquals(5 + 1 + 1, data.workouts.detail(first.id)!!.samples.size)
-        assertEquals(3 + 1 + 1, data.workouts.detail(second.id)!!.samples.size)
+        assertEquals(5 + 1 + 1 + 1, data.workouts.detail(first.id)!!.samples.size)
+        assertEquals(3 + 1 + 1 + 1, data.workouts.detail(second.id)!!.samples.size)
     }
 
     @Test fun `a session that never moved the belt is discarded`() = scenario {
@@ -341,7 +468,7 @@ abstract class WorkoutObserverContractTest {
         assertEquals(1, list.size)
         assertNull(list.single().userId)
         assertEquals(5, list.single().stats.durationSeconds)
-        assertEquals(7, data.workouts.detail(list.single().id)!!.samples.size)
+        assertEquals(8, data.workouts.detail(list.single().id)!!.samples.size)
 
         val ana = (data.profiles.create(validInput("Ana")) as DataResult.Success).value
         assertEquals(DataResult.Success(Unit), data.workouts.assign(list.single().id, ana.id))
@@ -431,7 +558,7 @@ abstract class WorkoutObserverContractTest {
         data.profiles.delete(ana)
         assertNull(data.workouts.detail(anaWorkout.id))
         assertTrue(data.workouts.workouts(ana).first().isEmpty())
-        assertEquals(5, data.workouts.detail(betoWorkout.id)?.samples?.size)
+        assertEquals(6, data.workouts.detail(betoWorkout.id)?.samples?.size)
     }
 
     // ---- Crash safety ----

@@ -4,6 +4,7 @@ import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserProfile
+import com.treadz.console.userdata.activeUserWeightKg
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
 import kotlinx.coroutines.flow.first
@@ -252,6 +253,110 @@ class SyncEngineTest {
         assertTrue(runBlocking { c.data.workouts.workouts(c.profiles().single().id).first() }.isEmpty())
     }
 
+    // ------------------------------------------------------------ the current weight is the same everywhere
+
+    private val today = LocalDate.of(2026, 10, 8)
+
+    private fun Device.latestKg(name: String): Double {
+        val id = profiles().first { it.name == name }.id
+        return runBlocking { data.weights.latestWeight(id).first() }!!.weightKg
+    }
+
+    private fun Device.kgInOrder(name: String): List<Double> {
+        val id = profiles().first { it.name == name }.id
+        return runBlocking { data.weights.entries(id).first() }.map { it.weightKg }
+    }
+
+    /** Two devices, each with an entry of the same day that the other does not know yet; syncs until both know both. */
+    private fun twoEntriesOnTheSameDay(timeA: Long, timeB: Long): Pair<Device, Device> {
+        val a = device("tablet", 1)
+        val ana = a.createUser("Ana")
+        a.sync()
+        val b = device("phone", 2)
+        b.sync()
+        val anaB = b.profiles().single()
+        a.at(timeA); b.at(timeB)
+        a.addWeight(ana, today, 88.0)
+        b.addWeight(anaB, today, 88.2)
+        a.sync(); b.sync(); a.sync()
+        return a to b
+    }
+
+    @Test fun `two devices with two weights on the same day agree on the current weight, the one created last`() {
+        // The local ids disagree (each device numbered its own entry first): the old rule gave 88.0 on one and 88.2 on the other.
+        val (a, b) = twoEntriesOnTheSameDay(timeA = T0 + 1_000, timeB = T0 + 2_000)
+        assertEquals(88.2, a.latestKg("Ana"), 0.0)
+        assertEquals(88.2, b.latestKg("Ana"), 0.0)
+        assertEquals(listOf(88.0, 88.2), a.kgInOrder("Ana"))
+        assertEquals(listOf(88.0, 88.2), b.kgInOrder("Ana"))
+        // the same through the value the calories use
+        assertEquals(88.2, runBlocking { a.data.activeUserWeightKg.first() }!!, 0.0)
+        runBlocking { b.data.profiles.setActiveUser(b.profiles().single().id) } // the active user is per device
+        assertEquals(88.2, runBlocking { b.data.activeUserWeightKg.first() }!!, 0.0)
+    }
+
+    @Test fun `the device that created its entry first can be the one whose entry is the current weight`() {
+        val (a, b) = twoEntriesOnTheSameDay(timeA = T0 + 5_000, timeB = T0 + 2_000)
+        assertEquals(88.0, a.latestKg("Ana"), 0.0)
+        assertEquals(88.0, b.latestKg("Ana"), 0.0)
+        assertEquals(listOf(88.2, 88.0), a.kgInOrder("Ana"))
+        assertEquals(listOf(88.2, 88.0), b.kgInOrder("Ana"))
+    }
+
+    @Test fun `entries created in the very same millisecond are ordered by uuid on both devices`() {
+        val (a, b) = twoEntriesOnTheSameDay(timeA = T0 + 3_000, timeB = T0 + 3_000)
+        assertEquals(a.kgInOrder("Ana"), b.kgInOrder("Ana"))
+        assertEquals(a.latestKg("Ana"), b.latestKg("Ana"), 0.0)
+        // device "tablet" has uuids from seed 1, "phone" from seed 2: the greater uuid is the latest
+        assertEquals(88.2, a.latestKg("Ana"), 0.0)
+    }
+
+    @Test fun `editing an entry does not change which one is the current weight of its day`() {
+        val a = device("tablet", 1)
+        val ana = a.createUser("Ana")
+        a.at(T0 + 1_000)
+        val first = (a.addWeight(ana, today, 88.0) as DataResult.Success).value
+        a.at(T0 + 2_000)
+        a.addWeight(ana, today, 88.2)
+        a.sync()
+        a.at(T0 + 9_000)
+        runBlocking { a.data.weights.update(first.id, today, 87.5) } // edited last, but created first
+        a.sync()
+        val b = device("phone", 2).at(T0 + 10_000)
+        b.sync()
+        assertEquals(88.2, a.latestKg("Ana"), 0.0)
+        assertEquals(88.2, b.latestKg("Ana"), 0.0)
+        assertEquals(listOf(87.5, 88.2), b.kgInOrder("Ana"))
+    }
+
+    @Test fun `a repository written before created_at existed gives the same order on every device`() {
+        val a = device("tablet", 1)
+        val ana = a.createUser("Ana")
+        a.at(T0 + 1_000); a.addWeight(ana, today, 88.0)
+        a.at(T0 + 2_000); a.addWeight(ana, today, 88.2)
+        a.sync()
+        // rewrite weight.csv as the previous version of the app would have: without the created_at column
+        val path = paths().first { it.endsWith("weight.csv") }
+        val old = repo.text(path)!!.trim().lines().map { it.substringBeforeLast(',') }.joinToString("\n", postfix = "\n")
+        assertFalse(old.contains("created_at"))
+        val head = repo.refs.getValue("main")
+        val commit = repo.commits.getValue(head)
+        val blob = "d".repeat(40)
+        repo.blobs[blob] = old.toByteArray()
+        val newTree = "e".repeat(40)
+        repo.trees[newTree] = repo.trees.getValue(commit.tree) + (path to blob)
+        val newCommit = "f".repeat(40)
+        repo.commits[newCommit] = FakeGitHub.Commit(newTree, listOf(head), "as the old app")
+        repo.refs["main"] = newCommit
+
+        val b = device("phone", 2)
+        b.sync()
+        // updated_at is the fallback creation time: here that is the creation time as well
+        assertEquals(88.2, b.latestKg("Ana"), 0.0)
+        assertEquals(listOf(88.0, 88.2), b.kgInOrder("Ana"))
+        assertEquals(a.latestKg("Ana"), b.latestKg("Ana"), 0.0)
+    }
+
     @Test fun `deleting a weight entry keeps a tombstone row in the weight log`() {
         val a = device("tablet", 1)
         val ana = a.createUser("Ana")
@@ -265,7 +370,7 @@ class SyncEngineTest {
         a.sync()
         val csv = repo.text(paths().first { it.endsWith("weight.csv") })!!
         val rows = csv.trim().lines()
-        assertEquals("uuid,date,weight_kg,deleted,updated_at,updated_by", rows.first())
+        assertEquals("uuid,date,weight_kg,deleted,updated_at,updated_by,created_at", rows.first())
         assertEquals(3, rows.size)
         assertTrue(rows.any { it.contains(",,,true,") })
         assertFalse(csv.contains("70"))

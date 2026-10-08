@@ -15,6 +15,8 @@ import androidx.room.PrimaryKey
 //    every query that serves the UI filters them out.
 //  - dirty: the record changed since it was last synchronised (whether it is *eligible* for upload is decided by the
 //    sync queries: generic profile, placeholder weights, workouts in progress or without an owner never are).
+//
+// Since schema version 3 weight entries also carry createdAtMillis (the tie-break between entries of the same day).
 
 @Entity(
     tableName = "users",
@@ -91,6 +93,12 @@ internal data class WeightEntryEntity(
     @ColumnInfo(defaultValue = "''") val updatedBy: String,
     @ColumnInfo(defaultValue = "0") val deleted: Boolean,
     @ColumnInfo(defaultValue = "0") val dirty: Boolean,
+    /**
+     * When the entry was created (since schema version 3). Synchronised and never changed by an edit: together with
+     * the date and the [uuid] it gives every device the same order, hence the same "latest" entry. Unlike the Long
+     * [id] it means the same on every device.
+     */
+    @ColumnInfo(defaultValue = "0") val createdAtMillis: Long,
 )
 
 @Entity(

@@ -37,6 +37,18 @@ import java.time.ZoneId
 internal class Stamper(private val clock: Clock, val deviceId: String, private val uuidSource: () -> String) {
     fun at(previousMillis: Long = 0): Long = maxOf(clock.nowMillis(), previousMillis + 1)
 
+    private var lastCreationMillis = Long.MIN_VALUE
+
+    /**
+     * The creation time of a new weight entry: never equal to the one handed out before by this device, so that the
+     * entries it creates have a total order (the order of creation) whatever the clock resolution.
+     */
+    @Synchronized
+    fun creationTime(): Long {
+        lastCreationMillis = maxOf(clock.nowMillis(), lastCreationMillis + 1)
+        return lastCreationMillis
+    }
+
     fun newUuid(): String = uuidSource()
 }
 
@@ -370,17 +382,21 @@ internal class RoomWorkoutRepository(
 }
 
 /** A new weight entry, with its identity and version. */
-internal fun newWeight(stamper: Stamper, userId: Long, epochDay: Long, weightKg: Double, isPlaceholder: Boolean) = WeightEntryEntity(
-    userId = userId,
-    epochDay = epochDay,
-    weightKg = weightKg,
-    isPlaceholder = isPlaceholder,
-    uuid = stamper.newUuid(),
-    updatedAtMillis = stamper.at(),
-    updatedBy = stamper.deviceId,
-    deleted = false,
-    dirty = true,
-)
+internal fun newWeight(stamper: Stamper, userId: Long, epochDay: Long, weightKg: Double, isPlaceholder: Boolean): WeightEntryEntity {
+    val at = stamper.creationTime()
+    return WeightEntryEntity(
+        userId = userId,
+        epochDay = epochDay,
+        weightKg = weightKg,
+        isPlaceholder = isPlaceholder,
+        uuid = stamper.newUuid(),
+        updatedAtMillis = at,
+        updatedBy = stamper.deviceId,
+        deleted = false,
+        dirty = true,
+        createdAtMillis = at,
+    )
+}
 
 /**
  * Inserts the generic profile with its placeholder weight. Must run inside a transaction. It is flagged as changed

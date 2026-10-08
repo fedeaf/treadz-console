@@ -79,10 +79,10 @@ internal interface UserDao {
 
 @Dao
 internal interface WeightDao {
-    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay, id")
+    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay, createdAtMillis, uuid")
     fun observeEntries(userId: Long): Flow<List<WeightEntryEntity>>
 
-    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay DESC, id DESC LIMIT 1")
+    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay DESC, createdAtMillis DESC, uuid DESC LIMIT 1")
     fun observeLatest(userId: Long): Flow<WeightEntryEntity?>
 
     @Query("SELECT * FROM weight_entries WHERE id = :id AND deleted = 0")
@@ -111,7 +111,7 @@ internal interface WeightDao {
     suspend fun getByUuid(uuid: String): WeightEntryEntity?
 
     /** Every entry of the user, tombstones included, without placeholders: the content of its weight log file. */
-    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND isPlaceholder = 0 ORDER BY epochDay, id")
+    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND isPlaceholder = 0 ORDER BY epochDay, createdAtMillis, uuid")
     suspend fun allForSync(userId: Long): List<WeightEntryEntity>
 
     @Query("SELECT COUNT(*) FROM weight_entries WHERE userId = :userId AND deleted = 0 AND isPlaceholder = 0")

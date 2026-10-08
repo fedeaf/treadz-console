@@ -74,12 +74,16 @@ interface ProfileRepository {
 /** Manual weight log and target weight, per user. */
 interface WeightRepository {
 
-    /** Entries of the user ordered by date ascending, ready for a chart. Empty for an unknown user. */
+    /**
+     * Entries of the user ordered by date ascending, ready for a chart; within a date by creation time (see
+     * [WeightEntry]). Empty for an unknown user.
+     */
     fun entries(userId: Long): Flow<List<WeightEntry>>
 
     /**
-     * The latest entry (the highest date; on a tie the last created). This is the user's current weight,
-     * which feeds calories and other calculations. `null` if the user has no entries.
+     * The latest entry: the last of [entries] (the highest date; on a tie the one created last, see [WeightEntry]).
+     * It is the same on every device that shares the data. This is the user's current weight, which feeds calories
+     * and other calculations. `null` if the user has no entries.
      */
     fun latestWeight(userId: Long): Flow<WeightEntry?>
 

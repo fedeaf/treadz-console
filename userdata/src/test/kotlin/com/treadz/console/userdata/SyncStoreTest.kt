@@ -88,6 +88,36 @@ class SyncStoreTest {
         assertEquals(3, setOf(p.profiles.single().uuid, p.weights.single().uuid, p.workouts.single().uuid).size)
     }
 
+    @Test fun `the current weight follows the synchronised creation time, not the local id`() = runBlocking<Unit> {
+        val ana = createAna()
+        val anaUuid = pending().profiles.single().uuid
+        val day = LocalDate.of(2026, 10, 7)
+        clock.nowMillis = T0 + 5_000
+        data.weights.add(ana.id, day, 88.0) // local id 1, created at T0 + 5 s
+        // two entries of the same day come from another device: one created before ours, one after; the latest by
+        // local id would be whichever was applied last
+        fun remote(uuid: String, kg: Double, createdAt: Long) =
+            SyncWeightEntry(uuid, anaUuid, RecordVersion(createdAt + 100, "dev-b"), false, day, kg, createdAtMillis = createdAt)
+        sync.applyRemote(RemoteChanges(weights = listOf(remote("r-late", 88.4, T0 + 9_000), remote("r-early", 87.9, T0 + 1_000))))
+        assertEquals(listOf(87.9, 88.0, 88.4), data.weights.entries(ana.id).first().map { it.weightKg })
+        assertEquals(88.4, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
+        assertEquals(88.4, data.activeUserWeightKg.first())
+        // creation times survive in what is exposed for upload
+        assertEquals(
+            mapOf("r-late" to T0 + 9_000, "r-early" to T0 + 1_000),
+            sync.weightEntries(anaUuid).filter { it.uuid.startsWith("r-") }.associate { it.uuid to it.createdAtMillis },
+        )
+        // a newer version of an entry from the other device replaces its creation time too
+        sync.applyRemote(RemoteChanges(weights = listOf(remote("r-early", 87.9, T0 + 9_500).copy(version = RecordVersion(T0 + 20_000, "dev-b")))))
+        assertEquals(87.9, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
+        // editing our own entry keeps its place
+        clock.nowMillis = T0 + 30_000
+        val own = data.weights.entries(ana.id).first().first { it.weightKg == 88.0 }
+        data.weights.update(own.id, day, 88.1)
+        assertEquals(T0 + 5_000, data.weights.entries(ana.id).first().first { it.id == own.id }.createdAtMillis)
+        assertEquals(87.9, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
+    }
+
     @Test fun `markSynced clears pending, an edit makes the record pending again, an edit that changes nothing does not`() = runBlocking<Unit> {
         val ana = createAna()
         fun all(p: com.treadz.console.userdata.sync.PendingChanges) =

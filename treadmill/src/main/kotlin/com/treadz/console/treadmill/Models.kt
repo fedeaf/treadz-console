@@ -36,7 +36,12 @@ data class TreadmillState(
     val status: BeltStatus = BeltStatus.Idle,
     /** Real belt speed (includes the ~0.5 km/h per second ramp). */
     val speedKmh: Double = 0.0,
-    /** Target speed requested by the app or by the physical buttons. */
+    /**
+     * Target speed the treadmill is heading to: the one an app command asked for, or the one the console buttons
+     * settled on (it is published once the speed stops changing, together with a `ManualChange`). `null` when unknown,
+     * in particular **while the console buttons are changing the speed and the belt is still ramping**: a UI must not
+     * draw a "target" arrow then.
+     */
     val targetSpeedKmh: Double? = null,
     /** Incline according to the treadmill (the target value, not the measured platform position). */
     val inclinePercent: Double = 0.0,

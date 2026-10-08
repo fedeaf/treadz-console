@@ -134,7 +134,7 @@ fun StepButton(
 
 /**
  * Speed or incline: −/+ around the figure, with the requested target next to it while it is not reached, a thin
- * progress line while the treadmill verifies a command, and a [footer] (presets, "0 %").
+ * progress line while the treadmill verifies a command, and a [footer] (the presets).
  */
 @Composable
 fun AdjustPanel(
@@ -289,13 +289,14 @@ fun SpeedPanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, modif
     }
 }
 
-/** The incline panel: figure, target, −/+ and the "0 %" button. */
+/** The incline panel: figure, target, −/+ and the presets. */
 @Composable
 fun InclinePanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, modifier: Modifier = Modifier) {
     val t = ui.treadmill
     val target = ui.targetIncline?.takeIf { abs(it - t.inclinePercent) >= TARGET_VISIBLE_DIFFERENCE }
     val failure = ui.controls.failure?.takeIf { it.action == ControlAction.Incline }
     val enabled = ui.canAdjust
+    val range = ui.controls.inclineRange
     AdjustPanel(
         label = stringResource(R.string.metric_incline),
         unit = stringResource(R.string.unit_incline),
@@ -316,16 +317,22 @@ fun InclinePanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, mod
         modifier = modifier,
         message = failure?.let { failureMessage(it) },
     ) {
-        PresetButton(
-            text = stringResource(R.string.control_incline_zero),
-            description = stringResource(R.string.control_incline_zero),
-            selected = false,
-            enabled = enabled,
-            height = sizes.presetHeight,
-            tag = "incline_zero",
-            onClick = { actions.onSetIncline(0.0) },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        val shown = ui.targetIncline ?: t.inclinePercent
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (preset in ManualControls.INCLINE_PRESETS) {
+                val clamped = preset.coerceIn(range.min, range.max)
+                PresetButton(
+                    text = Format.incline(clamped),
+                    description = stringResource(R.string.control_incline_preset, Format.incline(clamped)),
+                    selected = ui.canAdjust && abs(shown - clamped) < TARGET_VISIBLE_DIFFERENCE,
+                    enabled = enabled,
+                    height = sizes.presetHeight,
+                    tag = "incline_preset_${preset.toInt()}",
+                    onClick = { actions.onSetIncline(clamped) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 

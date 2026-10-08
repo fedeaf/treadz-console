@@ -6,6 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /** Formatting of the live figures. Always in the system language (decimal comma in Spanish). */
 object Format {
@@ -13,7 +14,9 @@ object Format {
 
     fun speed(kmh: Double, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f", kmh)
 
-    fun incline(percent: Double, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f", percent)
+    /** Whole percent: the treadmill moves in steps of 1 %, so "3" and not "3.0". */
+    fun incline(percent: Double, locale: Locale = Locale.getDefault()): String =
+        String.format(locale, "%d", percent.roundToInt())
 
     fun distanceKm(meters: Int, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.2f", meters / 1000.0)
 

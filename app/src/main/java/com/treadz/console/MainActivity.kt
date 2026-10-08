@@ -1,6 +1,8 @@
 package com.treadz.console
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -63,6 +65,16 @@ class MainActivity : ComponentActivity() {
             }
             val request = { launcher.launch(bluetoothPermissions + Manifest.permission.POST_NOTIFICATIONS) }
 
+            // The result does not matter: the app watches the adapter state by itself.
+            val enableBluetoothLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+            val enableBluetooth: () -> Unit = {
+                try {
+                    enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                } catch (_: ActivityNotFoundException) {
+                    runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                }
+            }
+
             // Requests the permissions the first time the app opens; checks them again when coming back from settings.
             LaunchedEffect(Unit) {
                 if (permissions.bluetooth != BluetoothPermission.Granted) request()
@@ -87,6 +99,7 @@ class MainActivity : ComponentActivity() {
                     onShare = ::share,
                     onShareExport = ::shareExport,
                     onRequestPermissions = request,
+                    onEnableBluetooth = enableBluetooth,
                     onOpenSettings = ::openAppSettings,
                 ),
             )

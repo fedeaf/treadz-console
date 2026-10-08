@@ -9,6 +9,7 @@ import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.FailureCode
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillEvent
@@ -168,7 +169,7 @@ class MainViewModelTest {
         app.controller.connectResult = CommandResult.NotConnected
         app.controller.scanResults = FakeTreadmillController.SAMPLE_DEVICES
         app.viewModel.onPermissionsGranted()
-        assertEquals(CommandResult.NotConnected, app.viewModel.uiState.value.connectFailure)
+        assertEquals(ConnectionProblem.Other, app.viewModel.uiState.value.problem)
         assertTrue(app.viewModel.uiState.value.scanning)
         assertEquals(3, app.viewModel.uiState.value.devices.size)
     }
@@ -184,9 +185,10 @@ class MainViewModelTest {
     }
 
     @Test fun scanErrorIsReported() {
-        controller.scanError = IllegalStateException("Bluetooth is off")
+        controller.scanError = IllegalStateException("some raw technical text")
         vm.startScan()
-        assertEquals("Bluetooth is off", ui.scanFailure)
+        // Never the exception's text: a stable problem the UI translates.
+        assertEquals(ConnectionProblem.Other, ui.problem)
         assertFalse(ui.scanning)
     }
 
@@ -215,7 +217,7 @@ class MainViewModelTest {
         vm.start()
         vm.startScan()
         vm.stopScan()
-        assertTrue(controller.forbiddenCalls.isEmpty())
+        assertEquals(0, controller.disconnectCalls)
         assertEquals(0, controller.manualCommandCount)
     }
 

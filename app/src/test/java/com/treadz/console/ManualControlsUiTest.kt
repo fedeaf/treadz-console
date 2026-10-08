@@ -129,14 +129,25 @@ class ManualControlsUiTest {
         assertEquals(listOf(8.1), controller.speedCommands)
     }
 
-    @Test fun presetsAndZeroInclineSetTheirValue() {
+    @Test fun presetsSetTheirValue() {
         running()
         show()
         rule.onNodeWithTag("speed_preset_12").performClick()
-        rule.onNodeWithTag("incline_zero").performClick()
+        rule.onNodeWithTag("incline_preset_0").performClick()
         rule.waitForIdle()
         assertEquals(listOf(12.0), controller.speedCommands)
         assertEquals(listOf(0.0), controller.inclineCommands)
+    }
+
+    @Test fun inclinePresetsAreZeroThreeSixNineTwelve() {
+        running()
+        controller.showState { it.copy(inclinePercent = 0.0) }
+        show()
+        for (preset in listOf(3, 6, 9, 12)) {
+            rule.onNodeWithTag("incline_preset_$preset").performClick()
+            rule.waitForIdle()
+        }
+        assertEquals(listOf(3.0, 6.0, 9.0, 12.0), controller.inclineCommands)
     }
 
     @Test fun controlsAreDisabledWhenPausedAndResumeWaitsForTheBelt() {
@@ -145,7 +156,7 @@ class ManualControlsUiTest {
         show()
         rule.onNodeWithTag("speed_plus").assertIsNotEnabled()
         rule.onNodeWithTag("speed_preset_6").assertIsNotEnabled()
-        rule.onNodeWithTag("incline_zero").assertIsNotEnabled()
+        for (preset in listOf(0, 3, 6, 9, 12)) rule.onNodeWithTag("incline_preset_$preset").assertIsNotEnabled()
         rule.onNodeWithTag("pause_resume_button").assertIsNotEnabled()
         rule.onNodeWithText("RESUME").assertIsDisplayed()
         rule.onNodeWithTag("control_hint").assertTextContains("Wait for the belt to stop", substring = true)

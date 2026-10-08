@@ -17,13 +17,24 @@
     <string name="scan_searching">Searching…</string>
     <string name="scan_stop">Stop</string>
     <string name="scan_empty">No treadmills found yet. Check that it is on and nearby.</string>
-    <string name="scan_failed">The search failed: %1$s</string>
     <string name="device_unnamed">Unnamed device</string>
     <string name="device_signal">Signal %1$d dBm</string>
     <string name="reconnect_remembered">Reconnect to %1$s</string>
     <string name="connecting_to_message">Connecting to the treadmill…</string>
-    <string name="connect_failed_not_connected">Could not connect to the treadmill.</string>
-    <string name="connect_failed">Could not connect: %1$s</string>
+    <string name="reconnect_generic">Reconnect to the treadmill</string>
+    <string name="bluetooth_off_title">Bluetooth is off</string>
+    <string name="bluetooth_off_body">Turn Bluetooth on to find and connect to your treadmill.</string>
+    <string name="bluetooth_turn_on">Turn on Bluetooth</string>
+    <string name="problem_permission">The Bluetooth permission is missing. Grant it to find and connect to your treadmill.</string>
+    <string name="problem_not_found">Treadmill not found: is it on and nearby?</string>
+    <string name="problem_other">Could not reach the treadmill. Please try again.</string>
+    <string name="conn_waiting_bluetooth">Waiting for Bluetooth…</string>
+    <string name="reconnect_stop">Stop reconnecting</string>
+    <string name="reconnect_stop_and_search">Stop reconnecting and search</string>
+    <string name="reconnecting_bluetooth_off_title">Waiting for Bluetooth</string>
+    <string name="reconnecting_bluetooth_off_body">Bluetooth is off. The app reconnects to the treadmill as soon as you turn it on.</string>
+    <string name="reconnecting_stuck_title">Treadmill not found</string>
+    <string name="reconnecting_stuck_body">The treadmill may be off or out of range. Check that it is on and near this device, or stop reconnecting and search again.</string>
 
     <!-- Live data -->
     <string name="metric_speed">Speed</string>
@@ -273,7 +284,7 @@
     <string name="control_speed_more">Increase speed</string>
     <string name="control_incline_less">Decrease incline</string>
     <string name="control_incline_more">Increase incline</string>
-    <string name="control_incline_zero">0 %</string>
+    <string name="control_incline_preset">%1$s %%</string>
     <string name="control_target">→ %1$s</string>
     <string name="control_speed_preset">%1$s km/h</string>
     <string name="control_presets_label">Speed presets</string>

@@ -2,6 +2,7 @@ package com.treadz.console.fakes
 
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.FailureCode
@@ -12,6 +13,7 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.ValueRange
+import com.treadz.console.treadmill.ftms.TransportException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +33,8 @@ class FakeTreadmillController : TreadmillController {
     override val events = MutableSharedFlow<TreadmillEvent>(extraBufferCapacity = 64)
     override val limits = MutableStateFlow(SafetyLimits())
     override val pendingAlerts = MutableStateFlow<List<TreadmillAlert>>(emptyList())
+    override val bluetoothEnabled = MutableStateFlow(true)
+    override val connectionProblem = MutableStateFlow<ConnectionProblem?>(null)
 
     override fun acknowledgeAlert(alert: TreadmillAlert) {
         pendingAlerts.value = pendingAlerts.value - alert
@@ -57,8 +61,7 @@ class FakeTreadmillController : TreadmillController {
     var scanCalls = 0
     var startCalls = 0
 
-    /** Commands the app must never send (the UI offers no way to disconnect). */
-    val forbiddenCalls = mutableListOf<String>()
+    var disconnectCalls = 0
 
     override fun setLimits(limits: SafetyLimits) {
         this.limits.value = limits
@@ -66,6 +69,7 @@ class FakeTreadmillController : TreadmillController {
 
     override fun scan(): Flow<DiscoveredTreadmill> = flow {
         scanCalls++
+        if (!bluetoothEnabled.value) throw TransportException("Bluetooth off or unavailable", problem = ConnectionProblem.BluetoothOff)
         scanError?.let { throw it }
         scanResults.forEach { emit(it) }
         if (scanNeverEnds) awaitCancellation()
@@ -73,6 +77,9 @@ class FakeTreadmillController : TreadmillController {
 
     override suspend fun connect(address: String): CommandResult {
         connectCalls += address
+        if (!bluetoothEnabled.value) {
+            return CommandResult.Rejected(FailureCode.ConnectionFailed, "Bluetooth off", ConnectionProblem.BluetoothOff)
+        }
         connection.value = ConnectionState.Connecting(address)
         connectGate?.await()
         return if (connectResult is CommandResult.Success) {
@@ -87,7 +94,10 @@ class FakeTreadmillController : TreadmillController {
     }
 
     override suspend fun disconnect() {
-        forbiddenCalls += "disconnect"
+        disconnectCalls++
+        // Like the real controller: abandons a reconnection (or closes the connection) and leaves Disconnected.
+        connection.value = ConnectionState.Disconnected
+        connectionProblem.value = null
     }
 
     override suspend fun start(): CommandResult {
@@ -173,6 +183,17 @@ class FakeTreadmillController : TreadmillController {
 
     fun showReconnecting(attempt: Int = 2, address: String = TREADMILL_ADDRESS) {
         connection.value = ConnectionState.Reconnecting(address, attempt)
+    }
+
+    /** Reconnection that keeps failing: the treadmill is not found. */
+    fun showReconnectingNotFound(attempt: Int = 6) {
+        showReconnecting(attempt)
+        connectionProblem.value = ConnectionProblem.DeviceNotFound
+    }
+
+    /** Bluetooth turned off: the controller waits (and the scan / connect would fail). */
+    fun showBluetoothOff() {
+        bluetoothEnabled.value = false
     }
 
     fun showState(transform: (TreadmillState) -> TreadmillState) {

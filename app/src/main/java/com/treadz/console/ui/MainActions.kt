@@ -30,6 +30,10 @@ data class MainActions(
     val onStopScan: () -> Unit = {},
     val onConnect: (DiscoveredTreadmill) -> Unit = {},
     val onReconnectRemembered: () -> Unit = {},
+    /** Gives up the automatic reconnection and starts looking for treadmills. */
+    val onStopReconnecting: () -> Unit = {},
+    /** Asks Android to turn Bluetooth on. */
+    val onEnableBluetooth: () -> Unit = {},
     val onDismissAlert: () -> Unit = {},
     val onDismissRecordingNotice: () -> Unit = {},
     val onShare: (RecordingInfo) -> Unit = {},

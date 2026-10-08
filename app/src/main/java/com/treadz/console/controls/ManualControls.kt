@@ -337,6 +337,9 @@ class ManualControls(
         /** Speeds offered as presets (km/h). */
         val SPEED_PRESETS = listOf(4.0, 6.0, 8.0, 10.0, 12.0)
 
+        /** Inclines offered as presets (%). */
+        val INCLINE_PRESETS = listOf(0.0, 3.0, 6.0, 9.0, 12.0)
+
         /** The belt counts as stopped below this speed (km/h). The treadmill's own threshold. */
         const val STOPPED_SPEED_KMH = 0.05
 

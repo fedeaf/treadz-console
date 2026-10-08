@@ -2,17 +2,21 @@ package com.treadz.console
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.settings.SettingsStore
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
+import com.treadz.console.treadmill.ftms.TransportException
 import com.treadz.console.userdata.UserData
+import com.treadz.console.userdata.UserProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,8 +48,8 @@ class MainViewModel(
         val scanFinished: Boolean = false,
         val devices: List<DiscoveredTreadmill> = emptyList(),
         val remembered: RememberedTreadmill? = null,
-        val connectFailure: CommandResult? = null,
-        val scanFailure: String? = null,
+        /** Why the last scan or connection started from this screen failed. */
+        val problem: ConnectionProblem? = null,
         val startInProgress: Boolean = false,
         val startFailure: CommandResult? = null,
         val dismissedRecording: RecordingStatus? = null,
@@ -64,24 +68,45 @@ class MainViewModel(
         userData.workouts.unassignedWorkouts().map { it.size },
     ) { user, unassigned -> user to unassigned }
 
+    /** Everything the state needs besides the controller's connection, treadmill, recording and alerts. */
+    private data class Extras(
+        val local: Local,
+        val user: UserProfile?,
+        val unassigned: Int,
+        val controls: ControlsState,
+        val bluetoothEnabled: Boolean,
+        val reconnectProblem: ConnectionProblem?,
+    )
+
+    private val extras = combine(
+        local,
+        people,
+        controls.state,
+        controller.bluetoothEnabled,
+        controller.connectionProblem,
+    ) { local, people, controls, bluetooth, reconnectProblem ->
+        Extras(local, people.first, people.second, controls, bluetooth, reconnectProblem)
+    }
+
     val uiState: StateFlow<MainUiState> = combine(
         controller.connection,
         controller.state,
         recorder.status,
         controller.pendingAlerts,
-        combine(local, people, controls.state) { local, people, controls -> Triple(local, people, controls) },
-    ) { connection, treadmill, recording, alerts, (local, people, controls) ->
+        extras,
+    ) { connection, treadmill, recording, alerts, extras ->
+        val local = extras.local
         MainUiState(
             connection = connection,
             treadmill = treadmill,
             scanning = local.scanning,
             scanFinished = local.scanFinished,
             devices = local.devices,
-            rememberedName = local.remembered?.let { it.name ?: it.address },
+            rememberedName = local.remembered?.name,
             rememberedAddress = local.remembered?.address,
-            rememberedDeviceName = local.remembered?.name,
-            connectFailure = local.connectFailure,
-            scanFailure = local.scanFailure,
+            problem = local.problem,
+            bluetoothEnabled = extras.bluetoothEnabled,
+            reconnectProblem = extras.reconnectProblem,
             startInProgress = local.startInProgress,
             startFailure = local.startFailure,
             alert = alerts.lastOrNull(),
@@ -90,14 +115,15 @@ class MainViewModel(
                 (it is RecordingStatus.Saved || it is RecordingStatus.Failed) && it != local.dismissedRecording
             },
             darkTheme = local.darkTheme,
-            activeUser = people.first,
-            unassignedWorkoutCount = people.second,
-            controls = controls,
+            activeUser = extras.user,
+            unassignedWorkoutCount = extras.unassigned,
+            controls = extras.controls,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
 
     private var scanJob: Job? = null
     private var connectJob: Job? = null
+    private var permissionsGranted = false
     private var autoConnectDone = false
 
     /** The name the user picked from the scan list: Android gives no name when it connects by address alone. */
@@ -112,9 +138,8 @@ class MainViewModel(
                     val name = connection.name
                         ?: pickedName?.takeIf { it.first == connection.address }?.second
                         ?: local.value.remembered?.takeIf { it.address == connection.address }?.name
-                    val remembered = RememberedTreadmill(connection.address, name)
-                    settings.lastTreadmill = remembered
-                    local.update { it.copy(remembered = remembered, connectFailure = null, scanFailure = null) }
+                    saveRemembered(RememberedTreadmill(connection.address, name))
+                    local.update { it.copy(problem = null) }
                 }
             }
         }
@@ -125,11 +150,35 @@ class MainViewModel(
                 if (status != BeltStatus.Idle) local.update { it.copy(startFailure = null) }
             }
         }
+
+        // Bluetooth off: nothing is scanned or attempted. Back on: forget the old "Bluetooth is off" error and do the
+        // automatic connection that was waiting for it.
+        viewModelScope.launch {
+            controller.bluetoothEnabled.collect { enabled ->
+                if (enabled) {
+                    local.update { if (it.problem == ConnectionProblem.BluetoothOff) it.copy(problem = null) else it }
+                    autoConnect()
+                } else {
+                    stopScan()
+                }
+            }
+        }
+    }
+
+    private fun saveRemembered(treadmill: RememberedTreadmill) {
+        settings.lastTreadmill = treadmill
+        local.update { it.copy(remembered = treadmill) }
     }
 
     /** Called once the app has the Bluetooth permissions: reconnects by itself or starts scanning. */
     fun onPermissionsGranted() {
-        if (autoConnectDone) return
+        permissionsGranted = true
+        autoConnect()
+    }
+
+    /** Once, when the app has its permissions and Bluetooth is on (it waits for either). */
+    private fun autoConnect() {
+        if (autoConnectDone || !permissionsGranted || !controller.bluetoothEnabled.value) return
         autoConnectDone = true
         val remembered = local.value.remembered
         if (remembered != null && controller.connection.value is ConnectionState.Disconnected) {
@@ -139,23 +188,23 @@ class MainViewModel(
         }
     }
 
-    fun startScan() = startScan(keepConnectFailure = false)
+    fun startScan() = startScan(keepProblem = false)
 
-    private fun startScan(keepConnectFailure: Boolean) {
-        if (scanJob?.isActive == true) return
+    private fun startScan(keepProblem: Boolean) {
+        if (scanJob?.isActive == true || !controller.bluetoothEnabled.value) return
         local.update {
             it.copy(
                 scanning = true,
                 scanFinished = false,
                 devices = emptyList(),
-                scanFailure = null,
-                connectFailure = if (keepConnectFailure) it.connectFailure else null,
+                problem = if (keepProblem) it.problem else null,
             )
         }
         scanJob = viewModelScope.launch {
             try {
                 withTimeoutOrNull(SCAN_DURATION_MILLIS) {
                     controller.scan().collect { found ->
+                        updateRememberedName(found)
                         local.update { state ->
                             val others = state.devices.filterNot { it.address == found.address }
                             state.copy(devices = (others + found).sortedByDescending { it.rssi })
@@ -165,10 +214,19 @@ class MainViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                local.update { it.copy(scanFailure = e.message ?: e.javaClass.simpleName) }
+                // Never the exception's own text: it is English and only meant for the log.
+                local.update { it.copy(problem = (e as? TransportException)?.problem ?: ConnectionProblem.Other) }
             } finally {
                 local.update { it.copy(scanning = false, scanFinished = true) }
             }
+        }
+    }
+
+    /** The treadmill we remember showed up with a name: keep it (old versions saved it without one). */
+    private fun updateRememberedName(found: DiscoveredTreadmill) {
+        val remembered = local.value.remembered ?: return
+        if (found.address == remembered.address && found.name != null && found.name != remembered.name) {
+            saveRemembered(remembered.copy(name = found.name))
         }
     }
 
@@ -179,21 +237,35 @@ class MainViewModel(
     fun connect(address: String, name: String?) = connect(address, name, scanOnFailure = false)
 
     private fun connect(address: String, name: String?, scanOnFailure: Boolean) {
-        if (connectJob?.isActive == true) return
+        if (connectJob?.isActive == true || !controller.bluetoothEnabled.value) return
         stopScan()
         if (name != null) pickedName = address to name
-        local.update { it.copy(connectFailure = null, scanFailure = null) }
+        local.update { it.copy(problem = null) }
         connectJob = viewModelScope.launch {
             val result = controller.connect(address)
             if (result !is CommandResult.Success) {
-                local.update { it.copy(connectFailure = result) }
-                if (scanOnFailure) startScan(keepConnectFailure = true)
+                val problem = (result as? CommandResult.Failure)?.problem ?: ConnectionProblem.Other
+                local.update { it.copy(problem = problem) }
+                if (scanOnFailure && problem != ConnectionProblem.BluetoothOff) startScan(keepProblem = true)
             }
         }
     }
 
     fun reconnectToRemembered() {
         local.value.remembered?.let { connect(it.address, it.name) }
+    }
+
+    /**
+     * The way out of "Reconnecting": gives up the automatic reconnection (the controller leaves it at once) and
+     * starts looking for treadmills. Only while reconnecting: closing a live connection would stop the belt.
+     */
+    fun stopReconnecting() {
+        if (controller.connection.value !is ConnectionState.Reconnecting) return
+        viewModelScope.launch {
+            controller.disconnect()
+            local.update { it.copy(problem = null) }
+            startScan()
+        }
     }
 
     fun start() {

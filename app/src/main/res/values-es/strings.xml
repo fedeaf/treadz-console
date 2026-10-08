@@ -17,13 +17,24 @@
     <string name="scan_searching">Buscando…</string>
     <string name="scan_stop">Parar</string>
     <string name="scan_empty">Aún no se ha encontrado ninguna cinta. Comprueba que está encendida y cerca.</string>
-    <string name="scan_failed">La búsqueda ha fallado: %1$s</string>
     <string name="device_unnamed">Dispositivo sin nombre</string>
     <string name="device_signal">Señal %1$d dBm</string>
     <string name="reconnect_remembered">Reconectar con %1$s</string>
     <string name="connecting_to_message">Conectando con la cinta…</string>
-    <string name="connect_failed_not_connected">No se ha podido conectar con la cinta.</string>
-    <string name="connect_failed">No se ha podido conectar: %1$s</string>
+    <string name="reconnect_generic">Reconectar con la cinta</string>
+    <string name="bluetooth_off_title">El Bluetooth está apagado</string>
+    <string name="bluetooth_off_body">Enciende el Bluetooth para buscar tu cinta y conectar con ella.</string>
+    <string name="bluetooth_turn_on">Encender el Bluetooth</string>
+    <string name="problem_permission">Falta el permiso de Bluetooth. Concédelo para buscar tu cinta y conectar con ella.</string>
+    <string name="problem_not_found">Cinta no encontrada: ¿está encendida y cerca?</string>
+    <string name="problem_other">No se ha podido contactar con la cinta. Inténtalo de nuevo.</string>
+    <string name="conn_waiting_bluetooth">Esperando al Bluetooth…</string>
+    <string name="reconnect_stop">Dejar de reconectar</string>
+    <string name="reconnect_stop_and_search">Dejar de reconectar y buscar</string>
+    <string name="reconnecting_bluetooth_off_title">Esperando al Bluetooth</string>
+    <string name="reconnecting_bluetooth_off_body">El Bluetooth está apagado. La app reconecta con la cinta en cuanto lo enciendas.</string>
+    <string name="reconnecting_stuck_title">Cinta no encontrada</string>
+    <string name="reconnecting_stuck_body">Puede que la cinta esté apagada o fuera de alcance. Comprueba que está encendida y cerca de este dispositivo, o deja de reconectar y busca de nuevo.</string>
 
     <!-- Live data -->
     <string name="metric_speed">Velocidad</string>
@@ -273,7 +284,7 @@
     <string name="control_speed_more">Subir velocidad</string>
     <string name="control_incline_less">Bajar inclinación</string>
     <string name="control_incline_more">Subir inclinación</string>
-    <string name="control_incline_zero">0 %</string>
+    <string name="control_incline_preset">%1$s %%</string>
     <string name="control_target">→ %1$s</string>
     <string name="control_speed_preset">%1$s km/h</string>
     <string name="control_presets_label">Velocidades predefinidas</string>

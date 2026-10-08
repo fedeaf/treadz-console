@@ -13,6 +13,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *    became a plain index. See [Migration1To2].
  * 3. Weight entries carry `createdAtMillis`, the synchronised tie-break between entries of the same day. See
  *    [Migration2To3].
+ * 4. Programs, fitness tests and the fitness profile: tables `programs`, `fitness_tests` and `start_parameters`;
+ *    `users.maxHeartRateSetAtMillis`; the executed plan and fitness test id on `workouts`. See [Migration3To4].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -28,6 +30,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WeightEntryEntity::class,
         WorkoutEntity::class,
         WorkoutSampleEntity::class,
+        ProgramEntity::class,
+        FitnessTestEntity::class,
+        StartParametersEntity::class,
     ],
     version = UserDataDatabase.VERSION,
     exportSchema = true,
@@ -36,9 +41,12 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun users(): UserDao
     abstract fun weights(): WeightDao
     abstract fun workouts(): WorkoutDao
+    abstract fun programs(): ProgramDao
+    abstract fun fitnessTests(): FitnessTestDao
+    abstract fun startParameters(): StartParametersDao
 
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -48,7 +56,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4())
     }
 }
 
@@ -105,5 +113,52 @@ internal class Migration2To3 : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `weight_entries` ADD COLUMN `createdAtMillis` INTEGER NOT NULL DEFAULT 0")
         db.execSQL("UPDATE `weight_entries` SET `createdAtMillis` = `updatedAtMillis`")
+    }
+}
+
+/**
+ * Version 3 to 4 (milestone 5: programs, fitness tests and the fitness profile). Only adds; every existing row is kept
+ * as it is and nothing is flagged `dirty` (there is nothing new to upload):
+ * - `users.maxHeartRateSetAtMillis`: `NULL` for existing profiles, so an existing manual maximum heart rate counts as
+ *   older than any fitness test;
+ * - `workouts.planJson`, `programId`, `programName`, `fitnessTestId`: `NULL` (no existing workout had a program);
+ * - the new tables `programs`, `fitness_tests` and `start_parameters`, empty.
+ * The statements are the ones of the exported version-4 schema.
+ */
+internal class Migration3To4 : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `users` ADD COLUMN `maxHeartRateSetAtMillis` INTEGER")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `planJson` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `programId` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `programName` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `fitnessTestId` TEXT")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `programs` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` INTEGER NOT NULL, " +
+                "`uuid` TEXT NOT NULL, `name` TEXT NOT NULL, `nameKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `json` TEXT NOT NULL, " +
+                "`createdAtMillis` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL, `updatedBy` TEXT NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_programs_userId` ON `programs` (`userId`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_programs_uuid` ON `programs` (`uuid`)")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `fitness_tests` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` INTEGER NOT NULL, " +
+                "`uuid` TEXT NOT NULL, `testType` TEXT NOT NULL, `startedAtMillis` INTEGER NOT NULL, `isValid` INTEGER NOT NULL, " +
+                "`vo2maxMlKgMin` REAL, `masKmh` REAL, `json` TEXT NOT NULL, `updatedAtMillis` INTEGER NOT NULL, " +
+                "`updatedBy` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_fitness_tests_userId_startedAtMillis` ON `fitness_tests` (`userId`, `startedAtMillis`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_fitness_tests_uuid` ON `fitness_tests` (`uuid`)")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `start_parameters` (`userId` INTEGER NOT NULL, `programId` TEXT NOT NULL, " +
+                "`totalDurationSeconds` INTEGER, `easySpeedKmh` REAL, `maxSpeedKmh` REAL, `maxInclinePercent` REAL, " +
+                "`intensityAdjustmentPercent` INTEGER NOT NULL, `updatedAtMillis` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`userId`, `programId`), " +
+                "FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
     }
 }

@@ -46,6 +46,8 @@ internal object RepoPaths {
 
     fun program(folder: String, programUuid: String) = "$USERS/$folder/programs/$programUuid.json"
 
+    fun fitnessTest(folder: String, testId: String) = "$USERS/$folder/fitness-tests/$testId.json"
+
     /** `users/<folder>/workouts/<yyyy>/<MM>/<yyyyMMdd_HHmmss>` without extension, from the start time in [zone]. */
     fun workoutBase(folder: String, startedAtMillis: Long, zone: ZoneId): String {
         val time = Instant.ofEpochMilli(startedAtMillis).atZone(zone)
@@ -60,11 +62,13 @@ internal object RepoPaths {
         data class Weights(val folder: String) : Kind
         data class WorkoutSummary(val folder: String) : Kind
         data class Program(val folder: String) : Kind
+        data class FitnessTest(val folder: String) : Kind
         data object Other : Kind
     }
 
     private val WORKOUT_JSON = Regex("^users/([^/]+)/workouts/\\d{4}/\\d{2}/[^/]+\\.json$")
     private val PROGRAM_JSON = Regex("^users/([^/]+)/programs/[^/]+\\.json$")
+    private val FITNESS_TEST_JSON = Regex("^users/([^/]+)/fitness-tests/[^/]+\\.json$")
 
     fun classify(path: String): Kind {
         val parts = path.split('/')
@@ -75,6 +79,7 @@ internal object RepoPaths {
             parts.size == 3 && parts[2] == WEIGHT_FILE -> Kind.Weights(folder)
             WORKOUT_JSON.matches(path) -> Kind.WorkoutSummary(folder)
             PROGRAM_JSON.matches(path) -> Kind.Program(folder)
+            FITNESS_TEST_JSON.matches(path) -> Kind.FitnessTest(folder)
             else -> Kind.Other
         }
     }

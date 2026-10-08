@@ -17,6 +17,10 @@ import androidx.room.PrimaryKey
 //    sync queries: generic profile, placeholder weights, workouts in progress or without an owner never are).
 //
 // Since schema version 3 weight entries also carry createdAtMillis (the tie-break between entries of the same day).
+//
+// Since schema version 4: users carry maxHeartRateSetAtMillis; workouts carry the executed plan and the fitness test
+// they were done for; new tables hold programs and fitness test results (documents with the same synchronisation
+// bookkeeping as above) and the last-used start parameters (local only).
 
 @Entity(
     tableName = "users",
@@ -45,6 +49,8 @@ internal data class UserEntity(
     @ColumnInfo(defaultValue = "''") val updatedBy: String,
     @ColumnInfo(defaultValue = "0") val deleted: Boolean,
     @ColumnInfo(defaultValue = "0") val dirty: Boolean,
+    /** When the manual [maxHeartRateBpm] was entered or last confirmed (since schema version 4); `null` if unknown. */
+    val maxHeartRateSetAtMillis: Long? = null,
 )
 
 /** Single row (id 1) holding the active user; cleared by the database itself when that user is deleted. */
@@ -135,6 +141,14 @@ internal data class WorkoutEntity(
     @ColumnInfo(defaultValue = "''") val updatedBy: String,
     @ColumnInfo(defaultValue = "0") val deleted: Boolean,
     @ColumnInfo(defaultValue = "0") val dirty: Boolean,
+    /** The executed plan as a `PlanJson` document (since schema version 4). */
+    val planJson: String? = null,
+    /** `source.programId` of the plan, denormalised for lists. */
+    val programId: String? = null,
+    /** `source.programName` of the plan, denormalised for lists. */
+    val programName: String? = null,
+    /** Id of the fitness test result run in this workout. */
+    val fitnessTestId: String? = null,
 )
 
 @Entity(
@@ -162,4 +176,98 @@ internal data class WorkoutSampleEntity(
     val heartRateBpm: Int?,
     val beltStatus: String,
     val isStale: Boolean,
+)
+
+/**
+ * A free or personalised program of a user (since schema version 4): the `ProgramJson` document plus a few columns to
+ * list and sort without parsing. A deleted program is a tombstone with an empty [json].
+ */
+@Entity(
+    tableName = "programs",
+    foreignKeys = [
+        ForeignKey(
+            entity = UserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("userId"), Index(value = ["uuid"], unique = true)],
+)
+internal data class ProgramEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val userId: Long,
+    /** The program's id (also the name of its file in the repository). */
+    val uuid: String,
+    val name: String,
+    val nameKey: String,
+    val kind: String,
+    val json: String,
+    val createdAtMillis: Long,
+    val updatedAtMillis: Long,
+    val updatedBy: String,
+    val deleted: Boolean,
+    val dirty: Boolean,
+)
+
+/**
+ * A fitness test result of a user (since schema version 4): the `FitnessTestJson` document plus indexed columns taken
+ * from it (kept in step by the repository and by the synchronisation).
+ */
+@Entity(
+    tableName = "fitness_tests",
+    foreignKeys = [
+        ForeignKey(
+            entity = UserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["userId", "startedAtMillis"]), Index(value = ["uuid"], unique = true)],
+)
+internal data class FitnessTestEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val userId: Long,
+    /** The result's id (also the name of its file in the repository). */
+    val uuid: String,
+    /** `FitnessTestType` name. */
+    val testType: String,
+    val startedAtMillis: Long,
+    /** `Validity.Valid`. */
+    val isValid: Boolean,
+    val vo2maxMlKgMin: Double?,
+    val masKmh: Double?,
+    val json: String,
+    val updatedAtMillis: Long,
+    val updatedBy: String,
+    val deleted: Boolean,
+    val dirty: Boolean,
+)
+
+/**
+ * The start parameters last used for a program by a user (since schema version 4). Local to the device, never
+ * synchronised. [programId] is a user program id or a `standard-...` id, so it is not a foreign key.
+ */
+@Entity(
+    tableName = "start_parameters",
+    primaryKeys = ["userId", "programId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = UserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+internal data class StartParametersEntity(
+    val userId: Long,
+    val programId: String,
+    val totalDurationSeconds: Int?,
+    val easySpeedKmh: Double?,
+    val maxSpeedKmh: Double?,
+    val maxInclinePercent: Double?,
+    val intensityAdjustmentPercent: Int,
+    val updatedAtMillis: Long,
 )

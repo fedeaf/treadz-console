@@ -1,5 +1,10 @@
 package com.treadz.console.sync.engine
 
+import com.treadz.console.programs.fitness.FitnessTestJson
+import com.treadz.console.programs.fitness.FitnessTestType
+import com.treadz.console.programs.fitness.Validity
+import com.treadz.console.programs.json.ProgramJson
+import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.PendingChanges
 import com.treadz.console.userdata.sync.ProgramDocument
 import java.time.Instant
@@ -7,7 +12,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Readable commit messages, e.g. `Fede · workout 2026-10-08 00:40 · 45 min · 5.2 km`. */
+/**
+ * Readable commit messages, e.g. `Fede · workout 2026-10-08 00:40 · 45 min · 5.2 km`,
+ * `Fede · program "Norwegian 4x4"` or `Fede · fitness test 2026-10-08 10:00 · Ebbeling walk · VO2max 41.0`.
+ */
 internal object CommitMessages {
     private val MINUTE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
     private val DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ROOT)
@@ -15,9 +23,15 @@ internal object CommitMessages {
     private const val UNNAMED = "User"
 
     /** [names]: profile name by user uuid. */
-    fun build(changes: PendingChanges, programs: List<ProgramDocument>, names: Map<String, String>, zone: ZoneId): String {
+    fun build(
+        changes: PendingChanges,
+        programs: List<ProgramDocument>,
+        fitnessTests: List<FitnessTestDocument>,
+        names: Map<String, String>,
+        zone: ZoneId,
+    ): String {
         fun name(uuid: String) = names[uuid]?.takeIf { it.isNotBlank() } ?: UNNAMED
-        val single = changes.count + programs.size == 1
+        val single = changes.count + programs.size + fitnessTests.size == 1
         if (single) {
             changes.workouts.firstOrNull()?.let { w ->
                 val start = Instant.ofEpochMilli(w.startedAtMillis).atZone(zone)
@@ -42,18 +56,44 @@ internal object CommitMessages {
             changes.profiles.firstOrNull()?.let { p ->
                 return listOf(name(p.uuid), if (p.deleted) "profile deleted" else "profile").joinToString(SEP)
             }
-            programs.firstOrNull()?.let { return listOf(name(it.userUuid), if (it.deleted) "program deleted" else "program").joinToString(SEP) }
+            programs.firstOrNull()?.let { return program(it, name(it.userUuid)) }
+            fitnessTests.firstOrNull()?.let { return fitnessTest(it, name(it.userUuid), zone) }
         }
         val parts = buildList {
             count(changes.workouts.size, "workout")?.let(::add)
             count(changes.weights.size, "weight entry", "weight entries")?.let(::add)
             count(changes.profiles.size, "profile")?.let(::add)
             count(programs.size, "program")?.let(::add)
+            count(fitnessTests.size, "fitness test")?.let(::add)
         }
         val users = (changes.profiles.map { it.uuid } + changes.weights.map { it.userUuid } + changes.workouts.map { it.userUuid } +
-            programs.map { it.userUuid }).distinct().map(::name).sorted()
+            programs.map { it.userUuid } + fitnessTests.map { it.userUuid }).distinct().map(::name).sorted()
         val who = if (users.isEmpty()) "" else users.joinToString(", ", prefix = SEP)
         return "Sync$SEP${parts.joinToString(", ")}$who"
+    }
+
+    private fun program(doc: ProgramDocument, owner: String): String {
+        if (doc.deleted) return listOf(owner, "program deleted").joinToString(SEP)
+        val title = runCatching { ProgramJson.decode(doc.json, validate = false).name }.getOrNull()
+        return listOf(owner, if (title.isNullOrBlank()) "program" else "program \"$title\"").joinToString(SEP)
+    }
+
+    private fun fitnessTest(doc: FitnessTestDocument, owner: String, zone: ZoneId): String {
+        if (doc.deleted) return listOf(owner, "fitness test deleted").joinToString(SEP)
+        val result = runCatching { FitnessTestJson.decode(doc.json) }.getOrNull() ?: return listOf(owner, "fitness test").joinToString(SEP)
+        val parts = mutableListOf(owner, "fitness test ${MINUTE.format(Instant.ofEpochMilli(result.startedAtMillis).atZone(zone))}")
+        parts += when (result.testType) {
+            FitnessTestType.EbbelingWalk -> "Ebbeling walk"
+            FitnessTestType.MaxIncrementalRun -> "max incremental run"
+        }
+        val outputs = result.outputs
+        if (result.validity != Validity.Valid || outputs == null) {
+            parts += "invalid"
+        } else {
+            parts += "VO2max %.1f".format(Locale.ROOT, outputs.vo2maxMlKgMin)
+            outputs.masKmh?.let { parts += "MAS %.1f km/h".format(Locale.ROOT, it) }
+        }
+        return parts.joinToString(SEP)
     }
 
     private fun count(n: Int, one: String, many: String = one + "s"): String? = when (n) {

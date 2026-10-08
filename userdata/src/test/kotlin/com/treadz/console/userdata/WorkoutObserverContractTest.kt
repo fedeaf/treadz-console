@@ -167,6 +167,141 @@ abstract class WorkoutObserverContractTest {
         assertNull(observer.activeWorkoutId.value)
     }
 
+    // ---- Plan and fitness test link ----
+
+    private val plan = hillPlan()
+
+    @Test fun `a plan announced before the belt moves is attached to the session that starts`() = scenario {
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        settle()
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(5)
+        // while it runs, the summary already says what it is
+        val live = all().single()
+        assertEquals("standard-hill", live.programId)
+        assertEquals(plan.source.programName, live.programName)
+        stopBelt()
+
+        val w = only()
+        assertEquals("standard-hill", w.programId)
+        assertNull(w.fitnessTestId)
+        val detail = data.workouts.detail(w.id)!!
+        assertEquals(plan, detail.plan)
+        assertEquals(plan.source, detail.plan!!.source)
+        assertEquals(plan.parameters, detail.plan.parameters)
+    }
+
+    @Test fun `a link announced during the session is attached to it`() = scenario {
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(4)
+        observer.linkNextSession(WorkoutLink(fitnessTestId = TEST_1))
+        run(2, startElapsed = 4)
+        observer.linkNextSession(WorkoutLink(plan = plan)) // a second part merges with the first
+        settle()
+        stopBelt()
+
+        val w = only()
+        assertEquals(TEST_1, w.fitnessTestId)
+        assertEquals("standard-hill", w.programId)
+        assertEquals(plan, data.workouts.detail(w.id)!!.plan)
+    }
+
+    @Test fun `a link is for one session only`() = scenario {
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        settle()
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+        wait(5)
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+
+        val (second, first) = all()
+        assertNull(second.programId)
+        assertNull(data.workouts.detail(second.id)!!.plan)
+        assertEquals("standard-hill", first.programId)
+    }
+
+    @Test fun `a link that waits too long, or is cleared, is dropped`() = scenario(WorkoutObserverConfig(linkValidityMs = 30_000)) {
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        wait(31)
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+        assertNull(only().programId)
+
+        wait(5)
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        settle()
+        observer.clearLink()
+        settle()
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+        assertTrue(all().all { it.programId == null })
+    }
+
+    @Test fun `a link is kept when the session ends by a lost connection`() = scenario {
+        observer.linkNextSession(WorkoutLink(plan = plan, fitnessTestId = TEST_2))
+        settle()
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        controller.connection.value = com.treadz.console.treadmill.ConnectionState.Reconnecting("AA:BB", 1)
+        settle()
+        val w = only()
+        assertEquals(WorkoutEndReason.ConnectionLost, w.endReason)
+        assertEquals("standard-hill", w.programId)
+        assertEquals(TEST_2, w.fitnessTestId)
+    }
+
+    @Test fun `a workout can also be linked later by id, and linking twice changes nothing`() = scenario {
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+        val id = only().id
+        assertEquals(DataResult.Success(Unit), data.workouts.link(id, WorkoutLink(plan = plan)))
+        assertEquals(DataResult.Success(Unit), data.workouts.link(id, WorkoutLink(fitnessTestId = TEST_1)))
+        assertEquals(DataResult.Success(Unit), data.workouts.link(id, WorkoutLink(fitnessTestId = TEST_1)))
+        assertEquals(DataResult.Success(Unit), data.workouts.link(id, WorkoutLink()))
+        val w = only()
+        assertEquals("standard-hill", w.programId)
+        assertEquals(TEST_1, w.fitnessTestId)
+        assertEquals(plan, data.workouts.detail(id)!!.plan)
+        assertEquals(DataResult.NotFound, data.workouts.link(999, WorkoutLink(plan = plan)))
+    }
+
+    @Test fun `deleting a workout deletes its plan`() = scenario {
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        settle()
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(3)
+        stopBelt()
+        val id = only().id
+        data.workouts.delete(id)
+        assertNull(data.workouts.detail(id))
+        assertTrue(all().isEmpty())
+    }
+
+    @Test fun `a link announced before the observer started is delivered when it does`() = runTest {
+        val clock = Clock { T0 + testScheduler.currentTime }
+        val data = create(clock, testScheduler)
+        val controller = FakeTreadmill()
+        val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob())
+        val observer = data.workoutObserver(controller, clock)
+        val user = (data.profiles.create(validInput("Ana")) as DataResult.Success).value
+        observer.linkNextSession(WorkoutLink(plan = plan))
+        observer.start(scope)
+        runCurrent()
+        controller.state.value = state(BeltStatus.Starting, speed = 0.0)
+        runCurrent()
+        controller.state.value = state(BeltStatus.Running, 8.0, elapsed = 1, distance = 2)
+        runCurrent()
+        assertEquals("standard-hill", data.workouts.workouts(user.id).first().single().programId)
+        observer.stop()
+        scope.cancel()
+    }
+
     @Test fun `heart rate is null in the summary without a monitor`() = scenario {
         push(state(BeltStatus.Starting, speed = 0.0))
         run(5, hr = null)

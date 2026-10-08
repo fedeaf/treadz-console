@@ -20,7 +20,6 @@ import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
-import com.treadz.console.userdata.sync.InMemoryProgramDocuments
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,7 +69,8 @@ class Device(
         seedGenericProfile = seedGenericProfile,
         uuidSource = { UUID(seed, ++uuidCounter).toString() },
     )
-    val programs = InMemoryProgramDocuments()
+    val programs = data.programDocuments
+    val fitnessTests = data.fitnessTestDocuments
     val state = InMemorySyncStateStore()
     val tokens = InMemoryTokenStore(TOKEN)
     val scheduler = RecordingScheduler()
@@ -82,11 +82,11 @@ class Device(
         .addInterceptor(github)
         .build()
     val client = RestGitHubClient(http, tokens::get, nowMillis = { clock.nowMillis })
-    val engine = SyncEngine(client, data.sync, programs, state, clock, ZoneOffset.UTC, maxAttempts = maxAttempts, pauseBeforeRetry = {})
+    val engine = SyncEngine(client, data.sync, programs, fitnessTests, state, clock, ZoneOffset.UTC, maxAttempts = maxAttempts, pauseBeforeRetry = {})
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
 
     /** Created on first use: it restores its status from the token and state as they are at that moment. */
-    val service: DefaultSyncService by lazy { DefaultSyncService(client, engine, tokens, state, data.sync, programs, scheduler, scope, clock) }
+    val service: DefaultSyncService by lazy { DefaultSyncService(client, engine, tokens, state, data.sync, programs, fitnessTests, scheduler, scope, clock) }
 
     /** Moves this device's clock and returns it. */
     fun at(millis: Long): Device { clock.nowMillis = millis; return this }

@@ -2,6 +2,7 @@ package com.treadz.console.userdata.room
 
 import androidx.room.withTransaction
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.Validation
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.sync.ApplyResult
@@ -30,6 +31,9 @@ internal class RoomSyncStore(
     private val users = db.users()
     private val weights = db.weights()
     private val workouts = db.workouts()
+    private val programs = db.programs()
+    private val fitnessTests = db.fitnessTests()
+    private val startParameters = db.startParameters()
 
     override val deviceId: String get() = stamper.deviceId
 
@@ -38,7 +42,7 @@ internal class RoomSyncStore(
 
     override val pendingWorkoutIds: Flow<Set<Long>> = workouts.observePendingIds().map { it.toSet() }
 
-    override suspend fun profile(uuid: String): SyncProfile? = users.getByUuid(uuid)?.toSync()
+    override suspend fun profile(uuid: String): SyncProfile? = db.withTransaction { users.getByUuid(uuid)?.toSync() }
 
     override suspend fun pendingChanges(): PendingChanges = db.withTransaction {
         val pendingUsers = users.pending()
@@ -139,6 +143,9 @@ internal class RoomSyncStore(
         weights.markDeletedForUser(local.id, at, version.deviceId)
         workouts.deleteSamplesForUser(local.id)
         workouts.markDeletedForUser(local.id, at, version.deviceId)
+        programs.markDeletedForUser(local.id, at, version.deviceId)
+        fitnessTests.markDeletedForUser(local.id, at, version.deviceId)
+        startParameters.deleteForUser(local.id)
         users.clearActiveIf(local.id)
     }
 
@@ -206,21 +213,27 @@ internal class RoomSyncStore(
 
     private fun UserEntity.version() = RecordVersion(updatedAtMillis, updatedBy)
 
-    private fun UserEntity.toSync() = SyncProfile(
-        uuid = uuid,
-        version = version(),
-        deleted = deleted,
-        name = name,
-        sex = toProfile().sex,
-        heightCm = heightCm,
-        birthDate = LocalDate.ofEpochDay(birthEpochDay),
-        restingHeartRateBpm = restingHeartRateBpm,
-        maxHeartRateBpm = maxHeartRateBpm,
-        fitnessLevel = toProfile().fitnessLevel,
-        goal = toProfile().goal,
-        targetWeightKg = targetWeightKg,
-        createdAtMillis = createdAtMillis,
-    )
+    private suspend fun UserEntity.toSync(): SyncProfile {
+        val profile = toProfile()
+        val results = fitnessTests.liveForUser(id).mapNotNull { readFitnessResult(it.json) }
+        return SyncProfile(
+            uuid = uuid,
+            version = version(),
+            deleted = deleted,
+            name = name,
+            sex = profile.sex,
+            heightCm = heightCm,
+            birthDate = profile.birthDate,
+            restingHeartRateBpm = restingHeartRateBpm,
+            maxHeartRateBpm = maxHeartRateBpm,
+            fitnessLevel = profile.fitnessLevel,
+            goal = profile.goal,
+            targetWeightKg = targetWeightKg,
+            createdAtMillis = createdAtMillis,
+            maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
+            fitness = if (deleted) null else FitnessProfiles.snapshot(results, profile.sex, profile.birthDate),
+        )
+    }
 
     private fun SyncProfile.toEntity(id: Long) = UserEntity(
         id = id,
@@ -241,6 +254,7 @@ internal class RoomSyncStore(
         updatedBy = version.deviceId,
         deleted = deleted,
         dirty = false,
+        maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
     )
 
     private fun WeightEntryEntity.toSync(userUuid: String) = SyncWeightEntry(
@@ -277,6 +291,8 @@ internal class RoomSyncStore(
         endedAtMillis = endedAtMillis ?: startedAtMillis,
         endReason = toSummary().endReason ?: com.treadz.console.userdata.WorkoutEndReason.Interrupted,
         stats = toSummary().stats,
+        planJson = planJson,
+        fitnessTestId = fitnessTestId,
     )
 
     private fun SyncWorkout.toEntity(id: Long, userId: Long) = WorkoutEntity(
@@ -298,5 +314,9 @@ internal class RoomSyncStore(
         updatedBy = version.deviceId,
         deleted = deleted,
         dirty = false,
+        planJson = planJson,
+        programId = readPlan(planJson)?.source?.programId,
+        programName = readPlan(planJson)?.source?.programName,
+        fitnessTestId = fitnessTestId,
     )
 }

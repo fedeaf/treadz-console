@@ -16,6 +16,11 @@ data class WorkoutObserverConfig(
     val idleStallMs: Long = 5_000,
     /** Longest the session waits for the speed to reach 0 after the belt first reported `Idle` while moving. */
     val idleMaxMs: Long = 60_000,
+    /**
+     * A link announced with [WorkoutHistoryObserver.linkNextSession] while no session runs waits at most this long for
+     * the session to start; later it is dropped (the program or test never got the belt moving).
+     */
+    val linkValidityMs: Long = 60_000,
     /** Samples kept in memory if the database keeps failing; the oldest are dropped beyond this. */
     val maxBufferedSamples: Int = 20_000,
 )

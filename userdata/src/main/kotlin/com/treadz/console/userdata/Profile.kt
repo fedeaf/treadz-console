@@ -41,6 +41,13 @@ data class UserProfile(
      * instead of the empty name and offers to personalise it. It stops being generic when it gets a name.
      */
     val isGeneric: Boolean = false,
+    /**
+     * When [maxHeartRateBpm] was entered or last confirmed by the user (epoch ms); `null` when there is no manual value
+     * or when it predates this field (an existing value without a time counts as **older** than any test, see
+     * `HeartRateMaxPolicy`). The repository sets it: to "now" when a manual value is set or changed, cleared with the
+     * value, and refreshed by [FitnessTestRepository.keepManualHeartRateMax]. Synchronised with the profile.
+     */
+    val maxHeartRateSetAtMillis: Long? = null,
 ) {
     /** Age in whole years on [date] (never negative). */
     fun ageOn(date: LocalDate): Int = Period.between(birthDate, date).years.coerceAtLeast(0)
@@ -48,7 +55,14 @@ data class UserProfile(
     /** Maximum heart rate estimated from the age on [date], see [HeartRateEstimates.maxFromAge]. */
     fun estimatedMaxHeartRateBpm(date: LocalDate): Int = HeartRateEstimates.maxFromAge(ageOn(date))
 
-    /** The maximum heart rate to use on [date]: the one set by the user or, if none, the estimate. */
+    /**
+     * The manual maximum heart rate on [date], or else the age-based estimate.
+     *
+     * **Superseded.** It knows nothing about the maximum heart rate measured by the fitness tests. From milestone 5
+     * on, the value to use for zones, safety limits and tests is the decision of the policy:
+     * [FitnessTestRepository.heartRateMax] (manual, else measured, else estimated; with the question for the user when
+     * a newer test disagrees with the manual value). This function keeps working as before for existing callers.
+     */
     fun effectiveMaxHeartRateBpm(date: LocalDate): Int = maxHeartRateBpm ?: estimatedMaxHeartRateBpm(date)
 
     /** `true` when [effectiveMaxHeartRateBpm] is an estimate (the user did not set a maximum heart rate). */

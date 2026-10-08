@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -258,6 +259,188 @@ class MigrationTest {
             assertEquals(87.9, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
         } finally {
             db.close()
+        }
+    }
+
+    // ---- 3 to 4 ----
+
+    /**
+     * A version-3 database as a tablet that has been synchronising would have it: two real profiles (one with a manual
+     * maximum heart rate), the generic one, weights, workouts (finished, interrupted, in progress) with samples, a
+     * tombstone, and a mix of pending and synchronised rows.
+     */
+    private fun populateVersion3(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "INSERT INTO users (id, name, nameKey, sex, heightCm, birthEpochDay, restingHeartRateBpm, maxHeartRateBpm, fitnessLevel, goal, " +
+                "targetWeightKg, createdAtMillis, isGeneric, uuid, updatedAtMillis, updatedBy, deleted, dirty) VALUES " +
+                "(1, 'Ana', 'ana', 'Female', 168, 6764, 55, 172, 'Intermediate', 'LoseWeight', 62.5, $T0, 0, 'user-ana', ${T0 + 10}, 'tablet-1', 0, 0), " +
+                "(2, 'Beto', 'beto', 'Male', 181, 5000, NULL, NULL, NULL, NULL, NULL, ${T0 + 5000}, 0, 'user-beto', ${T0 + 20}, 'phone-2', 0, 1), " +
+                "(3, '', '', 'Male', 180, 5900, NULL, NULL, NULL, NULL, NULL, ${T0 + 9000}, 1, 'user-generic', ${T0 + 30}, 'tablet-1', 0, 1), " +
+                "(4, 'Gone', 'gone', 'Male', 175, 5100, NULL, NULL, NULL, NULL, NULL, ${T0 + 100}, 0, 'user-gone', ${T0 + 40}, 'tablet-1', 1, 1)",
+        )
+        db.execSQL("INSERT INTO active_user (id, userId) VALUES (1, 1)")
+        for (i in 0 until 12) {
+            db.execSQL(
+                "INSERT INTO weight_entries (userId, epochDay, weightKg, isPlaceholder, uuid, updatedAtMillis, updatedBy, deleted, dirty, createdAtMillis) " +
+                    "VALUES (1, ${20000 + i * 7}, ${68.0 - i * 0.2}, 0, 'w-$i', ${T0 + i}, 'tablet-1', 0, ${i % 2}, ${T0 + i})",
+            )
+        }
+        db.execSQL(
+            "INSERT INTO weight_entries (userId, epochDay, weightKg, isPlaceholder, uuid, updatedAtMillis, updatedBy, deleted, dirty, createdAtMillis) " +
+                "VALUES (3, 20200, 80.0, 1, 'w-placeholder', $T0, 'tablet-1', 0, 1, $T0)",
+        )
+        val workouts = listOf(
+            Triple(1, "'user-ana'", "'Stopped'"), Triple(2, "'user-ana'", "'ConnectionLost'"),
+            Triple(3, "'user-beto'", "'SafetyKeyRemoved'"), Triple(4, "NULL", "'Stopped'"), Triple(5, "'user-ana'", "NULL"),
+        )
+        for ((id, owner, reason) in workouts) {
+            val start = T0 + id * 86_400_000L
+            val ended = if (reason == "NULL") "NULL" else "${start + 60_000}"
+            val userId = when (owner) { "'user-ana'" -> "1"; "'user-beto'" -> "2"; else -> "NULL" }
+            db.execSQL(
+                "INSERT INTO workouts (id, userId, startedAtMillis, endedAtMillis, endReason, durationSeconds, distanceMeters, calories, " +
+                    "averageSpeedKmh, maxSpeedKmh, averageHeartRateBpm, maxHeartRateBpm, maxInclinePercent, uuid, updatedAtMillis, updatedBy, deleted, dirty) " +
+                    "VALUES ($id, $userId, $start, $ended, $reason, 60, 133, 6, 8.0, 8.5, 140, 155, 1.5, 'workout-$id', ${start + 60_000}, 'tablet-1', 0, ${id % 2})",
+            )
+            for (seq in 0 until 60) {
+                db.execSQL(
+                    "INSERT INTO workout_samples (workoutId, seq, timestampMillis, elapsedSeconds, speedKmh, targetSpeedKmh, inclinePercent, " +
+                        "distanceMeters, calories, heartRateBpm, beltStatus, isStale) VALUES " +
+                        "($id, $seq, ${start + seq * 1000L}, ${seq + 1}, 8.0, 8.0, 1.5, ${seq * 2}, ${seq / 10}, 140, 'Running', 0)",
+                )
+            }
+        }
+        db.execSQL(
+            "INSERT INTO workouts (id, userId, startedAtMillis, endedAtMillis, endReason, durationSeconds, distanceMeters, calories, " +
+                "averageSpeedKmh, maxSpeedKmh, averageHeartRateBpm, maxHeartRateBpm, maxInclinePercent, uuid, updatedAtMillis, updatedBy, deleted, dirty) " +
+                "VALUES (6, 1, $T0, $T0, 'Stopped', 0, 0, 0, 0.0, 0.0, NULL, NULL, 0.0, 'workout-gone', ${T0 + 5}, 'tablet-1', 1, 1)",
+        )
+    }
+
+    private val userColumnsV3 = "id, name, nameKey, sex, heightCm, birthEpochDay, restingHeartRateBpm, maxHeartRateBpm, fitnessLevel, goal, targetWeightKg, " +
+        "createdAtMillis, isGeneric, uuid, updatedAtMillis, updatedBy, deleted, dirty"
+    private val weightColumnsV3 = "id, userId, epochDay, weightKg, isPlaceholder, uuid, updatedAtMillis, updatedBy, deleted, dirty, createdAtMillis"
+    private val workoutColumnsV3 = "$workoutColumns, uuid, updatedAtMillis, updatedBy, deleted, dirty"
+
+    @Test fun `the populated version 3 database migrates to version 4 without changing a single row`() {
+        val before: Map<String, List<List<Any?>>>
+        helper.createDatabase(dbName, 3).use { db ->
+            populateVersion3(db)
+            before = mapOf(
+                "users" to rows(db, "SELECT $userColumnsV3 FROM users ORDER BY id"),
+                "weights" to rows(db, "SELECT $weightColumnsV3 FROM weight_entries ORDER BY id"),
+                "workouts" to rows(db, "SELECT $workoutColumnsV3 FROM workouts ORDER BY id"),
+                "samples" to rows(db, "SELECT $sampleColumns FROM workout_samples ORDER BY workoutId, seq"),
+                "active" to rows(db, "SELECT id, userId FROM active_user"),
+            )
+        }
+        assertEquals(4, before.getValue("users").size)
+        assertEquals(13, before.getValue("weights").size)
+        assertEquals(6, before.getValue("workouts").size)
+        assertEquals(300, before.getValue("samples").size)
+
+        // Also validates the resulting schema against the exported 4.json.
+        helper.runMigrationsAndValidate(dbName, 4, true, *UserDataDatabase.migrations("tablet-1")).use { db ->
+            assertEquals(before["users"], rows(db, "SELECT $userColumnsV3 FROM users ORDER BY id"))
+            assertEquals(before["weights"], rows(db, "SELECT $weightColumnsV3 FROM weight_entries ORDER BY id"))
+            assertEquals(before["workouts"], rows(db, "SELECT $workoutColumnsV3 FROM workouts ORDER BY id"))
+            assertEquals(before["samples"], rows(db, "SELECT $sampleColumns FROM workout_samples ORDER BY workoutId, seq"))
+            assertEquals(before["active"], rows(db, "SELECT id, userId FROM active_user"))
+
+            // the new columns are empty: no manual maximum heart rate has a time, no workout has a program
+            assertEquals(4L, rows(db, "SELECT COUNT(*) FROM users WHERE maxHeartRateSetAtMillis IS NULL").single().single())
+            assertEquals(
+                6L,
+                rows(db, "SELECT COUNT(*) FROM workouts WHERE planJson IS NULL AND programId IS NULL AND programName IS NULL AND fitnessTestId IS NULL")
+                    .single().single(),
+            )
+            // the new tables exist and are empty
+            for (table in listOf("programs", "fitness_tests", "start_parameters")) {
+                assertEquals(table, 0L, rows(db, "SELECT COUNT(*) FROM $table").single().single())
+            }
+            // their unique uuid indexes work, and the foreign keys point at users
+            db.execSQL("PRAGMA foreign_keys = ON")
+            db.execSQL(
+                "INSERT INTO programs (userId, uuid, name, nameKey, kind, json, createdAtMillis, updatedAtMillis, updatedBy, deleted, dirty) " +
+                    "VALUES (1, 'p1', 'A', 'a', 'Free', '{}', 1, 1, 'x', 0, 1)",
+            )
+            val duplicate = runCatching {
+                db.execSQL(
+                    "INSERT INTO programs (userId, uuid, name, nameKey, kind, json, createdAtMillis, updatedAtMillis, updatedBy, deleted, dirty) " +
+                        "VALUES (1, 'p1', 'B', 'b', 'Free', '{}', 1, 1, 'x', 0, 1)",
+                )
+            }
+            assertTrue("program uuid must be unique", duplicate.isFailure)
+            val orphan = runCatching {
+                db.execSQL(
+                    "INSERT INTO fitness_tests (userId, uuid, testType, startedAtMillis, isValid, json, updatedAtMillis, updatedBy, deleted, dirty) " +
+                        "VALUES (99, 't1', 'EbbelingWalk', 1, 1, '{}', 1, 'x', 0, 1)",
+                )
+            }
+            assertTrue("a test needs its user", orphan.isFailure)
+        }
+    }
+
+    @Test fun `after the 3 to 4 migration the data layer serves the same data and the new features work`() = runBlocking<Unit> {
+        helper.createDatabase(dbName, 3).use { populateVersion3(it) }
+        helper.runMigrationsAndValidate(dbName, 4, true, *UserDataDatabase.migrations("tablet-1")).close()
+
+        val context = RuntimeEnvironment.getApplication() as Context
+        val db = Room.databaseBuilder(context, UserDataDatabase::class.java, dbName)
+            .addMigrations(*UserDataDatabase.migrations("tablet-1"))
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val data = RoomUserData(db, MutableClock(T0 + 30L * 86_400_000L), ZoneOffset.UTC, deviceId = "tablet-1")
+            val profiles = data.profiles.profiles.first()
+            assertEquals(listOf("", "Ana", "Beto"), profiles.map { it.name })
+            val ana = profiles.first { it.name == "Ana" }
+            assertEquals(ana, data.profiles.activeUser.first())
+            assertEquals(172, ana.maxHeartRateBpm)
+            assertNull(ana.maxHeartRateSetAtMillis)
+            assertEquals(12, data.weights.entries(ana.id).first().size)
+            val workouts = data.workouts.workouts(ana.id).first()
+            assertEquals(3, workouts.size) // two finished and the one in progress; the tombstone is not listed
+            assertTrue(workouts.all { it.programId == null && it.programName == null && it.fitnessTestId == null })
+            assertEquals(60, data.workouts.detail(1)!!.samples.size)
+            assertNull(data.workouts.detail(1)!!.plan)
+
+            // what the sync sees is unchanged: the migration made nothing pending, and the new tables hold nothing
+            val pending = data.sync.pendingChanges()
+            assertEquals(listOf("Beto", "Gone"), pending.profiles.map { it.name }.sorted()) // Gone is a pending tombstone
+            assertEquals(listOf("w-1", "w-11", "w-3", "w-5", "w-7", "w-9"), pending.weights.map { it.uuid }.sorted())
+            assertEquals(listOf("workout-1", "workout-3", "workout-gone"), pending.workouts.map { it.uuid }.sorted())
+            assertTrue(pending.workouts.all { it.planJson == null && it.fitnessTestId == null })
+            assertEquals(emptyList<Any>(), data.programDocuments.pending())
+            assertEquals(emptyList<Any>(), data.fitnessTestDocuments.pending())
+            assertNull(data.sync.profile("user-ana")!!.fitness)
+
+            // the new features work on the migrated database
+            assertTrue(data.programs.save(ana.id, norwegian()) is ProgramSaveResult.Saved)
+            data.workouts.link(1, WorkoutLink(plan = hillPlan(), fitnessTestId = TEST_1))
+            assertEquals("standard-hill", data.workouts.workouts(ana.id).first().first { it.id == 1L }.programId)
+            val newerTest = ebbelingResult(TEST_2, T0 + 29L * 86_400_000L)
+            data.fitnessTests.save(ana.id, maxTestResult(TEST_1, T0 + 29L * 86_400_000L, peak = 188)) // after the old manual value
+            assertNotNull(data.fitnessTests.save(ana.id, newerTest))
+            // the manual value has no time, so a newer, different measurement makes the app ask
+            val decision = data.fitnessTests.heartRateMax(ana.id).first()!!
+            assertTrue(decision.askUser)
+            assertEquals(172, decision.bpm)
+            data.fitnessTests.keepManualHeartRateMax(ana.id)
+            assertFalse(data.fitnessTests.heartRateMax(ana.id).first()!!.askUser)
+            assertEquals(DataResult.Success(Unit), data.profiles.delete(ana.id))
+            assertTrue(data.programs.programs(ana.id).first().isEmpty())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun `a version 1 database goes through every migration to version 4`() {
+        helper.createDatabase(dbName, 1).use { populateVersion1(it) }
+        helper.runMigrationsAndValidate(dbName, 4, true, *UserDataDatabase.migrations("tablet-1")).use { db ->
+            assertEquals(3L, rows(db, "SELECT COUNT(*) FROM users").single().single())
+            assertEquals(720L, rows(db, "SELECT COUNT(*) FROM workout_samples").single().single())
+            assertEquals(0L, rows(db, "SELECT COUNT(*) FROM programs").single().single())
         }
     }
 }

@@ -187,14 +187,18 @@ internal interface WorkoutDao {
     suspend fun assign(id: Long, userId: Long, at: Long, by: String): Int
 
     /** Tombstones a workout; its samples are dropped (the tombstone keeps the identity and the summary). */
-    @Query("UPDATE workouts SET deleted = 1, dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0")
+    @Query(
+        "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0",
+    )
     suspend fun markDeleted(id: Long, at: Long, by: String): Int
 
     @Query("DELETE FROM workout_samples WHERE workoutId = :workoutId")
     suspend fun deleteSamples(workoutId: Long): Int
 
     /** The profile was deleted: its workouts go with it, without being uploaded one by one. */
-    @Query("UPDATE workouts SET deleted = 1, dirty = 0, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0")
+    @Query(
+        "UPDATE workouts SET deleted = 1, dirty = 0, planJson = NULL, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0",
+    )
     suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
 
     @Query("DELETE FROM workout_samples WHERE workoutId IN (SELECT id FROM workouts WHERE userId = :userId)")
@@ -243,4 +247,122 @@ internal interface WorkoutDao {
 
     @Query("SELECT COUNT(*) FROM workouts WHERE userId = :userId AND deleted = 0")
     suspend fun countLive(userId: Long): Int
+
+    /** Attaches the executed plan and/or fitness test. A change of the record: it is uploaded (once the workout has ended). */
+    @Query(
+        "UPDATE workouts SET planJson = :planJson, programId = :programId, programName = :programName, fitnessTestId = :fitnessTestId, " +
+            "dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0",
+    )
+    suspend fun setLink(id: Long, planJson: String?, programId: String?, programName: String?, fitnessTestId: String?, at: Long, by: String): Int
+}
+
+@Dao
+internal interface ProgramDao {
+    @Query("SELECT * FROM programs WHERE userId = :userId AND deleted = 0 ORDER BY nameKey, uuid")
+    fun observeByUser(userId: Long): Flow<List<ProgramEntity>>
+
+    @Query("SELECT * FROM programs WHERE uuid = :uuid AND deleted = 0")
+    fun observe(uuid: String): Flow<ProgramEntity?>
+
+    @Query("SELECT * FROM programs WHERE uuid = :uuid AND deleted = 0")
+    suspend fun get(uuid: String): ProgramEntity?
+
+    @Insert
+    suspend fun insert(program: ProgramEntity): Long
+
+    @Update
+    suspend fun update(program: ProgramEntity): Int
+
+    /** Tombstone: the document is dropped, the identity and version stay. */
+    @Query("UPDATE programs SET deleted = 1, json = '', dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE uuid = :uuid AND deleted = 0")
+    suspend fun markDeleted(uuid: String, at: Long, by: String): Int
+
+    /** The profile was deleted: its programs go with it, without being uploaded one by one. */
+    @Query("UPDATE programs SET deleted = 1, json = '', dirty = 0, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0")
+    suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
+
+    // ---- synchronisation ----
+
+    @Query("SELECT * FROM programs WHERE uuid = :uuid")
+    suspend fun getByUuid(uuid: String): ProgramEntity?
+
+    @Query(
+        "SELECT p.* FROM programs p INNER JOIN users u ON u.id = p.userId " +
+            "WHERE p.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0 ORDER BY p.id",
+    )
+    suspend fun pending(): List<ProgramEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM programs p INNER JOIN users u ON u.id = p.userId " +
+            "WHERE p.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0",
+    )
+    fun observePendingCount(): Flow<Int>
+
+    @Query("UPDATE programs SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
+    suspend fun markSynced(uuid: String, at: Long, by: String): Int
+}
+
+@Dao
+internal interface FitnessTestDao {
+    @Query("SELECT * FROM fitness_tests WHERE userId = :userId AND deleted = 0 ORDER BY startedAtMillis DESC, uuid DESC")
+    fun observeByUser(userId: Long): Flow<List<FitnessTestEntity>>
+
+    @Query("SELECT * FROM fitness_tests WHERE userId = :userId AND deleted = 0 ORDER BY startedAtMillis DESC, uuid DESC")
+    suspend fun liveForUser(userId: Long): List<FitnessTestEntity>
+
+    @Query("SELECT * FROM fitness_tests WHERE uuid = :uuid AND deleted = 0")
+    suspend fun get(uuid: String): FitnessTestEntity?
+
+    @Insert
+    suspend fun insert(test: FitnessTestEntity): Long
+
+    @Update
+    suspend fun update(test: FitnessTestEntity): Int
+
+    @Query("UPDATE fitness_tests SET deleted = 1, json = '', dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE uuid = :uuid AND deleted = 0")
+    suspend fun markDeleted(uuid: String, at: Long, by: String): Int
+
+    /** The profile was deleted: its results go with it, without being uploaded one by one. */
+    @Query("UPDATE fitness_tests SET deleted = 1, json = '', dirty = 0, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0")
+    suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
+
+    // ---- synchronisation ----
+
+    @Query("SELECT * FROM fitness_tests WHERE uuid = :uuid")
+    suspend fun getByUuid(uuid: String): FitnessTestEntity?
+
+    @Query(
+        "SELECT t.* FROM fitness_tests t INNER JOIN users u ON u.id = t.userId " +
+            "WHERE t.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0 ORDER BY t.id",
+    )
+    suspend fun pending(): List<FitnessTestEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM fitness_tests t INNER JOIN users u ON u.id = t.userId " +
+            "WHERE t.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0",
+    )
+    fun observePendingCount(): Flow<Int>
+
+    @Query("UPDATE fitness_tests SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
+    suspend fun markSynced(uuid: String, at: Long, by: String): Int
+}
+
+@Dao
+internal interface StartParametersDao {
+    @Query("SELECT * FROM start_parameters WHERE userId = :userId AND programId = :programId")
+    fun observe(userId: Long, programId: String): Flow<StartParametersEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(parameters: StartParametersEntity)
+
+    @Query("DELETE FROM start_parameters WHERE userId = :userId AND programId = :programId")
+    suspend fun delete(userId: Long, programId: String): Int
+
+    /** A user program was deleted. */
+    @Query("DELETE FROM start_parameters WHERE programId = :programId")
+    suspend fun deleteForProgram(programId: String): Int
+
+    /** A profile was deleted (its rows are tombstones, so the foreign key does not remove these). */
+    @Query("DELETE FROM start_parameters WHERE userId = :userId")
+    suspend fun deleteForUser(userId: Long): Int
 }

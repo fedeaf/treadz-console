@@ -2,10 +2,15 @@ package com.treadz.console.userdata.room
 
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.ProfileRepository
+import com.treadz.console.userdata.ProgramRepository
+import com.treadz.console.userdata.StartParametersRepository
 import com.treadz.console.userdata.SyncableUserData
 import com.treadz.console.userdata.WeightRepository
 import com.treadz.console.userdata.WorkoutHistoryRepository
+import com.treadz.console.userdata.sync.FitnessTestDocumentStore
+import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
@@ -29,7 +34,12 @@ internal class RoomUserData(
     override val profiles: ProfileRepository = RoomProfileRepository(db, clock, zone, seedGenericProfile, stamper)
     override val weights: WeightRepository = RoomWeightRepository(db, clock, zone, stamper)
     override val workouts: WorkoutHistoryRepository = workoutRepository
+    override val programs: ProgramRepository = RoomProgramRepository(db, stamper)
+    override val fitnessTests: FitnessTestRepository = RoomFitnessTestRepository(db, clock, zone, stamper)
+    override val startParameters: StartParametersRepository = RoomStartParametersRepository(db, stamper)
     override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper)
+    override val programDocuments: ProgramDocumentStore = RoomProgramDocuments(db)
+    override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db)
 
     override fun workoutObserver(
         controller: TreadmillController,

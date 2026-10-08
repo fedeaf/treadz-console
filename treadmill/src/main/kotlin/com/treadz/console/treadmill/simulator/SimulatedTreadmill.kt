@@ -409,9 +409,29 @@ class SimulatedTreadmill(
         synchronized(lock) { if (mode == Mode.Idle || mode == Mode.Paused) beginCountdown(resume = mode == Mode.Paused) }
     }
 
+    /** Fixed heart rate (0 = no heart-rate monitor). It also detaches any [heartRateModel]. */
     fun setHeartRate(bpm: Int) {
-        synchronized(lock) { heartRate = bpm }
+        synchronized(lock) {
+            heartRateModel = null
+            heartRate = bpm
+        }
     }
+
+    /**
+     * Heart-rate model evaluated once per simulated second (while connected), e.g. a [PhysiologicalHeartRateModel].
+     * `null` keeps the fixed value of [setHeartRate].
+     */
+    var heartRateModel: SimulatedHeartRateModel? = null
+        set(value) {
+            synchronized(lock) {
+                field = value
+                heartRateSecond = 0
+            }
+        }
+    private var heartRateSecond = 0L
+
+    /** Heart rate the simulator is currently reporting. */
+    val currentHeartRate: Int get() = synchronized(lock) { heartRate }
 
     /** Freezes the data with the connection open. `null` unfreezes it. */
     fun freezeData(mode: FreezeMode?) {
@@ -496,6 +516,9 @@ class SimulatedTreadmill(
             }
 
             Mode.Idle, Mode.Countdown, Mode.KeyRemoved -> Unit
+        }
+        heartRateModel?.let { model ->
+            heartRate = model.nextSecond(SimulatedBodyInput(speed, incline, beltRunning = speed > 0.0, second = heartRateSecond++)).coerceIn(0, 255)
         }
     }
 

@@ -249,6 +249,12 @@ class FtmsTreadmillController(
     private var speedCommandInFlight = false
     private var inclineCommandInFlight = false
 
+    /**
+     * The speed is moving away from [expectedSpeed] without an app command in flight: the console buttons are changing
+     * it and the new target is not known until the speed settles. [TreadmillState.targetSpeedKmh] is `null` meanwhile.
+     */
+    private var speedTargetUnknown = false
+
     /** Targets when pausing, to send them again on resume. */
     private var savedSpeed: Double? = null
     private var savedIncline: Double? = null
@@ -491,6 +497,7 @@ class FtmsTreadmillController(
             intent = Intent.None
             expectedSpeed = null
             expectedIncline = null
+            speedTargetUnknown = false
             speedCommandInFlight = false
             inclineCommandInFlight = false
             savedSpeed = null
@@ -842,6 +849,7 @@ class FtmsTreadmillController(
 
     private fun enterRunning(s: TreadmillSample, observedBaseline: Boolean) {
         status = BeltStatus.Running
+        speedTargetUnknown = false
         intent = Intent.None
         stoppedButMovingSince = -1L
         if (observedBaseline) {
@@ -867,6 +875,7 @@ class FtmsTreadmillController(
         startRampActive = false
         expectedSpeed = null
         expectedIncline = null
+        speedTargetUnknown = false
         savedSpeed = null
         savedIncline = null
     }
@@ -906,9 +915,22 @@ class FtmsTreadmillController(
                 startRampActive = false
                 trace(TraceRecord.Note(at, "Start ramp did not settle within ${config.startRampTimeoutMs} ms: manual change detection enabled"))
             }
-        } else if (!speedCommandInFlight && es != null && abs(s.speedKmh - es) >= SPEED_TOLERANCE && settled) {
-            expectedSpeed = s.speedKmh
-            manualSpeed = s.speedKmh
+        } else if (!speedCommandInFlight && es != null) {
+            if (abs(s.speedKmh - es) < SPEED_TOLERANCE) {
+                speedTargetUnknown = false
+            } else if (settled) {
+                expectedSpeed = s.speedKmh
+                speedTargetUnknown = false
+                manualSpeed = s.speedKmh
+            } else if (!speedTargetUnknown) {
+                // Still ramping. Heading towards the target of an app command is normal; leaving it is the console.
+                val previous = lastSample?.speedKmh
+                val movingAway = previous != null && (s.speedKmh - previous) * (es - s.speedKmh) < -SPEED_EPS * SPEED_EPS
+                if (movingAway) {
+                    speedTargetUnknown = true
+                    trace(TraceRecord.Note(at, "Speed ${s.speedKmh} is moving away from the target $es without an app command: console buttons, target unknown until it settles"))
+                }
+            }
         }
         if (manualSpeed != null || manualIncline != null) {
             events += TreadmillEvent.ManualChange(manualSpeed, manualIncline)
@@ -998,6 +1020,7 @@ class FtmsTreadmillController(
         keyZerosSeen = false
         expectedSpeed = null
         expectedIncline = null
+        speedTargetUnknown = false
         savedSpeed = null
         savedIncline = null
         events += TreadmillEvent.SafetyKeyRemoved
@@ -1017,7 +1040,7 @@ class FtmsTreadmillController(
         _state.value = TreadmillState(
             status = status,
             speedKmh = s?.speedKmh ?: 0.0,
-            targetSpeedKmh = expectedSpeed,
+            targetSpeedKmh = if (speedTargetUnknown) null else expectedSpeed,
             inclinePercent = s?.inclinePercent ?: 0.0,
             distanceMeters = s?.distanceMeters ?: 0,
             elapsedSeconds = s?.elapsedSeconds ?: 0,
@@ -1366,7 +1389,7 @@ class FtmsTreadmillController(
             val response = ok.response ?: return CommandResult.NotVerified(FailureCode.NoResponse, "The treadmill did not answer the speed command")
             if (!response.isSuccess) return CommandResult.Rejected(FailureCode.RejectedByTreadmill, "Speed rejected: ${response.result}")
             val result = verifyApproach(ok.cursor, target, tolerance = SPEED_TOLERANCE) { it.speedKmh }
-            if (result is CommandResult.Success) synchronized(lock) { expectedSpeed = target; publishState(now(), "target-speed") }
+            if (result is CommandResult.Success) synchronized(lock) { expectedSpeed = target; speedTargetUnknown = false; publishState(now(), "target-speed") }
             return result
         } finally {
             synchronized(lock) { speedCommandInFlight = false }

@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.room.RoomUserData
 import com.treadz.console.userdata.room.UserDataDatabase
+import com.treadz.console.userdata.sync.FitnessTestDocumentStore
+import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
 import java.time.ZoneId
 import java.util.UUID
@@ -27,6 +29,12 @@ object TreadZUserData {
      * The port of the `:sync` module to the same data layer as [get]. The UI does not need it; `:sync` does.
      */
     fun sync(context: Context): SyncStore = syncable(context).sync
+
+    /** The port of the `:sync` module to the user programs (the same rows as `UserData.programs`). */
+    fun programDocuments(context: Context): ProgramDocumentStore = syncable(context).programDocuments
+
+    /** The port of the `:sync` module to the fitness test results (the same rows as `UserData.fitnessTests`). */
+    fun fitnessTestDocuments(context: Context): FitnessTestDocumentStore = syncable(context).fitnessTestDocuments
 
     /**
      * The stable id of this installation (generated on first use), stamped on every change so that other devices can

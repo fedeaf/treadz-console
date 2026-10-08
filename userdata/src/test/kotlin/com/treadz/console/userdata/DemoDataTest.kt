@@ -23,5 +23,14 @@ class DemoDataTest {
         val newest = data.workouts.workouts(ana.id).first().first()
         assertEquals(newest.stats.durationSeconds, data.workouts.detail(newest.id)!!.samples.size)
         assertTrue(newest.stats.averageHeartRateBpm != null)
+        // programs and fitness tests of the demo
+        assertEquals(listOf("Norwegian 4x4"), data.programs.programs(ana.id).first().map { it.program.name })
+        assertEquals(emptyList<UserProgram>(), data.programs.programs(beto.id).first())
+        assertEquals(2, data.fitnessTests.results(ana.id).first().size)
+        assertEquals(2400, data.startParameters.lastUsed(ana.id, "standard-hill").first()!!.totalDurationSeconds)
+        val hrMax = data.fitnessTests.heartRateMax(ana.id).first()!!
+        assertEquals(com.treadz.console.programs.fitness.HeartRateMaxOrigin.Measured, hrMax.origin)
+        assertEquals(183, hrMax.bpm)
+        assertEquals(12.0, data.fitnessTests.liveFitnessProfile(ana.id).first()!!.mas!!.valueKmh, 0.0)
     }
 }

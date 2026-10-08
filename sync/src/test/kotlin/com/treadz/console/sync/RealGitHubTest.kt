@@ -122,7 +122,7 @@ private class RealDevice(name: String, seed: Long, token: String, seedGenericPro
     val data get() = inner.data
     val clock get() = inner.clock
     val engine = com.treadz.console.sync.engine.SyncEngine(
-        RestGitHubClient(OkHttpClient(), { token }), inner.data.sync, inner.programs, inner.state, inner.clock, java.time.ZoneOffset.UTC,
+        RestGitHubClient(OkHttpClient(), { token }), inner.data.sync, inner.programs, inner.fitnessTests, inner.state, inner.clock, java.time.ZoneOffset.UTC,
     )
     fun at(millis: Long) { inner.at(millis) }
     fun createUser(name: String, sex: Sex = Sex.Female) = inner.createUser(name, sex)

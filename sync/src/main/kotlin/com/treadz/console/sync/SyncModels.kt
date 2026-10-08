@@ -57,6 +57,7 @@ data class UserUpload(
     val weightEntries: Int,
     val workouts: Int,
     val programs: Int,
+    val fitnessTests: Int = 0,
 )
 
 /**
@@ -71,6 +72,7 @@ data class FirstLinkSummary(
     val totalWorkouts: Int get() = users.sumOf { it.workouts }
     val totalWeightEntries: Int get() = users.sumOf { it.weightEntries }
     val totalPrograms: Int get() = users.sumOf { it.programs }
+    val totalFitnessTests: Int get() = users.sumOf { it.fitnessTests }
 
     /** There is something to upload (otherwise linking needs no confirmation). */
     val hasUploads: Boolean get() = users.isNotEmpty()

@@ -1,5 +1,6 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.BeltStatus
 
 /** How a stored workout ended. Stable codes (stored in the database): the UI translates them. */
@@ -77,6 +78,12 @@ data class WorkoutSummary(
     /** `null` while the workout is in progress. */
     val endReason: WorkoutEndReason?,
     val stats: WorkoutStats,
+    /** `source.programId` of the executed plan (a user program id or a `standard-...` id); `null` for a free workout. */
+    val programId: String? = null,
+    /** `source.programName` of the executed plan, as it was when the workout was done (English reference name for standard programs). */
+    val programName: String? = null,
+    /** Id of the fitness test result that was run in this workout (see [FitnessTestRepository]); `null` for a normal workout. */
+    val fitnessTestId: String? = null,
 ) {
     val isInProgress: Boolean get() = endReason == null
 }
@@ -85,4 +92,26 @@ data class WorkoutDetail(
     val summary: WorkoutSummary,
     /** Ordered by [WorkoutSample.seq]. */
     val samples: List<WorkoutSample>,
+    /**
+     * The executed plan snapshot (self-contained: it stays valid if the program is edited or deleted afterwards).
+     * `null` for workouts without a program, workouts recorded before programs existed, and plans written by a newer
+     * app than this one (unreadable).
+     */
+    val plan: ResolvedPlan? = null,
 )
+
+/**
+ * What a workout was for, attached to it by the app: the plan that was executed and/or the fitness test that was run.
+ * The workout history observer does not know about the program runner or the test runner; the app tells it (see
+ * [com.treadz.console.userdata.workout.WorkoutHistoryObserver.linkNextSession]) or links a known workout directly
+ * ([WorkoutHistoryRepository.link]).
+ */
+data class WorkoutLink(
+    val plan: ResolvedPlan? = null,
+    val fitnessTestId: String? = null,
+) {
+    val isEmpty: Boolean get() = plan == null && fitnessTestId == null
+
+    /** This link with the parts that [other] has replaced by its own. */
+    fun merge(other: WorkoutLink) = WorkoutLink(other.plan ?: plan, other.fitnessTestId ?: fitnessTestId)
+}

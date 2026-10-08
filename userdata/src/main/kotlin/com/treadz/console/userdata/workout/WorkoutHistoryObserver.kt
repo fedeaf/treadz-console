@@ -7,6 +7,7 @@ import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
 import kotlinx.coroutines.CancellationException
@@ -45,6 +46,15 @@ import kotlin.math.roundToInt
  * can offer to assign it. If the owner (or the workout) is deleted during the session, recording stops silently
  * and nothing is stored for the rest of that session.
  *
+ * ## What the workout was for (plan and fitness test)
+ * The observer does not know the program runner or the fitness test runner. The app tells it with [linkNextSession]:
+ * the [WorkoutLink] (the executed plan snapshot and/or the fitness test id) is attached to the session that is in
+ * progress or, if there is none yet, to the **next one that starts** within [WorkoutObserverConfig.linkValidityMs];
+ * [clearLink] withdraws it (the program was cancelled before the belt moved). Calls are cheap, never block and can
+ * be made from any thread. A workout can also be linked later by id, see `WorkoutHistoryRepository.link`
+ * ([activeWorkoutId] tells which workout is being recorded). Call [linkNextSession] when the belt is stopped: a
+ * session that is still decelerating from a previous workout would take the link.
+ *
  * ## Crash safety and performance
  * Samples are buffered in memory and written in one transaction at least every
  * [WorkoutObserverConfig.flushIntervalMs], together with the running totals, and again when the session ends. If the
@@ -77,6 +87,8 @@ class WorkoutHistoryObserver(
         class Connection(val state: ConnectionState, override val at: Long) : Input
         class ConnectionLost(override val at: Long) : Input
         class Tick(override val at: Long) : Input
+        class Link(val link: WorkoutLink, override val at: Long) : Input
+        class ClearLink(override val at: Long) : Input
         class Stop(override val at: Long, val done: CompletableDeferred<Unit>) : Input
     }
 
@@ -89,6 +101,26 @@ class WorkoutHistoryObserver(
     private var blockedUntilIdle = false
     private var ticker: Job? = null
     private var processScope: CoroutineScope? = null
+    private var pendingLink: WorkoutLink? = null
+    private var pendingLinkAt = 0L
+
+    // A link announced before the observer started: delivered as soon as it does.
+    private var earlyLink: Input.Link? = null
+
+    /**
+     * Attaches [link] to the session in progress or, if none is, to the next session that starts (see the class
+     * description). Links announced one after the other are merged (a part given later replaces the earlier one).
+     */
+    fun linkNextSession(link: WorkoutLink) {
+        if (link.isEmpty) return
+        val input = Input.Link(link, clock.nowMillis())
+        synchronized(lock) { inputs?.trySend(input) ?: run { earlyLink = earlyLink?.let { Input.Link(it.link.merge(link), input.at) } ?: input } }
+    }
+
+    /** Withdraws a link announced for the next session (nothing happens to a session already linked). */
+    fun clearLink() {
+        synchronized(lock) { inputs?.trySend(Input.ClearLink(clock.nowMillis())) ?: run { earlyLink = null } }
+    }
 
     /**
      * Starts observing in [scope], which should use a background dispatcher. Closes workouts left open by a dead
@@ -98,6 +130,8 @@ class WorkoutHistoryObserver(
         running?.let { if (it.isActive) return it }
         val channel = Channel<Input>(Channel.UNLIMITED)
         inputs = channel
+        earlyLink?.let { channel.trySend(it) }
+        earlyLink = null
         val job = scope.launch {
             launch { controller.state.collect { channel.trySend(Input.State(it, clock.nowMillis())) } }
             launch { controller.connection.collect { channel.trySend(Input.Connection(it, clock.nowMillis())) } }
@@ -146,6 +180,8 @@ class WorkoutHistoryObserver(
                     }
                     is Input.ConnectionLost -> endSession(WorkoutEndReason.ConnectionLost, input.at)
                     is Input.Tick -> onTick(input.at)
+                    is Input.Link -> onLink(input.link, input.at)
+                    is Input.ClearLink -> pendingLink = null
                     is Input.Stop -> {
                         endSession(WorkoutEndReason.Closed, input.at)
                         input.done.complete(Unit)
@@ -179,6 +215,33 @@ class WorkoutHistoryObserver(
         }
     }
 
+    private suspend fun onLink(link: WorkoutLink, at: Long) {
+        val s = session
+        if (s != null) {
+            s.unwrittenLink = s.unwrittenLink?.merge(link) ?: link
+            writeLink(s)
+        } else {
+            val waiting = pendingLink?.takeIf { at - pendingLinkAt <= config.linkValidityMs }
+            pendingLink = waiting?.merge(link) ?: link
+            pendingLinkAt = at
+        }
+    }
+
+    /** Writes the link of the session if it is not stored yet; a failure is retried on the next flush. */
+    private suspend fun writeLink(s: Session) {
+        val link = s.unwrittenLink ?: return
+        val exists = try {
+            store.attachLink(s.workoutId, link)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e)
+            return
+        }
+        s.unwrittenLink = null
+        if (!exists) abandon()
+    }
+
     private suspend fun onTick(at: Long) {
         // States keep arriving while connected, but a silent controller must not keep a decelerating session open.
         val s = session
@@ -199,8 +262,9 @@ class WorkoutHistoryObserver(
             onError(e)
             null // unassigned: recoverable
         }
+        val link = pendingLink?.takeIf { at - pendingLinkAt <= config.linkValidityMs }
         val id = try {
-            store.begin(userId, at)
+            store.begin(userId, at, link)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -208,6 +272,7 @@ class WorkoutHistoryObserver(
             blockedUntilIdle = true
             return null
         }
+        pendingLink = null
         val s = Session(id, at)
         session = s
         _activeWorkoutId.value = id
@@ -223,6 +288,8 @@ class WorkoutHistoryObserver(
 
     private suspend fun flush() {
         val s = session ?: return
+        writeLink(s)
+        if (session !== s) return
         if (s.buffer.isEmpty() && !s.statsDirty) return
         val batch = s.buffer.toList()
         val exists = try {
@@ -252,6 +319,7 @@ class WorkoutHistoryObserver(
             if (!s.hasMoved) {
                 store.discard(s.workoutId)
             } else {
+                writeLink(s)
                 store.finish(s.workoutId, s.buffer.toList(), s.stats(), maxOf(endedAt, s.startedAt), reason)
             }
         } catch (e: CancellationException) {
@@ -274,6 +342,9 @@ class WorkoutHistoryObserver(
     private class Session(val workoutId: Long, val startedAt: Long) {
         val buffer = ArrayDeque<WorkoutSample>()
         var statsDirty = false
+
+        /** A link announced during the session that has not been stored yet. */
+        var unwrittenLink: WorkoutLink? = null
         var lastNonIdleStatus: BeltStatus = BeltStatus.Starting
 
         // The belt reported Idle but is still moving: when that began, when its speed last changed, and that speed.

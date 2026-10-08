@@ -1,7 +1,10 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.sync.FitnessTestDocumentStore
+import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
@@ -120,6 +123,16 @@ interface WorkoutHistoryRepository {
 
     /** Gives an unassigned workout (or moves any workout) to a user. */
     suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit>
+
+    /**
+     * Attaches to a workout the plan that was executed and/or the fitness test that was run (the parts of [link] that
+     * are not `null` replace what the workout had). Works on a workout in progress and on a finished one (it is then
+     * uploaded again with the link). Linking what is already linked changes nothing. The plan is stored as the
+     * self-contained `PlanJson` document, so it outlives the program. [DataResult.NotFound] if the workout does not
+     * exist. During a session the app usually lets the observer do it instead, see
+     * [WorkoutHistoryObserver.linkNextSession].
+     */
+    suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit>
 }
 
 /** Everything the UI needs from the data layer. [TreadZUserData] builds the real one, `InMemoryUserData` the fake. */
@@ -127,6 +140,15 @@ interface UserData {
     val profiles: ProfileRepository
     val weights: WeightRepository
     val workouts: WorkoutHistoryRepository
+
+    /** Free and personalised programs of each user (standard programs live in `:programs`). */
+    val programs: ProgramRepository
+
+    /** Fitness test results, the fitness profile and the maximum heart rate decision. */
+    val fitnessTests: FitnessTestRepository
+
+    /** The start parameters last used for each program and user (local to the device). */
+    val startParameters: StartParametersRepository
 
     /**
      * Creates the component that records the treadmill's sessions into [workouts]. It only observes
@@ -147,10 +169,24 @@ val UserData.activeUserWeightKg: Flow<Double?>
         if (user == null) flowOf(null) else weights.latestWeight(user.id).map { it?.weightKg }
     }
 
+/** The active user's maximum heart rate decision (see [FitnessTestRepository.heartRateMax]), or `null` if nobody is active. */
+@OptIn(ExperimentalCoroutinesApi::class)
+val UserData.activeUserHeartRateMax: Flow<HeartRateMaxDecision?>
+    get() = profiles.activeUser.flatMapLatest { user ->
+        if (user == null) flowOf(null) else fitnessTests.heartRateMax(user.id)
+    }
+
 /**
  * A [UserData] that can also be synchronised with other devices: it exposes [sync], the port used by the `:sync`
- * module. The real (Room) data layer is one; the UI does not need [sync].
+ * module, and the stores of the documents (programs, fitness tests) that are synchronised as JSON files. The real
+ * (Room) data layer is one; the UI does not need any of them.
  */
 interface SyncableUserData : UserData {
     val sync: SyncStore
+
+    /** The user programs as documents for the synchronisation (the same rows as [programs]). */
+    val programDocuments: ProgramDocumentStore
+
+    /** The fitness test results as documents for the synchronisation (the same rows as [fitnessTests]). */
+    val fitnessTestDocuments: FitnessTestDocumentStore
 }

@@ -5,55 +5,76 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /**
- * A user's training program as the synchronisation sees it: an opaque JSON document with an identity and a version.
- * The program model arrives later; until then nothing but this envelope is known to the sync.
+ * A synchronised record that is a JSON document owned by its feature (a program, a fitness test result): an identity,
+ * an owner and a version around a document the sync never interprets.
  */
-data class ProgramDocument(
-    val uuid: String,
+interface UserDocument {
+    val uuid: String
+
     /** The owner's [SyncProfile.uuid]. */
-    val userUuid: String,
-    val version: RecordVersion,
-    /** Tombstone: the program was deleted; [json] is empty then. */
-    val deleted: Boolean,
-    /** The program as a JSON object, owned by the program feature. Never interpreted by the sync. */
-    val json: String,
-)
+    val userUuid: String
+    val version: RecordVersion
+
+    /** Tombstone: the record was deleted; [json] is empty then. */
+    val deleted: Boolean
+
+    /** The document as a JSON object, owned by its feature. Never interpreted by the sync. */
+    val json: String
+}
 
 /**
- * Where the programs of the users are kept, as far as the synchronisation is concerned. The program feature will
- * implement it on top of its own storage; [InMemoryProgramDocuments] is a working stand-in.
- * It follows the same rules as [SyncStore]: pending flags, last writer wins, a remote change is never pending.
+ * Where the documents of one kind are kept, as far as the synchronisation is concerned. It follows the same rules as
+ * [SyncStore]: pending flags, last writer wins, a remote change is never pending, a tombstone of an unknown record is
+ * skipped, and records of an unknown or deleted owner are skipped. Records of the generic profile are not pending until
+ * it is personalised.
  */
-interface ProgramDocumentStore {
+interface DocumentStore<D : UserDocument> {
     val pendingCount: Flow<Int>
 
-    suspend fun pending(): List<ProgramDocument>
+    /** Documents (tombstones included) changed here since they were last synchronised. */
+    suspend fun pending(): List<D>
 
     /** Merges downloaded documents with "last writer wins". Returns how many were applied. */
-    suspend fun applyRemote(documents: List<ProgramDocument>): Int
+    suspend fun applyRemote(documents: List<D>): Int
 
     suspend fun markSynced(synced: List<SyncedRef>)
 }
 
-/** [ProgramDocumentStore] in memory: no persistence, for tests and until programs exist. */
-class InMemoryProgramDocuments : ProgramDocumentStore {
-    private data class Entry(val document: ProgramDocument, val pending: Boolean)
+/** A training program of a user as the synchronisation sees it: the `ProgramJson` document with identity and version. */
+data class ProgramDocument(
+    /** The program's id. */
+    override val uuid: String,
+    override val userUuid: String,
+    override val version: RecordVersion,
+    override val deleted: Boolean,
+    override val json: String,
+) : UserDocument
 
-    private val entries = MutableStateFlow<Map<String, Entry>>(emptyMap())
+/**
+ * Where the programs of the users are kept, as far as the synchronisation is concerned. The Room data layer implements
+ * it over the same rows as `ProgramRepository`; [InMemoryProgramDocuments] is a working stand-in for tests.
+ */
+interface ProgramDocumentStore : DocumentStore<ProgramDocument>
+
+/** A [DocumentStore] in memory: no persistence, for tests. */
+abstract class InMemoryDocumentStore<D : UserDocument> : DocumentStore<D> {
+    private data class Entry<D>(val document: D, val pending: Boolean)
+
+    private val entries = MutableStateFlow<Map<String, Entry<D>>>(emptyMap())
 
     override val pendingCount: Flow<Int> = entries.map { m -> m.values.count { it.pending } }
 
-    /** Creates or replaces a program as a local change (pending). */
-    fun put(document: ProgramDocument) {
+    /** Creates or replaces a document as a local change (pending). */
+    fun put(document: D) {
         entries.value = entries.value + (document.uuid to Entry(document, pending = true))
     }
 
     /** Every document, tombstones included. */
-    fun all(): List<ProgramDocument> = entries.value.values.map { it.document }.sortedBy { it.uuid }
+    fun all(): List<D> = entries.value.values.map { it.document }.sortedBy { it.uuid }
 
-    override suspend fun pending(): List<ProgramDocument> = entries.value.values.filter { it.pending }.map { it.document }
+    override suspend fun pending(): List<D> = entries.value.values.filter { it.pending }.map { it.document }
 
-    override suspend fun applyRemote(documents: List<ProgramDocument>): Int {
+    override suspend fun applyRemote(documents: List<D>): Int {
         var applied = 0
         var next = entries.value
         for (d in documents) {
@@ -83,3 +104,6 @@ class InMemoryProgramDocuments : ProgramDocumentStore {
         entries.value = next
     }
 }
+
+/** [ProgramDocumentStore] in memory: no persistence, for tests. */
+class InMemoryProgramDocuments : InMemoryDocumentStore<ProgramDocument>(), ProgramDocumentStore

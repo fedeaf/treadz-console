@@ -40,6 +40,8 @@ ksp {
 
 dependencies {
     api(project(":treadmill"))
+    // Program, plan and fitness-test models and their JSON documents (pure Kotlin, like :treadmill).
+    api(project(":programs"))
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)

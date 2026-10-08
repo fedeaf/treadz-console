@@ -18,6 +18,8 @@ import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.sync.github.TreeChange
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.export.WorkoutCsv
+import com.treadz.console.userdata.sync.FitnessTestDocument
+import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.PendingChanges
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.ProgramDocumentStore
@@ -34,7 +36,7 @@ import kotlinx.coroutines.delay
 import java.time.ZoneId
 
 /**
- * One synchronisation cycle between the local data ([SyncStore], [ProgramDocumentStore]) and a branch of a GitHub
+ * One synchronisation cycle between the local data ([SyncStore], [ProgramDocumentStore], [FitnessTestDocumentStore]) and a branch of a GitHub
  * repository: **pull** what other devices changed, then **push** what changed here, in one commit.
  *
  * ## Pull
@@ -51,6 +53,14 @@ import java.time.ZoneId
  * [maxAttempts] times. Files whose content did not change are not touched, and nothing is committed when nothing
  * changed. Records are marked as synchronised only after the branch moved.
  *
+ * ## The fitness block of `profile.json`
+ * The fitness profile of a user is derived from the user's fitness test results (see `SyncProfile.fitness`), so
+ * `profile.json` is rewritten not only when the profile changes but also whenever results of the user are uploaded.
+ * The rewritten file keeps the profile's own version (`updated_at`, `updated_by`): a fitness change is not a profile
+ * edit and can never win over, or hide, a concurrent edit of the profile on another device. Every device derives the
+ * same block from the same results, so the rewrite is byte-identical wherever it is made; a file whose content did not
+ * change is not uploaded, hence devices never keep rewriting each other's file. On download the block is ignored.
+ *
  * ## Empty repository
  * The Git Data API cannot be used before the first commit, so the first commit is made with the Contents API
  * (the repository's `README.md`).
@@ -61,6 +71,7 @@ class SyncEngine(
     private val client: GitHubClient,
     private val store: SyncStore,
     private val programs: ProgramDocumentStore,
+    private val fitnessTests: FitnessTestDocumentStore,
     private val stateStore: SyncStateStore,
     private val clock: Clock = Clock.System,
     private val zone: ZoneId = ZoneId.systemDefault(),
@@ -75,8 +86,9 @@ class SyncEngine(
     suspend fun previewFirstLink(repo: RepositoryRef): FirstLinkSummary {
         val pending = store.pendingChanges()
         val programPending = programs.pending()
+        val fitnessPending = fitnessTests.pending()
         val uuids = (pending.profiles.map { it.uuid } + pending.weights.map { it.userUuid } + pending.workouts.map { it.userUuid } +
-            programPending.map { it.userUuid }).distinct()
+            programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
         val users = uuids.map { uuid ->
             val profile = pending.profiles.firstOrNull { it.uuid == uuid } ?: store.profile(uuid)
             UserUpload(
@@ -85,6 +97,7 @@ class SyncEngine(
                 weightEntries = pending.weights.count { it.userUuid == uuid },
                 workouts = pending.workouts.count { it.userUuid == uuid },
                 programs = programPending.count { it.userUuid == uuid },
+                fitnessTests = fitnessPending.count { it.userUuid == uuid },
             )
         }.sortedBy { it.name.lowercase() }
         val remoteUsers = try {
@@ -118,7 +131,7 @@ class SyncEngine(
                 when (val branchState = client.branchState(repo, branch)) {
                     is BranchState.Exists -> head = branchState.commitSha
                     BranchState.Missing, BranchState.EmptyRepository -> {
-                        if (store.pendingChanges().isEmpty && programs.pending().isEmpty()) {
+                        if (store.pendingChanges().isEmpty && programs.pending().isEmpty() && fitnessTests.pending().isEmpty()) {
                             stateStore.save(state.copy(lastSyncMillis = clock.nowMillis()))
                             return SyncReport(0, 0, null, attempt)
                         }
@@ -153,14 +166,15 @@ class SyncEngine(
                 // ---- push ----
                 val pending = store.pendingChanges()
                 val programPending = programs.pending()
-                if (pending.isEmpty && programPending.isEmpty()) {
+                val fitnessPending = fitnessTests.pending()
+                if (pending.isEmpty && programPending.isEmpty() && fitnessPending.isEmpty()) {
                     stateStore.save(state.copy(lastSyncMillis = clock.nowMillis()))
                     return SyncReport(downloaded, 0, null, attempt)
                 }
-                val plan = buildPlan(files, state, pending, programPending)
+                val plan = buildPlan(files, state, pending, programPending, fitnessPending)
                 val effective = plan.effectiveChanges(files)
                 if (effective.isEmpty()) {
-                    markSynced(pending, programPending)
+                    markSynced(pending, programPending, fitnessPending)
                     stateStore.save(state.copy(workoutPaths = plan.workoutPaths, lastSyncMillis = clock.nowMillis()))
                     return SyncReport(downloaded, 0, null, attempt)
                 }
@@ -177,16 +191,16 @@ class SyncEngine(
                     client.treeShaOfCommit(repo, head),
                     effective.map { it.toTreeChange() },
                 )
-                val message = CommitMessages.build(pending, programPending, plan.names, zone)
+                val message = CommitMessages.build(pending, programPending, fitnessPending, plan.names, zone)
                 val commit = client.createCommit(repo, message, tree, head)
                 if (client.fastForward(repo, branch, commit)) {
-                    markSynced(pending, programPending)
+                    markSynced(pending, programPending, fitnessPending)
                     val newFiles = HashMap(files)
                     effective.forEach { it.applyTo(newFiles) }
                     stateStore.save(
                         state.copy(headCommitSha = commit, files = newFiles, workoutPaths = plan.workoutPaths, lastSyncMillis = clock.nowMillis()),
                     )
-                    return SyncReport(downloaded, pending.count + programPending.size, commit, attempt)
+                    return SyncReport(downloaded, pending.count + programPending.size + fitnessPending.size, commit, attempt)
                 }
                 // Somebody pushed first: pull what they did and try again.
                 if (attempt < maxAttempts) pauseBeforeRetry(attempt)
@@ -221,6 +235,7 @@ class SyncEngine(
         val weights = ArrayList<SyncWeightEntry>()
         val workouts = ArrayList<SyncWorkoutData>()
         val documents = ArrayList<ProgramDocument>()
+        val fitness = ArrayList<FitnessTestDocument>()
         for ((path, sha) in files.entries.sortedBy { it.key }) {
             if (previous[path] == sha || path in moved) continue
             val kind = RepoPaths.classify(path)
@@ -230,6 +245,7 @@ class SyncEngine(
                 is RepoPaths.Kind.Weights -> kind.folder
                 is RepoPaths.Kind.WorkoutSummary -> kind.folder
                 is RepoPaths.Kind.Program -> kind.folder
+                is RepoPaths.Kind.FitnessTest -> kind.folder
                 RepoPaths.Kind.Other -> continue
             }
             val folderUser = RepoPaths.uuidOfFolder(folder) ?: continue
@@ -244,12 +260,14 @@ class SyncEngine(
                     workouts += SyncWorkoutData(workout, samples)
                 }
                 is RepoPaths.Kind.Program -> RecordCodec.parseProgram(bytes, folderUser)?.let { documents += it }
+                is RepoPaths.Kind.FitnessTest -> RecordCodec.parseFitnessTest(bytes, folderUser)?.let { fitness += it }
                 RepoPaths.Kind.Other -> Unit
             }
         }
         val result = store.applyRemote(RemoteChanges(profiles, weights, workouts))
         val programsApplied = if (documents.isEmpty()) 0 else programs.applyRemote(documents)
-        return Pulled(result.applied + programsApplied, workoutPaths)
+        val fitnessApplied = if (fitness.isEmpty()) 0 else fitnessTests.applyRemote(fitness)
+        return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths)
     }
 
     // ---------------------------------------------------------------- push
@@ -301,7 +319,13 @@ class SyncEngine(
         }
     }
 
-    private suspend fun buildPlan(files: Map<String, String>, state: SyncState, pending: PendingChanges, programPending: List<ProgramDocument>): Plan {
+    private suspend fun buildPlan(
+        files: Map<String, String>,
+        state: SyncState,
+        pending: PendingChanges,
+        programPending: List<ProgramDocument>,
+        fitnessPending: List<FitnessTestDocument>,
+    ): Plan {
         val plan = Plan(state.workoutPaths)
         val folders = HashMap<String, String>() // user uuid -> existing folder
         for (path in files.keys.sorted()) {
@@ -309,7 +333,7 @@ class SyncEngine(
             RepoPaths.uuidOfFolder(folder)?.let { folders.putIfAbsent(it, folder) }
         }
         val userUuids = (pending.profiles.map { it.uuid } + pending.weights.map { it.userUuid } + pending.workouts.map { it.userUuid } +
-            programPending.map { it.userUuid }).distinct()
+            programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
 
         for (userUuid in userUuids) {
             val pendingProfile = pending.profiles.firstOrNull { it.uuid == userUuid }
@@ -329,7 +353,9 @@ class SyncEngine(
             val folder = RepoPaths.userFolder(profile.name, userUuid)
             if (existing != null && existing != folder) renameFolder(plan, files, existing, folder)
             val profilePath = RepoPaths.profile(folder)
-            if (pendingProfile != null || existing == null || (existing == folder && profilePath !in files)) {
+            // Changed results change the fitness block of the profile file (same version, new content).
+            val fitnessChanged = fitnessPending.any { it.userUuid == userUuid }
+            if (pendingProfile != null || fitnessChanged || existing == null || (existing == folder && profilePath !in files)) {
                 plan.put(profilePath, RecordCodec.profile(profile))
             }
 
@@ -339,6 +365,9 @@ class SyncEngine(
             for (workout in pending.workouts.filter { it.userUuid == userUuid }) planWorkout(plan, files, folder, workout)
             for (document in programPending.filter { it.userUuid == userUuid }) {
                 plan.put(RepoPaths.program(folder, document.uuid), RecordCodec.program(document))
+            }
+            for (document in fitnessPending.filter { it.userUuid == userUuid }) {
+                plan.put(RepoPaths.fitnessTest(folder, document.uuid), RecordCodec.fitnessTest(document))
             }
         }
         if (RepoPaths.README !in files) plan.put(RepoPaths.README, RepositoryReadme.TEXT.toByteArray(Charsets.UTF_8))
@@ -390,7 +419,7 @@ class SyncEngine(
         return candidate
     }
 
-    private suspend fun markSynced(pending: PendingChanges, programPending: List<ProgramDocument>) {
+    private suspend fun markSynced(pending: PendingChanges, programPending: List<ProgramDocument>, fitnessPending: List<FitnessTestDocument>) {
         store.markSynced(
             SyncedRecords(
                 profiles = pending.profiles.map { SyncedRef(it.uuid, it.version) },
@@ -399,6 +428,7 @@ class SyncEngine(
             ),
         )
         if (programPending.isNotEmpty()) programs.markSynced(programPending.map { SyncedRef(it.uuid, it.version) })
+        if (fitnessPending.isNotEmpty()) fitnessTests.markSynced(fitnessPending.map { SyncedRef(it.uuid, it.version) })
     }
 
     // ---------------------------------------------------------------- errors

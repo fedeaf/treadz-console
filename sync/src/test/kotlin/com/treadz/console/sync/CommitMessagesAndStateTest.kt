@@ -37,7 +37,7 @@ class CommitMessagesAndStateTest {
         WorkoutStats(durationSeconds = minutes * 60, distanceMeters = meters),
     )
     private fun weight(user: String, kg: Double, deleted: Boolean = false) = SyncWeightEntry("w", user, v, deleted, LocalDate.of(2026, 10, 8), kg)
-    private fun message(changes: PendingChanges, programs: List<ProgramDocument> = emptyList()) = CommitMessages.build(changes, programs, names, ZoneOffset.UTC)
+    private fun message(changes: PendingChanges, programs: List<ProgramDocument> = emptyList(), fitnessTests: List<com.treadz.console.userdata.sync.FitnessTestDocument> = emptyList()) = CommitMessages.build(changes, programs, fitnessTests, names, ZoneOffset.UTC)
 
     @Test fun `a single record gets a descriptive message`() {
         val e = emptyList<Nothing>()
@@ -60,6 +60,37 @@ class CommitMessagesAndStateTest {
         assertEquals("Sync · 2 workouts, 2 weight entries, 1 profile · Ana, Fede", message(changes))
         val program = ProgramDocument("p", "u1", v, false, "{}")
         assertEquals("Fede · program", message(PendingChanges(emptyList(), emptyList(), emptyList()), listOf(program)))
+    }
+
+    @Test fun `programs and fitness tests have descriptive messages`() {
+        val none = PendingChanges(emptyList(), emptyList(), emptyList())
+        val program = ProgramDocument(PROGRAM_1, "u1", v, false, com.treadz.console.programs.json.ProgramJson.encode(norwegian()))
+        assertEquals("Fede · program \"Norwegian 4x4\"", message(none, listOf(program)))
+        assertEquals("Fede · program deleted", message(none, listOf(program.copy(deleted = true, json = ""))))
+        assertEquals("Fede · program", message(none, listOf(program.copy(json = "{ not a program"))))
+
+        fun test(result: com.treadz.console.programs.fitness.FitnessTestResult, owner: String = "u2", deleted: Boolean = false) =
+            com.treadz.console.userdata.sync.FitnessTestDocument(
+                result.id, owner, v, deleted, if (deleted) "" else com.treadz.console.programs.fitness.FitnessTestJson.encode(result),
+            )
+        val ebbeling = ebbelingResult(TEST_1, T0, vo2max = 41.04)
+        assertEquals("Ana · fitness test 2026-10-08 00:40 · Ebbeling walk · VO2max 41.0", message(none, fitnessTests = listOf(test(ebbeling))))
+        assertEquals(
+            "Ana · fitness test 2026-10-08 00:40 · max incremental run · VO2max 47.3 · MAS 13.5 km/h",
+            message(none, fitnessTests = listOf(test(maxTestResult(TEST_2, T0)))),
+        )
+        assertEquals(
+            "Ana · fitness test 2026-10-08 00:40 · Ebbeling walk · invalid",
+            message(none, fitnessTests = listOf(test(ebbelingResult(TEST_1, T0, validity = com.treadz.console.programs.fitness.Validity.Invalid)))),
+        )
+        assertEquals("Ana · fitness test deleted", message(none, fitnessTests = listOf(test(ebbeling, deleted = true))))
+        assertEquals(
+            "Sync · 1 profile, 1 program, 2 fitness tests · Ana, Fede",
+            message(
+                PendingChanges(listOf(profile("u1")), emptyList(), emptyList()), listOf(program),
+                listOf(test(ebbeling), test(maxTestResult(TEST_2, T0))),
+            ),
+        )
     }
 
     @Test fun `the state file round trips and a damaged file means a fresh start`() = runBlocking<Unit> {

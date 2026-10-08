@@ -1,10 +1,13 @@
 package com.treadz.console.sync.format
 
+import com.treadz.console.programs.fitness.FitnessTestJson
+import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutStats
+import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.SyncProfile
@@ -53,6 +56,10 @@ internal object RecordCodec {
                 .put("goal", p.goal?.let { code(it.name) })
                 .put("target_weight_kg", p.targetWeightKg)
                 .put("created_at", time(p.createdAtMillis))
+            // Left out when unknown, so that profile files written before the field existed stay byte-identical.
+            p.maxHeartRateSetAtMillis?.let { json.put("max_hr_set_at", time(it)) }
+            // Read-only: each device derives it from the synchronised fitness tests, so it is ignored on reading.
+            p.fitness?.let { json.putRaw("fitness", FitnessTestJson.encodeProfile(it)) }
         }
         json.put("updated_at", time(p.version.updatedAtMillis)).put("updated_by", p.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -78,6 +85,8 @@ internal object RecordCodec {
                 goal = enumOf<Goal>(o.optStringOrNull("goal")),
                 targetWeightKg = if (o.isNull("target_weight_kg")) null else o.optDouble("target_weight_kg"),
                 createdAtMillis = o.optStringOrNull("created_at")?.let(::parseTime) ?: version.updatedAtMillis,
+                maxHeartRateSetAtMillis = o.optStringOrNull("max_hr_set_at")?.let(::parseTime),
+                // "fitness" is never read: it is derived from the fitness tests.
             )
         }
     }
@@ -168,6 +177,15 @@ internal object RecordCodec {
                         .put("max_hr_bpm", w.stats.maxHeartRateBpm)
                         .put("max_incline_pct", rounded(w.stats.maxInclinePercent, INCLINE_DECIMALS)),
                 )
+            val plan = w.planJson
+            if (plan != null) {
+                // The ids are repeated outside the plan so that a reader sees what the workout was without parsing it.
+                val source = runCatching { PlanJson.decode(plan).source }.getOrNull()
+                json.put("program_id", source?.programId).put("program_name", source?.programName)
+                json.put("fitness_test_id", w.fitnessTestId).putRaw("plan", plan)
+            } else if (w.fitnessTestId != null) {
+                json.put("fitness_test_id", w.fitnessTestId)
+            }
         }
         json.put("updated_at", time(w.version.updatedAtMillis)).put("updated_by", w.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -201,6 +219,8 @@ internal object RecordCodec {
                     maxHeartRateBpm = s.optIntOrNull("max_hr_bpm"),
                     maxInclinePercent = s.getDouble("max_incline_pct"),
                 ),
+                planJson = o.optJSONObject("plan")?.toString(),
+                fitnessTestId = o.optStringOrNull("fitness_test_id"),
             )
         }
     }
@@ -222,6 +242,26 @@ internal object RecordCodec {
             version = RecordVersion(parseTime(o.getString("updated_at")), o.getString("updated_by")),
             deleted = deleted,
             json = if (deleted) "" else o.getJSONObject("program").toString(),
+        )
+    }
+
+    // ---- fitness tests ----
+
+    fun fitnessTest(t: FitnessTestDocument): ByteArray {
+        val json = JsonObjectWriter().put("format", FORMAT).put("uuid", t.uuid).put("user_uuid", t.userUuid).put("deleted", t.deleted)
+        if (!t.deleted) json.putRaw("result", t.json)
+        json.put("updated_at", time(t.version.updatedAtMillis)).put("updated_by", t.version.deviceId)
+        return json.toText().toByteArray(Charsets.UTF_8)
+    }
+
+    fun parseFitnessTest(bytes: ByteArray, folderUserUuid: String): FitnessTestDocument? = parse(bytes) { o ->
+        val deleted = o.optBoolean("deleted", false)
+        FitnessTestDocument(
+            uuid = o.getString("uuid"),
+            userUuid = o.optStringOrNull("user_uuid") ?: folderUserUuid,
+            version = RecordVersion(parseTime(o.getString("updated_at")), o.getString("updated_by")),
+            deleted = deleted,
+            json = if (deleted) "" else o.getJSONObject("result").toString(),
         )
     }
 

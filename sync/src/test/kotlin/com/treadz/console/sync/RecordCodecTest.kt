@@ -7,6 +7,10 @@ import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutStats
+import com.treadz.console.programs.fitness.FitnessProfileCalculator
+import com.treadz.console.programs.fitness.FitnessTestJson
+import com.treadz.console.programs.json.PlanJson
+import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.SyncProfile
@@ -205,6 +209,94 @@ class RecordCodecTest {
         val tombstone = RecordCodec.parseProgram(RecordCodec.program(doc.copy(deleted = true, json = "")), uuid)!!
         assertTrue(tombstone.deleted)
         assertEquals("", tombstone.json)
+    }
+
+    @Test fun `the time of the manual maximum heart rate is written when known and left out otherwise`() {
+        val withTime = profile.copy(maxHeartRateSetAtMillis = T0 - 500)
+        val json = text(RecordCodec.profile(withTime))
+        assertTrue(json, json.contains("  \"created_at\": \"2026-10-08T00:39:59.000Z\",\n  \"max_hr_set_at\": \"2026-10-08T00:39:59.500Z\",\n  \"updated_at\""))
+        assertEquals(withTime, RecordCodec.parseProfile(json.toByteArray()))
+        // a profile file written before the field existed is read as "unknown" and is written back byte for byte
+        val old = RecordCodec.profile(profile)
+        assertNull(RecordCodec.parseProfile(old)!!.maxHeartRateSetAtMillis)
+        assertFalse(text(old).contains("max_hr_set_at"))
+    }
+
+    @Test fun `the fitness block is written for people and never read back`() {
+        val results = listOf(ebbelingResult(TEST_1, T0 - 1000))
+        val fitness = FitnessProfileCalculator.compute(results, T0 - 1000, 39, com.treadz.console.programs.fitness.Sex.Female)
+        val withBlock = profile.copy(fitness = fitness)
+        val json = text(RecordCodec.profile(withBlock))
+        // an embedded document is indented with the file
+        assertTrue(json, json.contains("  \"fitness\": {\n    \"schemaVersion\": 1,\n    \"computedAt\": \"2026-10-08T00:39:59Z\","))
+        assertTrue(json, json.contains("\n  },\n  \"updated_at\""))
+        assertEquals(fitness, FitnessTestJson.decodeProfile(json.substringAfter("\"fitness\": ").substringBefore(",\n  \"updated_at\"")))
+        // reading ignores it, whatever it says
+        assertEquals(profile, RecordCodec.parseProfile(json.toByteArray()))
+        val garbage = json.replace("\"schemaVersion\": 1,\n    \"computedAt\"", "\"schemaVersion\": 99,\n    \"computedAt\"")
+        assertEquals(profile, RecordCodec.parseProfile(garbage.toByteArray()))
+        // a profile without usable results has no block, and a tombstone neither
+        assertFalse(text(RecordCodec.profile(profile)).contains("fitness\":"))
+        assertFalse(text(RecordCodec.profile(withBlock.copy(deleted = true))).contains("fitness\":"))
+    }
+
+    @Test fun `the fitness block is identical for the same results whatever their order`() {
+        val a = ebbelingResult(TEST_1, T0 - 40 * 86_400_000L)
+        val b = maxTestResult(TEST_2, T0 - 5 * 86_400_000L)
+        val one = com.treadz.console.userdata.FitnessProfiles.snapshot(listOf(a, b), Sex.Female, LocalDate.of(1986, 10, 8))
+        val two = com.treadz.console.userdata.FitnessProfiles.snapshot(listOf(b, a), Sex.Female, LocalDate.of(1986, 10, 8))
+        assertEquals(one, two)
+        assertEquals(text(RecordCodec.profile(profile.copy(fitness = one))), text(RecordCodec.profile(profile.copy(fitness = two))))
+    }
+
+    @Test fun `a workout with a plan and a test round trips, and an older workout without them is still valid`() {
+        val plan = PlanJson.encode(hillPlan())
+        val linked = workout.copy(planJson = plan, fitnessTestId = TEST_1)
+        val json = text(RecordCodec.workout(linked))
+        assertTrue(json, json.contains("\"program_id\": \"standard-hill\""))
+        assertTrue(json, json.contains("\"fitness_test_id\": \"$TEST_1\",\n  \"plan\": {\n    \"planSchemaVersion\": 1,"))
+        val parsed = RecordCodec.parseWorkout(json.toByteArray(), uuid)!!
+        assertEquals(hillPlan(), PlanJson.decode(parsed.planJson!!))
+        assertEquals(TEST_1, parsed.fitnessTestId)
+        assertEquals(linked.copy(ownerName = "", planJson = parsed.planJson), parsed)
+
+        val plain = text(RecordCodec.workout(workout))
+        assertFalse(plain.contains("plan") || plain.contains("program_id") || plain.contains("fitness_test_id"))
+        val old = RecordCodec.parseWorkout(plain.toByteArray(), uuid)!!
+        assertNull(old.planJson)
+        assertNull(old.fitnessTestId)
+
+        val onlyTest = text(RecordCodec.workout(workout.copy(fitnessTestId = TEST_2)))
+        assertEquals(TEST_2, RecordCodec.parseWorkout(onlyTest.toByteArray(), uuid)!!.fitnessTestId)
+        // a tombstone carries neither
+        assertFalse(text(RecordCodec.workout(linked.copy(deleted = true))).contains("plan"))
+    }
+
+    @Test fun `a fitness test document keeps its json and its tombstone has none`() {
+        val result = FitnessTestJson.encode(ebbelingResult(TEST_1, T0))
+        val doc = FitnessTestDocument(TEST_1, uuid, v, false, result)
+        val file = text(RecordCodec.fitnessTest(doc))
+        assertTrue(file, file.startsWith("{\n  \"format\": 1,\n  \"uuid\": \"$TEST_1\",\n  \"user_uuid\": \"$uuid\",\n  \"deleted\": false,\n  \"result\": {\n    \"schemaVersion\": 1,"))
+        val parsed = RecordCodec.parseFitnessTest(file.toByteArray(), "ignored")!!
+        assertEquals(TEST_1, parsed.uuid)
+        assertEquals(uuid, parsed.userUuid)
+        assertEquals(v, parsed.version)
+        assertEquals(FitnessTestJson.decode(result), FitnessTestJson.decode(parsed.json))
+
+        val tombstone = RecordCodec.parseFitnessTest(RecordCodec.fitnessTest(doc.copy(deleted = true, json = "")), uuid)!!
+        assertTrue(tombstone.deleted)
+        assertEquals("", tombstone.json)
+        assertNull(RecordCodec.parseFitnessTest("{ nope".toByteArray(), uuid))
+        // the folder user is used when the file does not name its owner
+        val anonymous = file.replace("  \"user_uuid\": \"$uuid\",\n", "")
+        assertEquals("folder-user", RecordCodec.parseFitnessTest(anonymous.toByteArray(), "folder-user")!!.userUuid)
+    }
+
+    @Test fun `fitness test files are told apart from the other files`() {
+        assertTrue(RepoPaths.classify("users/ana-$uuid/fitness-tests/$TEST_1.json") is RepoPaths.Kind.FitnessTest)
+        assertEquals("users/ana-$uuid/fitness-tests/$TEST_1.json", RepoPaths.fitnessTest("ana-$uuid", TEST_1))
+        assertEquals(RepoPaths.Kind.Other, RepoPaths.classify("users/ana-$uuid/fitness-tests/$TEST_1.csv"))
+        assertEquals(RepoPaths.Kind.Other, RepoPaths.classify("users/ana-$uuid/fitness-tests/nested/$TEST_1.json"))
     }
 
     @Test fun `folder names are readable ASCII with the uuid at the end`() {

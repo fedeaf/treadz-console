@@ -7,7 +7,9 @@ import java.math.BigDecimal
  * newline. A fixed layout keeps the Git diffs small and readable for whoever analyses the data.
  */
 internal class JsonObjectWriter {
-    private val fields = ArrayList<Pair<String, String>>()
+    private class Field(val name: String, val text: String, val raw: Boolean)
+
+    private val fields = ArrayList<Field>()
 
     fun put(name: String, value: String?): JsonObjectWriter = add(name, value?.let(::quote) ?: "null")
 
@@ -22,11 +24,14 @@ internal class JsonObjectWriter {
 
     fun put(name: String, value: JsonObjectWriter): JsonObjectWriter = add(name, value.render(indent = 1))
 
-    /** Adds [json], which must already be valid JSON, as is. */
-    fun putRaw(name: String, json: String): JsonObjectWriter = add(name, json.trim())
+    /** Adds [json], which must already be valid JSON, as is (the lines after the first are indented to the field). */
+    fun putRaw(name: String, json: String): JsonObjectWriter {
+        fields += Field(name, json.trim(), raw = true)
+        return this
+    }
 
     private fun add(name: String, rendered: String): JsonObjectWriter {
-        fields += name to rendered
+        fields += Field(name, rendered, raw = false)
         return this
     }
 
@@ -36,8 +41,9 @@ internal class JsonObjectWriter {
         if (fields.isEmpty()) return "{}"
         val pad = "  ".repeat(indent + 1)
         val closing = "  ".repeat(indent)
-        return fields.joinToString(",\n", prefix = "{\n", postfix = "\n$closing}") { (name, value) ->
-            "$pad${quote(name)}: $value"
+        return fields.joinToString(",\n", prefix = "{\n", postfix = "\n$closing}") { f ->
+            val value = if (f.raw) f.text.lines().joinToString("\n$pad") else f.text
+            "$pad${quote(f.name)}: $value"
         }
     }
 

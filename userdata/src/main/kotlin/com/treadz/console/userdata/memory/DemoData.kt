@@ -20,7 +20,9 @@ object DemoData {
     /**
      * Replaces the generic profile that a fresh [InMemoryUserData] starts with by two demo users (the first one
      * active) and fills them with twelve weeks of weight entries, a target weight, and a few
-     * finished workouts each, plus one workout done with nobody active. Returns the two profiles.
+     * finished workouts each, plus one workout done with nobody active. Ana also gets a free program ([DemoPrograms]),
+     * the start parameters last used for the standard Hill program, and two fitness tests (an Ebbeling walk 40 days
+     * ago and a maximal test 10 days ago); Beto has none of those. Returns the two profiles.
      */
     suspend fun populate(data: InMemoryUserData, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Pair<UserProfile, UserProfile> {
         fun ok(r: com.treadz.console.userdata.DataResult<UserProfile>) = (r as com.treadz.console.userdata.DataResult.Success).value
@@ -58,6 +60,17 @@ object DemoData {
         data.addWorkout(beto.id, 25 * 60, 7.0, 128, startOf(2))
         data.addWorkout(beto.id, 40 * 60, 6.5, 131, startOf(6))
         data.addWorkout(null, 15 * 60, 7.5, null, startOf(0))
+
+        data.programs.save(ana.id, DemoPrograms.norwegian4x4())
+        data.startParameters.save(
+            ana.id, "standard-hill",
+            com.treadz.console.programs.plan.StartParameters(
+                totalDurationSeconds = 2400, easySpeedKmh = 5.0, maxSpeedKmh = 10.0, maxInclinePercent = 8.0, intensityAdjustmentPercent = 5,
+            ),
+        )
+        val anaSex = com.treadz.console.programs.fitness.Sex.Female
+        data.fitnessTests.save(ana.id, DemoPrograms.ebbeling(startedAtMillis = startOf(40), vo2max = 38.5, ageYears = 39, sex = anaSex, weightKg = 66.0))
+        data.fitnessTests.save(ana.id, DemoPrograms.maxTest(startedAtMillis = startOf(10), masKmh = 12.0, peakBpm = 183, ageYears = 39, sex = anaSex, weightKg = 65.0))
         return ana to beto
     }
 

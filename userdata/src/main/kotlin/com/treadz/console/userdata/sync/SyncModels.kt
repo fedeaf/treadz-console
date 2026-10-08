@@ -1,5 +1,6 @@
 package com.treadz.console.userdata.sync
 
+import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.Sex
@@ -35,6 +36,15 @@ data class SyncProfile(
     val goal: Goal? = null,
     val targetWeightKg: Double? = null,
     val createdAtMillis: Long = 0,
+    /** When the manual [maxHeartRateBpm] was entered or last confirmed; `null` if unknown (it counts as older than any test). */
+    val maxHeartRateSetAtMillis: Long? = null,
+    /**
+     * The deterministic fitness profile snapshot (`FitnessProfiles.snapshot`) of the user's results, **read-only**: it is
+     * computed when the record is read from the device, written to `profile.json` for people and Claude to read, and
+     * ignored on download (each device derives it from the synchronised results). It is not part of the record's
+     * version and never a source of conflicts.
+     */
+    val fitness: FitnessProfile? = null,
 )
 
 /** A weight entry as exchanged with other devices. */
@@ -72,6 +82,10 @@ data class SyncWorkout(
     val endedAtMillis: Long,
     val endReason: WorkoutEndReason,
     val stats: WorkoutStats,
+    /** The executed plan as a `PlanJson` document, or `null` (workouts without a program, and older ones). */
+    val planJson: String? = null,
+    /** The fitness test result that was run in this workout, or `null`. */
+    val fitnessTestId: String? = null,
 )
 
 /** A [SyncWorkout] with its per-second samples, as downloaded from another device. */

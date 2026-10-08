@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.Flow
  * `Long` id, a [RecordVersion] and a tombstone flag. Every local change (create, edit, delete) stamps a new version and
  * flags the record as *pending*; [markSynced] clears the flag.
  *
+ * Programs and fitness test results are JSON documents with the same rules; they go through their own ports,
+ * [ProgramDocumentStore] and [FitnessTestDocumentStore]. The one thing that crosses over is the fitness profile of a
+ * user: [SyncProfile.fitness] is derived here from the stored results and written read-only into `profile.json`.
+ *
  * ## What is never uploaded
  * - The **generic profile** (and, with it, its weights and workouts) until it is personalised: then it is an ordinary
  *   pending profile. Placeholder weights never are.

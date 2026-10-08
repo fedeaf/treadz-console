@@ -13,6 +13,7 @@ import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.sync.token.TokenStore
 import com.treadz.console.sync.work.SyncScheduler
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
 import kotlinx.coroutines.CancellationException
@@ -40,6 +41,7 @@ class DefaultSyncService(
     private val stateStore: SyncStateStore,
     private val store: SyncStore,
     private val programs: ProgramDocumentStore,
+    private val fitnessTests: FitnessTestDocumentStore,
     private val scheduler: SyncScheduler,
     private val scope: CoroutineScope,
     private val clock: Clock = Clock.System,
@@ -56,7 +58,7 @@ class DefaultSyncService(
     init {
         scope.launch { setupLock.withLock { restore() } }
         scope.launch {
-            combine(store.pendingCount, programs.pendingCount) { a, b -> a + b }.collect { count ->
+            combine(store.pendingCount, programs.pendingCount, fitnessTests.pendingCount) { a, b, c -> a + b + c }.collect { count ->
                 _status.update { it.copy(pendingCount = count) }
                 if (count > 0 && _status.value.setup == SyncSetup.Linked && tokens.get() != null) scheduler.schedulePush()
             }

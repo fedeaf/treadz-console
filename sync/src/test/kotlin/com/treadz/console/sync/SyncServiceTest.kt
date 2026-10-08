@@ -198,7 +198,7 @@ class SyncServiceTest {
         assertNotNull(synced)
         a.tokens.set(TOKEN)
 
-        val restarted = DefaultSyncService(a.client, a.engine, a.tokens, a.state, a.data.sync, a.programs, a.scheduler, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), a.clock)
+        val restarted = DefaultSyncService(a.client, a.engine, a.tokens, a.state, a.data.sync, a.programs, a.fitnessTests, a.scheduler, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined), a.clock)
         awaitUntil("restored") { restarted.status.value.setup == SyncSetup.Linked }
         assertEquals("treadz-data", restarted.status.value.repository!!.name)
         assertEquals(synced, restarted.status.value.lastSyncMillis)

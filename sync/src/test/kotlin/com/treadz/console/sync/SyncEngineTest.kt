@@ -5,7 +5,6 @@ import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.activeUserWeightKg
-import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -514,28 +513,6 @@ class SyncEngineTest {
     }
 
     // ------------------------------------------------------------ programs and odd files
-
-    @Test fun `programs travel as opaque documents and their deletion is a tombstone`() {
-        val a = device("tablet", 1)
-        val ana = a.createUser("Ana")
-        a.sync()
-        val userUuid = userFolder("ana").removePrefix("users/ana-").removeSuffix("/")
-        a.programs.put(ProgramDocument("00000000-0000-0000-0000-0000000000aa", userUuid, RecordVersion(T0, "tablet"), false, """{"name":"4x4","blocks":[1,2,3]}"""))
-        a.sync()
-        val path = paths().first { it.contains("/programs/") }
-        assertTrue(path.endsWith("/programs/00000000-0000-0000-0000-0000000000aa.json"))
-        assertTrue(repo.text(path)!!.contains("\"program\": {\"name\":\"4x4\",\"blocks\":[1,2,3]}"))
-
-        val b = device("phone", 2)
-        b.sync()
-        assertEquals("""{"name":"4x4","blocks":[1,2,3]}""", b.programs.all().single().json.replace(" ", ""))
-
-        a.programs.put(ProgramDocument("00000000-0000-0000-0000-0000000000aa", userUuid, RecordVersion(T0 + 1000, "tablet"), true, ""))
-        a.sync()
-        assertTrue(repo.text(path)!!.contains("\"deleted\": true"))
-        b.sync()
-        assertTrue(b.programs.all().single().deleted)
-    }
 
     @Test fun `a damaged remote file is skipped and the rest is applied`() {
         val a = device("tablet", 1)

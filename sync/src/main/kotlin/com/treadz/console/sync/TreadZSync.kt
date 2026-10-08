@@ -15,8 +15,6 @@ import com.treadz.console.sync.token.EncryptedTokenStore
 import com.treadz.console.sync.work.WorkManagerSyncScheduler
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.TreadZUserData
-import com.treadz.console.userdata.sync.InMemoryProgramDocuments
-import com.treadz.console.userdata.sync.ProgramDocumentStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,8 +43,10 @@ object TreadZSync {
         instance = service
     }
 
-    private fun create(context: Context, programs: ProgramDocumentStore = InMemoryProgramDocuments()): SyncService {
+    private fun create(context: Context): SyncService {
         val store = TreadZUserData.sync(context)
+        val programs = TreadZUserData.programDocuments(context)
+        val fitnessTests = TreadZUserData.fitnessTestDocuments(context)
         val tokens = EncryptedTokenStore(context.getSharedPreferences("treadz_sync_secrets", Context.MODE_PRIVATE))
         val http = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -55,7 +55,7 @@ object TreadZSync {
             .build()
         val client = RestGitHubClient(http, tokens::get)
         val stateStore = FileSyncStateStore(File(context.filesDir, "treadz_sync_state.json"))
-        val engine = SyncEngine(client, store, programs, stateStore, Clock.System)
+        val engine = SyncEngine(client, store, programs, fitnessTests, stateStore, Clock.System)
         val service = DefaultSyncService(
             client = client,
             engine = engine,
@@ -63,6 +63,7 @@ object TreadZSync {
             stateStore = stateStore,
             store = store,
             programs = programs,
+            fitnessTests = fitnessTests,
             scheduler = WorkManagerSyncScheduler(context),
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
         )

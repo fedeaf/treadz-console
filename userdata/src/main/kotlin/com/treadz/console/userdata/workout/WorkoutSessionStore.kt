@@ -1,6 +1,7 @@
 package com.treadz.console.userdata.workout
 
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
 
@@ -10,8 +11,17 @@ import com.treadz.console.userdata.WorkoutStats
  */
 interface WorkoutSessionStore {
 
-    /** Creates a workout in progress and returns its id. [userId] is `null` when nobody was active. */
-    suspend fun begin(userId: Long?, startedAtMillis: Long): Long
+    /**
+     * Creates a workout in progress and returns its id. [userId] is `null` when nobody was active. [link] is the plan
+     * and/or fitness test the workout is done for, if the app announced one.
+     */
+    suspend fun begin(userId: Long?, startedAtMillis: Long, link: WorkoutLink? = null): Long
+
+    /**
+     * Attaches [link] to a workout (the parts that are not `null` replace what it had). Returns `false` if the
+     * workout no longer exists.
+     */
+    suspend fun attachLink(workoutId: Long, link: WorkoutLink): Boolean
 
     /**
      * Stores [samples] and the updated [stats] of a workout in progress.

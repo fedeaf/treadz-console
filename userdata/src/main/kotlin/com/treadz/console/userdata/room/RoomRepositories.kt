@@ -1,6 +1,7 @@
 package com.treadz.console.userdata.room
 
 import androidx.room.withTransaction
+import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.GenericProfile
@@ -16,6 +17,7 @@ import com.treadz.console.userdata.WeightRepository
 import com.treadz.console.userdata.WorkoutDetail
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutHistoryRepository
+import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
 import com.treadz.console.userdata.WorkoutSummary
@@ -110,7 +112,12 @@ internal class RoomProfileRepository(
                     return@withTransaction DataResult.Invalid(listOf(nameTaken))
                 }
                 val first = dao.count() == 0 // only possible with seeding disabled (tests)
-                val id = dao.insert(input.toEntity(id = 0, targetWeightKg = null, createdAtMillis = clock.nowMillis()).fresh())
+                val id = dao.insert(
+                    input.toEntity(
+                        id = 0, targetWeightKg = null, createdAtMillis = clock.nowMillis(),
+                        maxHeartRateSetAtMillis = if (input.maxHeartRateBpm != null) clock.nowMillis() else null,
+                    ).fresh(),
+                )
                 if (first) dao.setActive(ActiveUserEntity(userId = id))
                 DataResult.Success(dao.get(id)!!.toProfile())
             }
@@ -149,7 +156,13 @@ internal class RoomProfileRepository(
         if (!stillGeneric && dao.countWithName(Validation.nameKey(input.name), exceptId = id) > 0) {
             return DataResult.Invalid(listOf(nameTaken))
         }
-        val edited = input.toEntity(id, current.targetWeightKg, current.createdAtMillis, isGeneric = stillGeneric)
+        // The time of the manual maximum heart rate: now when it is set or changed, cleared with the value, else kept.
+        val setAt = when {
+            input.maxHeartRateBpm == null -> null
+            input.maxHeartRateBpm != current.maxHeartRateBpm -> clock.nowMillis()
+            else -> current.maxHeartRateSetAtMillis
+        }
+        val edited = input.toEntity(id, current.targetWeightKg, current.createdAtMillis, isGeneric = stillGeneric, maxHeartRateSetAtMillis = setAt)
             .copy(uuid = current.uuid, updatedAtMillis = current.updatedAtMillis, updatedBy = current.updatedBy, dirty = current.dirty)
         // An edit that changes nothing is not a change: it must not be uploaded.
         if (edited != current) {
@@ -184,7 +197,13 @@ internal class RoomProfileRepository(
     /** Identity and version of a record that is created now. */
     private fun UserEntity.fresh() = copy(uuid = stamper.newUuid(), updatedAtMillis = stamper.at(), updatedBy = stamper.deviceId, dirty = true)
 
-    private fun ProfileInput.toEntity(id: Long, targetWeightKg: Double?, createdAtMillis: Long, isGeneric: Boolean = false) = UserEntity(
+    private fun ProfileInput.toEntity(
+        id: Long,
+        targetWeightKg: Double?,
+        createdAtMillis: Long,
+        isGeneric: Boolean = false,
+        maxHeartRateSetAtMillis: Long? = null,
+    ) = UserEntity(
         id = id,
         name = Validation.normalizedName(name),
         nameKey = Validation.nameKey(name),
@@ -203,6 +222,7 @@ internal class RoomProfileRepository(
         updatedBy = "",
         deleted = false,
         dirty = false,
+        maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
     )
 
     private companion object {
@@ -295,7 +315,29 @@ internal class RoomWorkoutRepository(
 
     override suspend fun detail(workoutId: Long): WorkoutDetail? = db.withTransaction {
         val workout = dao.get(workoutId) ?: return@withTransaction null
-        WorkoutDetail(workout.toSummary(), dao.samples(workoutId).map { it.toSample() })
+        WorkoutDetail(workout.toSummary(), dao.samples(workoutId).map { it.toSample() }, readPlan(workout.planJson))
+    }
+
+    override suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit> = guarded {
+        db.withTransaction {
+            val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
+            applyLink(current, link)
+            DataResult.Success(Unit)
+        }
+    }
+
+    /** Merges [link] into the workout; nothing changes (and nothing is uploaded again) if it adds nothing. */
+    private suspend fun applyLink(current: WorkoutEntity, link: WorkoutLink) {
+        val planJson = link.plan?.let { PlanJson.encode(it) } ?: current.planJson
+        val programId = link.plan?.source?.programId ?: current.programId
+        val programName = link.plan?.source?.programName ?: current.programName
+        val fitnessTestId = link.fitnessTestId ?: current.fitnessTestId
+        if (planJson == current.planJson && programId == current.programId && programName == current.programName &&
+            fitnessTestId == current.fitnessTestId
+        ) {
+            return
+        }
+        dao.setLink(current.id, planJson, programId, programName, fitnessTestId, stamper.at(current.updatedAtMillis), stamper.deviceId)
     }
 
     /** Soft delete: the workout becomes a tombstone (so the deletion can be synchronised) and its samples are dropped. */
@@ -319,7 +361,7 @@ internal class RoomWorkoutRepository(
 
     // ---- WorkoutSessionStore ----
 
-    override suspend fun begin(userId: Long?, startedAtMillis: Long): Long = dao.insert(
+    override suspend fun begin(userId: Long?, startedAtMillis: Long, link: WorkoutLink?): Long = dao.insert(
         WorkoutEntity(
             userId = userId,
             startedAtMillis = startedAtMillis,
@@ -338,8 +380,18 @@ internal class RoomWorkoutRepository(
             updatedBy = stamper.deviceId,
             deleted = false,
             dirty = true,
+            planJson = link?.plan?.let { PlanJson.encode(it) },
+            programId = link?.plan?.source?.programId,
+            programName = link?.plan?.source?.programName,
+            fitnessTestId = link?.fitnessTestId,
         ),
     )
+
+    override suspend fun attachLink(workoutId: Long, link: WorkoutLink): Boolean = db.withTransaction {
+        val current = dao.get(workoutId) ?: return@withTransaction false
+        applyLink(current, link)
+        true
+    }
 
     override suspend fun append(workoutId: Long, samples: List<WorkoutSample>, stats: WorkoutStats): Boolean =
         db.withTransaction { write(workoutId, samples, stats) }
@@ -438,8 +490,8 @@ internal suspend fun insertGenericProfile(
 }
 
 /**
- * Deletes a profile as a tombstone, together with its weights and workouts (also tombstones: the profile's own
- * tombstone covers them, so they are not uploaded one by one) and clears the active user if it was this one.
+ * Deletes a profile as a tombstone, together with its weights, workouts, programs and fitness test results (also
+ * tombstones: the profile's own tombstone covers them, so they are not uploaded one by one) and its start parameters and clears the active user if it was this one.
  * Must run inside a transaction.
  */
 internal suspend fun softDeleteUser(db: UserDataDatabase, user: UserEntity, stamper: Stamper) {
@@ -449,5 +501,8 @@ internal suspend fun softDeleteUser(db: UserDataDatabase, user: UserEntity, stam
     db.weights().markDeletedForUser(user.id, at, by)
     db.workouts().deleteSamplesForUser(user.id)
     db.workouts().markDeletedForUser(user.id, at, by)
+    db.programs().markDeletedForUser(user.id, at, by)
+    db.fitnessTests().markDeletedForUser(user.id, at, by)
+    db.startParameters().deleteForUser(user.id)
     db.users().clearActiveIf(user.id)
 }

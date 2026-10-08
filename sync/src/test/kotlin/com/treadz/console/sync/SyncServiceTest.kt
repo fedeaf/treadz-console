@@ -258,4 +258,187 @@ class SyncServiceTest {
         assertNull(a.service.status.value.error)
         assertTrue(repo.files().keys.any { it.endsWith("profile.json") })
     }
+
+    // ---- a failed configure never loses a working setup ----
+
+    private fun linkedDevice(): Device {
+        val a = device("tablet", 1, generic = true)
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+        return a
+    }
+
+    @Test fun `a bad new token on a linked device keeps the working token, the link and the syncing`() {
+        val a = linkedDevice()
+        val linkedStatus = a.service.status.value
+        val stateBefore = runBlocking { a.state.load() }
+
+        assertEquals(SyncErrorCode.Unauthorized, runBlocking { a.service.configure("not-a-token") }!!.code)
+        assertEquals(TOKEN, a.tokens.get())
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+        assertEquals(linkedStatus.repository, a.service.status.value.repository)
+        assertEquals(SyncErrorCode.Unauthorized, a.service.status.value.error!!.code)
+        assertEquals(stateBefore, runBlocking { a.state.load() })
+
+        github.offline = true
+        assertEquals(SyncErrorCode.NoNetwork, runBlocking { a.service.configure("another-token") }!!.code)
+        assertEquals(TOKEN, a.tokens.get())
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+        github.offline = false
+        assertEquals(SyncErrorCode.Unauthorized, runBlocking { a.service.configure("   ") }!!.code)
+        assertEquals(TOKEN, a.tokens.get())
+
+        // it keeps syncing with the old token
+        a.createUser("Ana")
+        assertNull(runBlocking { a.service.syncNow() })
+        assertNull(a.service.status.value.error)
+        assertTrue(repo.files().keys.any { it.endsWith("profile.json") })
+        assertEquals(0, a.scheduler.cancels)
+    }
+
+    @Test fun `a token with no private repository on a linked device keeps the previous one`() {
+        val a = linkedDevice()
+        github.validTokens += "empty-token"
+        github.tokenRepos["empty-token"] = emptySet()
+        assertEquals(SyncErrorCode.NoPrivateRepository, runBlocking { a.service.configure("empty-token") }!!.code)
+        assertEquals(TOKEN, a.tokens.get())
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+    }
+
+    @Test fun `a new working token for the same repository replaces the old one and the device stays linked`() {
+        val a = linkedDevice()
+        github.addRepo(FakeGitHub.Repo("fede", "other-private"))
+        github.validTokens += "new-token"
+        // the new token sees both repositories, the linked one among them: no choice, no new confirmation
+        val mutationsBefore = mutations()
+        assertNull(runBlocking { a.service.configure("new-token") })
+        assertEquals("new-token", a.tokens.get())
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+        assertEquals("treadz-data", a.service.status.value.repository!!.name)
+        assertEquals(emptyList<RepositoryRef>(), a.service.status.value.repositories)
+        assertNull(a.service.status.value.error)
+        assertEquals(mutationsBefore, mutations())
+        assertNull(runBlocking { a.service.syncNow() })
+    }
+
+    @Test fun `a token for another private repository is rejected on a linked device and nothing changes`() {
+        val a = linkedDevice()
+        github.addRepo(FakeGitHub.Repo("fede", "other-private"))
+        github.validTokens += "other-token"
+        github.tokenRepos["other-token"] = setOf("other-private")
+        val stateBefore = runBlocking { a.state.load() }
+        val requestsBefore = github.requests.size
+
+        val error = runBlocking { a.service.configure("other-token") }
+        assertEquals(SyncErrorCode.RepositoryNotFound, error!!.code)
+        assertEquals(error, a.service.status.value.error)
+        assertEquals(TOKEN, a.tokens.get())
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+        assertEquals("treadz-data", a.service.status.value.repository!!.name)
+        assertEquals(stateBefore, runBlocking { a.state.load() })
+        // only the validation listing was made: nothing was read from or written to the other repository
+        assertEquals(listOf("GET /user/repos"), github.requests.drop(requestsBefore))
+
+        // the old token still works; and after unlinking the same token can be used to link the other repository
+        a.createUser("Ana")
+        assertNull(runBlocking { a.service.syncNow() })
+        runBlocking { a.service.clear() }
+        assertNull(runBlocking { a.service.configure("other-token") })
+        assertEquals("other-private", a.service.status.value.repository!!.name)
+    }
+
+    @Test fun `a failed token during the setup keeps the setup as it was`() {
+        github.addRepo(FakeGitHub.Repo("fede", "other-private"))
+        val a = device("tablet", 1)
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertEquals(SyncSetup.ChoosingRepository, a.service.status.value.setup)
+        assertEquals(SyncErrorCode.Unauthorized, runBlocking { a.service.configure("wrong") }!!.code)
+        assertEquals(TOKEN, a.tokens.get())
+        assertEquals(SyncSetup.ChoosingRepository, a.service.status.value.setup)
+        assertEquals(2, a.service.status.value.repositories.size)
+        // and the user can still choose
+        assertNull(runBlocking { a.service.selectRepository(a.service.status.value.repositories.first { it.name == "treadz-data" }) })
+        assertEquals(SyncSetup.Linked, a.service.status.value.setup)
+    }
+
+    @Test fun `a failed first token leaves no token and no setup, and the next attempt clears the old error`() {
+        val a = device("tablet", 1)
+        assertEquals(SyncErrorCode.Unauthorized, runBlocking { a.service.configure("wrong") }!!.code)
+        assertNull(a.tokens.get())
+        assertEquals(SyncErrorCode.Unauthorized, a.service.status.value.error!!.code)
+        assertEquals(SyncSetup.NotConfigured, a.service.status.value.setup)
+        github.offline = true
+        runBlocking { a.service.configure(TOKEN) }
+        assertEquals(SyncErrorCode.NoNetwork, a.service.status.value.error!!.code)
+        github.offline = false
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertNull(a.service.status.value.error)
+    }
+
+    // ---- cancelSetup ----
+
+    @Test fun `cancelSetup while choosing a repository forgets the token and uploads nothing`() {
+        github.addRepo(FakeGitHub.Repo("fede", "other-private"))
+        val a = device("tablet", 1, generic = false)
+        a.createUser("Ana")
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertEquals(SyncSetup.ChoosingRepository, a.service.status.value.setup)
+        val requestsBefore = github.requests.size
+        runBlocking { a.service.cancelSetup() }
+        assertEquals(SyncSetup.NotConfigured, a.service.status.value.setup)
+        assertEquals(emptyList<RepositoryRef>(), a.service.status.value.repositories)
+        assertNull(a.tokens.get())
+        assertEquals(SyncState(), runBlocking { a.state.load() })
+        assertEquals(0, mutations())
+        assertEquals(requestsBefore, github.requests.size)
+        assertTrue(repo.isEmpty)
+        assertEquals(listOf("Ana"), a.profiles().map { it.name })
+        assertEquals(0, a.scheduler.pushes)
+    }
+
+    @Test fun `cancelSetup while waiting for the first link confirmation forgets the token and uploads nothing`() {
+        val a = device("tablet", 1, generic = false)
+        a.createUser("Ana")
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertEquals(SyncSetup.AwaitingFirstLinkConfirmation, a.service.status.value.setup)
+        runBlocking { a.service.cancelSetup() }
+        assertEquals(SyncSetup.NotConfigured, a.service.status.value.setup)
+        assertNull(a.service.status.value.firstLink)
+        assertNull(a.service.status.value.repository)
+        assertNull(a.tokens.get())
+        assertEquals(SyncState(), runBlocking { a.state.load() })
+        assertEquals(0, mutations())
+        assertTrue(repo.isEmpty)
+        assertEquals(0, a.scheduler.pushes)
+        assertEquals(listOf("Ana"), a.profiles().map { it.name })
+        // a later attempt starts from scratch
+        assertNull(runBlocking { a.service.configure(TOKEN) })
+        assertEquals(SyncSetup.AwaitingFirstLinkConfirmation, a.service.status.value.setup)
+    }
+
+    @Test fun `cancelSetup clears a leftover error when not configured and does nothing when linked`() {
+        val a = device("tablet", 1)
+        runBlocking { a.service.configure("wrong") }
+        assertNotNull(a.service.status.value.error)
+        runBlocking { a.service.cancelSetup() }
+        assertNull(a.service.status.value.error)
+        assertEquals(SyncSetup.NotConfigured, a.service.status.value.setup)
+
+        val linked = linkedDevice()
+        runBlocking { linked.service.cancelSetup() }
+        runBlocking { linked.service.cancelFirstLink() }
+        assertEquals(SyncSetup.Linked, linked.service.status.value.setup)
+        assertEquals(TOKEN, linked.tokens.get())
+        assertEquals(0, linked.scheduler.cancels)
+    }
+
+    @Test fun `clear also drops the leftover error`() {
+        val a = linkedDevice()
+        github.offline = true
+        runBlocking { a.service.syncNow() }
+        assertNotNull(a.service.status.value.error)
+        runBlocking { a.service.clear() }
+        assertNull(a.service.status.value.error)
+        assertEquals(SyncSetup.NotConfigured, a.service.status.value.setup)
+    }
 }

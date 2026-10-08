@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -114,5 +115,68 @@ class SchedulerAndFakeTest {
         fake.privateRepositories = emptyList()
         fake.clear()
         assertEquals(SyncErrorCode.NoPrivateRepository, fake.configure("ghp_anything")!!.code)
+    }
+
+    @Test fun `the fake keeps the setup when configure fails and clears the error on the next attempt`() = runBlocking<Unit> {
+        val demo = RepositoryRef("demo", "treadz-data", "main")
+        val fake = FakeSyncService()
+        assertNull(fake.configure("ghp_anything"))
+        assertEquals(SyncSetup.Linked, fake.status.value.setup)
+
+        // linked + bad token: still linked, only the error is reported
+        assertEquals(SyncErrorCode.Unauthorized, fake.configure("invalid")!!.code)
+        assertEquals(SyncSetup.Linked, fake.status.value.setup)
+        assertEquals(demo, fake.status.value.repository)
+        assertEquals(SyncErrorCode.Unauthorized, fake.status.value.error!!.code)
+        // linked + token of another repository: rejected, nothing switches
+        fake.privateRepositories = listOf(RepositoryRef("demo", "elsewhere", "main"))
+        assertEquals(SyncErrorCode.RepositoryNotFound, fake.configure("ghp_other")!!.code)
+        assertEquals(demo, fake.status.value.repository)
+        // linked + working token that still reaches the repository: stays linked and syncs
+        fake.privateRepositories = listOf(demo, RepositoryRef("demo", "elsewhere", "main"))
+        assertNull(fake.configure("ghp_new"))
+        assertEquals(SyncSetup.Linked, fake.status.value.setup)
+        assertNull(fake.status.value.error)
+
+        // not configured: the error survives until the next attempt, cancelSetup or clear
+        fake.clear()
+        assertEquals(SyncErrorCode.Unauthorized, fake.configure("invalid")!!.code)
+        assertNotNull(fake.status.value.error)
+        fake.cancelSetup()
+        assertNull(fake.status.value.error)
+        assertEquals(SyncErrorCode.Unauthorized, fake.configure("invalid")!!.code)
+        fake.privateRepositories = listOf(demo)
+        assertNull(fake.configure("ghp_ok"))
+        assertNull(fake.status.value.error)
+        fake.clear()
+        assertEquals(SyncErrorCode.Unauthorized, fake.configure("invalid")!!.code)
+        fake.clear()
+        assertNull(fake.status.value.error)
+    }
+
+    @Test fun `the fake cancelSetup works from every unfinished state and never from linked`() = runBlocking<Unit> {
+        val demo = RepositoryRef("demo", "treadz-data", "main")
+        val other = RepositoryRef("demo", "other", "main")
+        val fake = FakeSyncService(privateRepositories = listOf(demo, other))
+        assertNull(fake.configure("ghp_anything"))
+        assertEquals(SyncSetup.ChoosingRepository, fake.status.value.setup)
+        fake.cancelSetup()
+        assertEquals(SyncSetup.NotConfigured, fake.status.value.setup)
+        assertEquals(emptyList<RepositoryRef>(), fake.status.value.repositories)
+
+        fake.localUploads = FirstLinkSummary(listOf(UserUpload("Ana", true, 1, 1, 0)), remoteUsers = 0)
+        fake.configure("ghp_anything")
+        fake.selectRepository(demo)
+        assertEquals(SyncSetup.AwaitingFirstLinkConfirmation, fake.status.value.setup)
+        fake.cancelSetup()
+        assertEquals(SyncSetup.NotConfigured, fake.status.value.setup)
+        assertTrue(fake.calls.none { it == "syncNow" || it == "confirmFirstLink" })
+
+        fake.localUploads = null
+        fake.privateRepositories = listOf(demo)
+        fake.configure("ghp_anything")
+        fake.cancelSetup()
+        fake.cancelFirstLink()
+        assertEquals(SyncSetup.Linked, fake.status.value.setup)
     }
 }

@@ -51,6 +51,10 @@ class FakeGitHub : Interceptor {
     val repos = ArrayList<Repo>()
     val validTokens = HashSet<String>()
 
+    /** Fine-grained tokens: the names of the only repositories a token can see (a token not listed here sees all). */
+    val tokenRepos = HashMap<String, Set<String>>()
+    private var caller: String? = null
+
     /** Writes are refused with 403, like a token with read-only access. */
     var readOnly = false
 
@@ -91,6 +95,7 @@ class FakeGitHub : Interceptor {
         if (offline) throw IOException("fake network down")
         val auth = request.header("Authorization")?.removePrefix("Bearer ")
         if (auth == null || auth !in validTokens) return respond(request, 401, message("Bad credentials"))
+        caller = auth
         failures.firstOrNull { it.onlyFor == null || it.onlyFor.containsMatchIn(line) }?.let {
             failures.remove(it)
             return respond(request, it.status, it.body, it.headers)
@@ -123,7 +128,7 @@ class FakeGitHub : Interceptor {
         if (method == "GET" && path == "/user/repos") return 200 to userRepos(page)
         val parts = path.removePrefix("/").split("/")
         if (parts.size < 4 || parts[0] != "repos") throw HttpError(404, "Not Found")
-        val repo = repos.firstOrNull { it.owner == parts[1] && it.name == parts[2] } ?: throw HttpError(404, "Not Found")
+        val repo = repos.firstOrNull { it.owner == parts[1] && it.name == parts[2] && canSee(it) } ?: throw HttpError(404, "Not Found")
         val rest = parts.drop(3)
         return when {
             method == "GET" && rest[0] == "git" && rest[1] == "ref" -> 200 to getRef(repo, rest.drop(3).joinToString("/"))
@@ -141,8 +146,10 @@ class FakeGitHub : Interceptor {
         }
     }
 
+    private fun canSee(repo: Repo) = tokenRepos[caller]?.contains(repo.name) ?: true
+
     private fun userRepos(page: Int): JSONArray {
-        val visible = repos.filter { listsPublicRepos || it.isPrivate }
+        val visible = repos.filter { (listsPublicRepos || it.isPrivate) && canSee(it) }
         val array = JSONArray()
         visible.drop((page - 1) * 100).take(100).forEach {
             array.put(

@@ -70,7 +70,7 @@ class DefaultSyncService(
         _status.update { it.copy(lastSyncMillis = state.lastSyncMillis) }
         when {
             token == null -> _status.update { it.copy(setup = SyncSetup.NotConfigured, repository = null) }
-            state.repository == null -> validateToken()
+            state.repository == null -> validateStoredToken()
             state.linked -> _status.update { it.copy(setup = SyncSetup.Linked, repository = state.repository) }
             else -> chooseRepository(state.repository, syncAfterwards = false)
         }
@@ -78,33 +78,51 @@ class DefaultSyncService(
     }
 
     override suspend fun configure(token: String): SyncError? = setupLock.withLock {
+        _status.update { it.copy(error = null) }
         val clean = token.trim()
         if (clean.isEmpty()) return fail(SyncError(SyncErrorCode.Unauthorized))
+        // The candidate is tried without storing it: whatever fails leaves the stored token and the setup untouched
+        // (so a device that is linked keeps syncing with its working token) and a background sync never sees it.
+        val repositories = try {
+            client.privateRepositories(clean)
+        } catch (e: GitHubException) {
+            return fail(e.toSyncError())
+        }
+        if (repositories.isEmpty()) return fail(SyncError(SyncErrorCode.NoPrivateRepository))
+        if (_status.value.setup == SyncSetup.Linked) {
+            val linked = stateStore.load().repository
+            val same = linked?.let { l -> repositories.firstOrNull { it.fullName.equals(l.fullName, ignoreCase = true) } }
+            // The new token cannot reach the linked repository: it is never switched silently (see [SyncService.configure]).
+            if (linked == null || same == null) return fail(SyncError(SyncErrorCode.RepositoryNotFound))
+            tokens.set(clean)
+            return chooseRepository(linked, syncAfterwards = true)
+        }
         tokens.set(clean)
-        validateToken()
+        advance(repositories)
     }
 
-    /** Lists the private repositories the stored token can use and moves the setup forward. Returns the error, if any. */
-    private suspend fun validateToken(): SyncError? {
+    /** Validates the stored token (after a restart). A token that does not work is forgotten. */
+    private suspend fun validateStoredToken(): SyncError? {
         val repositories = try {
             client.privateRepositories()
         } catch (e: GitHubException) {
             tokens.clear()
             return fail(e.toSyncError())
         }
-        return when (repositories.size) {
-            0 -> {
-                tokens.clear()
-                fail(SyncError(SyncErrorCode.NoPrivateRepository))
-            }
-            1 -> chooseRepository(repositories.single(), syncAfterwards = true)
-            else -> {
-                _status.update {
-                    it.copy(setup = SyncSetup.ChoosingRepository, repositories = repositories, repository = null, firstLink = null, error = null)
-                }
-                null
-            }
+        if (repositories.isEmpty()) {
+            tokens.clear()
+            return fail(SyncError(SyncErrorCode.NoPrivateRepository))
         }
+        return advance(repositories)
+    }
+
+    /** Moves the setup on with the repositories the (already stored) token can use: the only one is used, several are offered. */
+    private suspend fun advance(repositories: List<RepositoryRef>): SyncError? {
+        if (repositories.size == 1) return chooseRepository(repositories.single(), syncAfterwards = true)
+        _status.update {
+            it.copy(setup = SyncSetup.ChoosingRepository, repositories = repositories, repository = null, firstLink = null, error = null)
+        }
+        return null
     }
 
     override suspend fun selectRepository(repository: RepositoryRef): SyncError? = setupLock.withLock {
@@ -154,12 +172,14 @@ class DefaultSyncService(
         return if (allowed) runSync() else null
     }
 
-    override suspend fun cancelFirstLink() {
+    override suspend fun cancelSetup() {
         setupLock.withLock {
-            if (_status.value.setup != SyncSetup.AwaitingFirstLinkConfirmation) return
+            if (_status.value.setup == SyncSetup.Linked) return
             forget()
         }
     }
+
+    override suspend fun cancelFirstLink() = cancelSetup()
 
     override suspend fun clear() {
         setupLock.withLock { forget() }

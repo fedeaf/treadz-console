@@ -7,8 +7,11 @@ import com.treadz.console.treadmill.FailureCode
 import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
+import com.treadz.console.treadmill.lifecycle.ConnectionLossNotice
+import com.treadz.console.treadmill.notNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -18,14 +21,24 @@ class ServiceNotificationModelTest {
 
     private val connected = ConnectionState.Connected("AA:BB", "REEBOK 0517")
 
-    private fun map(
+    private fun mapOrNull(
         status: BeltStatus,
         speed: Double = 0.0,
         alerts: List<TreadmillAlert> = emptyList(),
         stop: StopRequest = StopRequest.None,
         stale: Boolean = false,
         connection: ConnectionState = connected,
-    ) = ServiceNotificationMapper.map(connection, TreadmillState(status = status, speedKmh = speed, isStale = stale), alerts, stop)
+        lossNotice: ConnectionLossNotice? = null,
+    ) = ServiceNotificationMapper.map(connection, TreadmillState(status = status, speedKmh = speed, isStale = stale), alerts, stop, lossNotice)
+
+    /** The model while connected (there always is one). */
+    private fun map(
+        status: BeltStatus,
+        speed: Double = 0.0,
+        alerts: List<TreadmillAlert> = emptyList(),
+        stop: StopRequest = StopRequest.None,
+        stale: Boolean = false,
+    ): ServiceNotificationModel = notNull(mapOrNull(status, speed, alerts, stop, stale))
 
     // ------------------------------------------------------------------ the STOP action
 
@@ -42,24 +55,81 @@ class ServiceNotificationModelTest {
         assertFalse(map(BeltStatus.Idle).showStopAction)
         assertFalse(map(BeltStatus.SafetyKeyRemoved).showStopAction)
         assertFalse(map(BeltStatus.Idle, 3.0).showStopAction, "a stop in progress needs no second tap")
+    }
+
+    // ------------------------------------------------------------------ the Exit action
+
+    @Test
+    fun `the Exit action shows only while connected with the belt idle and not moving`() {
+        val idle = map(BeltStatus.Idle)
+        assertTrue(idle.showExitAction)
+        assertFalse(idle.showStopAction)
+        assertEquals(NotificationMessage.Idle, idle.message)
+    }
+
+    @Test
+    fun `the Exit action is hidden while the belt is not idle`() {
+        assertFalse(map(BeltStatus.Starting).showExitAction)
+        assertFalse(map(BeltStatus.Running, 5.0).showExitAction)
+        assertFalse(map(BeltStatus.Paused).showExitAction)
+        assertFalse(map(BeltStatus.Paused, 2.0).showExitAction)
+        assertFalse(map(BeltStatus.Idle, 3.0).showExitAction, "a stop that is still decelerating")
+        assertFalse(map(BeltStatus.SafetyKeyRemoved).showExitAction)
+        assertFalse(map(BeltStatus.Running, 8.0, alerts = listOf(TreadmillEvent.CommandNotExecuted("stop"))).showExitAction)
+        assertFalse(map(BeltStatus.Running, 8.0, alerts = listOf(TreadmillEvent.DataStalled)).showExitAction)
+    }
+
+    @ParameterizedTest
+    @EnumSource(BeltStatus::class)
+    fun `STOP and Exit are never both shown`(status: BeltStatus) {
+        listOf(0.0, 0.4, 5.0).forEach { speed ->
+            listOf(emptyList(), listOf(TreadmillEvent.DataStalled), listOf(TreadmillEvent.CommandNotExecuted("stop"))).forEach { alerts ->
+                StopRequest.entries.forEach { request ->
+                    val m = map(status, speed, alerts, request)
+                    assertFalse(m.showStopAction && m.showExitAction, "$status $speed $alerts $request")
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ no notification unless connected
+
+    @Test
+    fun `there is no notification while scanning, connecting, reconnecting or disconnected`() {
         listOf(
             ConnectionState.Disconnected,
             ConnectionState.Connecting("AA:BB"),
             ConnectionState.Reconnecting("AA:BB", 2),
         ).forEach { c ->
-            assertFalse(map(BeltStatus.Running, 5.0, connection = c).showStopAction, "$c")
+            BeltStatus.entries.forEach { status ->
+                assertNull(mapOrNull(status, 5.0, connection = c), "$c $status")
+            }
+            assertNull(mapOrNull(BeltStatus.Running, 5.0, alerts = listOf(TreadmillEvent.ConnectionLost), connection = c), "$c with an alert")
         }
+    }
+
+    @Test
+    fun `after a connection loss in the background the notice has its text, no actions and is not urgent`() {
+        val stopped = notNull(
+            mapOrNull(BeltStatus.Running, 5.0, connection = ConnectionState.Reconnecting("AA", 1), lossNotice = ConnectionLossNotice.BeltStoppedByItself),
+        )
+        assertEquals(NotificationMessage.ConnectionLostBeltStopped, stopped.message)
+        val neutral = notNull(
+            mapOrNull(BeltStatus.Idle, connection = ConnectionState.Reconnecting("AA", 1), lossNotice = ConnectionLossNotice.Neutral),
+        )
+        assertEquals(NotificationMessage.ConnectionLost, neutral.message)
+        listOf(stopped, neutral).forEach {
+            assertFalse(it.showStopAction || it.showExitAction || it.urgent)
+        }
+        // Whichever the connection, no notice means no notification; and a connected state ignores a stale notice
+        assertNull(mapOrNull(BeltStatus.Idle, connection = ConnectionState.Disconnected, lossNotice = null))
+        assertEquals(NotificationMessage.Idle, mapOrNull(BeltStatus.Idle, lossNotice = ConnectionLossNotice.Neutral)?.message)
     }
 
     // ------------------------------------------------------------------ texts
 
     @Test
     fun `the message follows the connection and the belt state`() {
-        assertEquals(NotificationMessage.Disconnected, map(BeltStatus.Idle, connection = ConnectionState.Disconnected).message)
-        assertEquals(NotificationMessage.Connecting, map(BeltStatus.Idle, connection = ConnectionState.Connecting("AA")).message)
-        val reconnecting = map(BeltStatus.Running, 5.0, connection = ConnectionState.Reconnecting("AA", 3))
-        assertEquals(NotificationMessage.Reconnecting, reconnecting.message)
-        assertEquals(3, reconnecting.attempt)
         assertEquals(NotificationMessage.Idle, map(BeltStatus.Idle).message)
         assertEquals(NotificationMessage.Starting, map(BeltStatus.Starting).message)
         assertEquals(NotificationMessage.Paused, map(BeltStatus.Paused).message)

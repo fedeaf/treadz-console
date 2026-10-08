@@ -2,9 +2,8 @@
 <resources>
     <string name="treadz_service_title">TreadZ Console</string>
     <string name="treadz_service_channel">Conexión con la cinta</string>
-    <string name="treadz_service_disconnected">Desconectada</string>
-    <string name="treadz_service_connecting">Conectando con la cinta…</string>
-    <string name="treadz_service_reconnecting">Conexión perdida: reconectando (intento %1$d)</string>
+    <string name="treadz_service_connection_lost_stopped">Conexión perdida: la cinta se ha parado sola</string>
+    <string name="treadz_service_connection_lost">Conexión perdida</string>
     <string name="treadz_service_idle">Conectada · parada</string>
     <string name="treadz_service_starting">Conectada · arrancando</string>
     <string name="treadz_service_running">Conectada · en marcha %1$.1f km/h</string>
@@ -15,6 +14,7 @@
     <string name="treadz_service_stop_failed">FALLO AL PARAR: la banda puede seguir en marcha. Pulsa STOP en la consola o quita la llave de seguridad.</string>
     <string name="treadz_service_data_stalled">Sin datos de la cinta: se desconoce el estado de la banda. Si hace falta, pulsa STOP en la consola o quita la llave de seguridad.</string>
     <string name="treadz_action_stop">STOP</string>
+    <string name="treadz_action_exit">Salir</string>
 
     <string name="treadz_alert_channel">Alertas de la cinta</string>
     <string name="treadz_alert_title">Alerta de la cinta</string>

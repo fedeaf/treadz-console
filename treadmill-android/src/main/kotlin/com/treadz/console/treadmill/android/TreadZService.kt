@@ -34,10 +34,13 @@ import kotlinx.coroutines.launch
  * Foreground service (`connectedDevice` type) that keeps the process, the BLE connection and the
  * controller alive with the screen off. The controller lives in [AndroidBackend]; the service only prevents
  * Android from killing the process, keeps the CPU awake (partial wake lock) and shows the state in the
- * notification. [ServiceBoundController] starts and stops it.
+ * notification. [AndroidBackend] starts and stops it: it runs only while connected to the treadmill (plus a few seconds
+ * with a "connection lost" notice after a loss while the app is in the background), never while scanning, connecting,
+ * reconnecting or disconnected. If it finds nothing to show it stops itself.
  *
  * The notification (public on the lock screen) carries a STOP action while the belt is not idle, so the belt can be
- * stopped with the screen off or while the app shows another screen. The action calls
+ * stopped with the screen off or while the app shows another screen, and an Exit action while the belt is idle
+ * (disconnect, remove the notification and close the app). Never both at once. The action calls
  * [TreadmillController.stop] (never the Control Point directly) and, if the stop cannot be verified, the notification
  * says so and a high-priority alert asks the user to press the console's STOP or pull the safety key. What the
  * notification says is decided by [ServiceNotificationMapper] (pure logic, tested in `:treadmill`).
@@ -50,6 +53,7 @@ class TreadZService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var wakeLock: PowerManager.WakeLock? = null
     private var controller: TreadmillController? = null
+    private var backend: AndroidBackend? = null
 
     /** The STOP requested from the notification: a tap while one is in flight is ignored. */
     private val stopRequest = MutableStateFlow(StopRequest.None)
@@ -71,9 +75,19 @@ class TreadZService : Service() {
                 setShowBadge(false)
             },
         )
+        val backend = TreadZTreadmill.backend(this)
+        this.backend = backend
+        val controller = backend.controller
+        this.controller = controller
+        // startForeground must follow startForegroundService at once, so the first notification comes from the current
+        // state; if there is nothing to show any more, a bare notification stands in until the service stops itself.
+        val initial = ServiceNotificationMapper.map(
+            controller.connection.value, controller.state.value, controller.pendingAlerts.value, StopRequest.None,
+            backend.lifecycle.lossNotice.value,
+        )
         try {
             ServiceCompat.startForeground(
-                this, NOTIFICATION_ID, notification(ServiceNotificationModel(NotificationMessage.Connecting)),
+                this, NOTIFICATION_ID, initial?.let(::notification) ?: placeholderNotification(),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
         } catch (e: Exception) {
@@ -88,20 +102,31 @@ class TreadZService : Service() {
             setReferenceCounted(false)
             acquire()
         }
-        val controller = TreadZTreadmill.controller(this)
-        this.controller = controller
         scope.launch {
-            combine(controller.connection, controller.state, controller.pendingAlerts, stopRequest) { connection, state, alerts, request ->
+            combine(
+                controller.connection, controller.state, controller.pendingAlerts, stopRequest, backend.lifecycle.lossNotice,
+            ) { connection, state, alerts, request, lossNotice ->
                 // A failed stop is forgotten once the belt no longer moves, so it cannot reappear in the next session.
                 val settled = request.settle(state)
                 if (settled != request) stopRequest.compareAndSet(request, settled)
-                ServiceNotificationMapper.map(connection, state, alerts, settled)
-            }.distinctUntilChanged().collect { model -> render(manager, model) }
+                ServiceNotificationMapper.map(connection, state, alerts, settled, lossNotice)
+            }.distinctUntilChanged().collect { model ->
+                if (model == null) {
+                    // Nothing to show (not connected): the service has no reason to exist.
+                    Log.i(TAG, "No notification to show: stopping the service")
+                    stopSelf()
+                } else {
+                    render(manager, model)
+                }
+            }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) stopFromNotification()
+        when (intent?.action) {
+            ACTION_STOP -> stopFromNotification()
+            ACTION_EXIT -> exitFromNotification()
+        }
         return START_NOT_STICKY
     }
 
@@ -137,15 +162,29 @@ class TreadZService : Service() {
         }
     }
 
+    /**
+     * The Exit action: the same `exitApp()` as the app's Back dialog (it refuses while the belt is not idle). It runs
+     * in the backend's scope because the service goes away as soon as the treadmill is disconnected.
+     */
+    private fun exitFromNotification() {
+        val backend = backend ?: return
+        backend.scope.launch {
+            val result = try {
+                backend.lifecycle.exitApp()
+            } catch (e: Exception) {
+                Log.e(TAG, "exitApp() from the notification failed", e)
+                return@launch
+            }
+            Log.i(TAG, "Exit from the notification: $result")
+        }
+    }
+
     private fun render(manager: NotificationManager, model: ServiceNotificationModel) {
         manager.notify(NOTIFICATION_ID, notification(model))
         if (model.urgent) manager.notify(ALERT_NOTIFICATION_ID, alertNotification(model)) else manager.cancel(ALERT_NOTIFICATION_ID)
     }
 
     private fun text(model: ServiceNotificationModel): String = when (model.message) {
-        NotificationMessage.Disconnected -> getString(R.string.treadz_service_disconnected)
-        NotificationMessage.Connecting -> getString(R.string.treadz_service_connecting)
-        NotificationMessage.Reconnecting -> getString(R.string.treadz_service_reconnecting, model.attempt ?: 1)
         NotificationMessage.Idle -> getString(R.string.treadz_service_idle)
         NotificationMessage.Starting -> getString(R.string.treadz_service_starting)
         NotificationMessage.Running -> getString(R.string.treadz_service_running, model.speedKmh ?: 0.0)
@@ -155,6 +194,8 @@ class TreadZService : Service() {
         NotificationMessage.KeyRemoved -> getString(R.string.treadz_service_key_removed)
         NotificationMessage.StopFailed -> getString(R.string.treadz_service_stop_failed)
         NotificationMessage.DataStalled -> getString(R.string.treadz_service_data_stalled)
+        NotificationMessage.ConnectionLostBeltStopped -> getString(R.string.treadz_service_connection_lost_stopped)
+        NotificationMessage.ConnectionLost -> getString(R.string.treadz_service_connection_lost)
     }
 
     private fun openAppIntent(): PendingIntent? {
@@ -172,6 +213,22 @@ class TreadZService : Service() {
         return Notification.Action.Builder(icon, getString(R.string.treadz_action_stop), pending).build()
     }
 
+    /** The Exit action. It targets this service, like STOP. */
+    private fun exitAction(): Notification.Action {
+        val intent = Intent(this, TreadZService::class.java).setAction(ACTION_EXIT)
+        val pending = PendingIntent.getService(this, REQUEST_EXIT, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val icon = Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel)
+        return Notification.Action.Builder(icon, getString(R.string.treadz_action_exit), pending).build()
+    }
+
+    /** Stands in for the first notification when there is nothing to show; the service stops right after. */
+    private fun placeholderNotification(): Notification =
+        Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentTitle(getString(R.string.treadz_service_title))
+            .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_DEFERRED)
+            .build()
+
     private fun notification(model: ServiceNotificationModel): Notification {
         val text = text(model)
         return Notification.Builder(this, CHANNEL_ID)
@@ -187,6 +244,7 @@ class TreadZService : Service() {
             .apply {
                 openAppIntent()?.let { setContentIntent(it) }
                 if (model.showStopAction) addAction(stopAction())
+                if (model.showExitAction) addAction(exitAction())
             }
             .build()
     }
@@ -216,7 +274,9 @@ class TreadZService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val ALERT_NOTIFICATION_ID = 2
         private const val REQUEST_STOP = 1
+        private const val REQUEST_EXIT = 2
         private const val ACTION_STOP = "com.treadz.console.treadmill.android.action.STOP"
+        private const val ACTION_EXIT = "com.treadz.console.treadmill.android.action.EXIT"
 
         internal fun start(context: Context) {
             try {

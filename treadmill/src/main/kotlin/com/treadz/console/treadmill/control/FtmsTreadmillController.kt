@@ -26,6 +26,7 @@ import com.treadz.console.treadmill.ftms.TransportDisconnect
 import com.treadz.console.treadmill.ftms.TransportException
 import com.treadz.console.treadmill.ftms.TreadmillSample
 import com.treadz.console.treadmill.ftms.toHex
+import com.treadz.console.treadmill.lifecycle.AppVisibility
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
@@ -46,6 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -125,7 +129,7 @@ class FtmsTreadmillController(
     private val clock: Clock = Clock.System,
     private val config: ControllerConfig = ControllerConfig(),
     observers: List<ControllerObserver> = emptyList(),
-) : TreadmillController {
+) : TreadmillController, AppVisibility {
 
     // ------------------------------------------------------------------ public API (flows)
 
@@ -171,7 +175,60 @@ class FtmsTreadmillController(
     private val _connectionProblem = MutableStateFlow<ConnectionProblem?>(null)
     override val connectionProblem: StateFlow<ConnectionProblem?> = _connectionProblem.asStateFlow()
 
-    override fun scan(): Flow<DiscoveredTreadmill> = transport.scan()
+    /**
+     * Never scans in the background: a scan requested then completes at once without sights, and a scan in progress
+     * ends when the app goes to the background.
+     */
+    override fun scan(): Flow<DiscoveredTreadmill> = flow {
+        if (!_appInForeground.value) {
+            trace(TraceRecord.Note(now(), "scan() refused: the app is in the background"))
+            return@flow
+        }
+        val stopped = whileInForeground { transport.scan().collect { emit(it) } } == null
+        if (stopped) trace(TraceRecord.Note(now(), "Scan stopped: the app went to the background"))
+    }
+
+    // ------------------------------------------------------------------ app visibility
+
+    private val _appInForeground = MutableStateFlow(true)
+    override val appInForeground: StateFlow<Boolean> = _appInForeground.asStateFlow()
+
+    /**
+     * Visibility reported by the UI. In the background nothing is scanned and nothing is (re)connected: a connection
+     * attempt in progress is abandoned, a reconnection pauses (it resumes by itself, to the same treadmill, when the
+     * app is back in the foreground) and [scan] ends. An established connection is not touched.
+     */
+    override fun setAppInForeground(foreground: Boolean) {
+        val changed = _appInForeground.getAndUpdate { foreground } != foreground
+        if (!changed) return
+        trace(TraceRecord.Note(now(), if (foreground) "App in the foreground" else "App in the background: no scans, no (re)connections"))
+        if (!foreground) connectHandshake?.cancel()
+    }
+
+    override fun traceNote(text: String) = trace(TraceRecord.Note(now(), text))
+
+    private class BackgroundPause : Exception()
+
+    /**
+     * Runs [block] until it finishes or the app goes to the background; in the second case [block] is cancelled and
+     * `null` is returned. The result of a [block] returning `null` itself is indistinguishable, so use it with
+     * non-null results (or [Unit]).
+     */
+    private suspend fun <T : Any> whileInForeground(block: suspend () -> T): T? = try {
+        coroutineScope {
+            val watcher = launch {
+                _appInForeground.first { !it }
+                throw BackgroundPause()
+            }
+            try {
+                block()
+            } finally {
+                watcher.cancel()
+            }
+        }
+    } catch (_: BackgroundPause) {
+        null
+    }
 
     // ------------------------------------------------------------------ internal state
 
@@ -300,6 +357,10 @@ class FtmsTreadmillController(
     // ------------------------------------------------------------------ connection
 
     override suspend fun connect(address: String): CommandResult = scope.async {
+        if (!_appInForeground.value) {
+            trace(TraceRecord.Note(now(), "connect($address) refused: the app is in the background"))
+            return@async CommandResult.NotAllowed(FailureCode.ConnectionFailed, "The app is in the background: not connecting")
+        }
         if (!transport.bluetoothEnabled.value) {
             trace(TraceRecord.Note(now(), "connect($address) refused: Bluetooth is off"))
             _connectionProblem.value = ConnectionProblem.BluetoothOff
@@ -317,10 +378,11 @@ class FtmsTreadmillController(
             try {
                 handshakeAbandonable(address)
             } catch (e: CancellationException) {
-                // disconnect() abandoned this attempt (the caller itself is still active) or the caller was cancelled.
+                // disconnect() or the app going to the background abandoned this attempt (the caller itself is still active),
+                // or the caller was cancelled.
                 withContext(NonCancellable) { runCatching { transport.disconnect() } }
                 if (!currentCoroutineContext().isActive) throw e
-                trace(TraceRecord.Note(now(), "Connection attempt to $address abandoned by disconnect()"))
+                trace(TraceRecord.Note(now(), "Connection attempt to $address abandoned (disconnect() or the app went to the background)"))
                 _capabilities.value = null
                 setConnection(ConnectionState.Disconnected, "connection attempt abandoned")
                 return@withLock CommandResult.NotConnected
@@ -572,46 +634,78 @@ class FtmsTreadmillController(
     /**
      * Reconnection loop. Each attempt waits its backoff ([ControllerConfig.reconnectDelaysMs]), looks for the treadmill
      * with a short scan and connects. While Bluetooth is off it does not try at all (no counted attempts, no scans): it
-     * waits for the adapter and goes on right after it is back. [disconnect] cancels it at any point.
+     * waits for the adapter and goes on right after it is back. The same while the app is in the background: an attempt
+     * in progress is cancelled, nothing is scanned or tried, and the loop starts over (from the first attempt, to the
+     * same treadmill) when the app comes back to the foreground. [disconnect] cancels it at any point.
      */
     private fun startReconnect(address: String) {
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             var attempt = 1
             while (isActive && !userDisconnected) {
-                setConnection(ConnectionState.Reconnecting(address, attempt), null)
-                if (!transport.bluetoothEnabled.value) {
-                    _connectionProblem.value = ConnectionProblem.BluetoothOff
-                    trace(TraceRecord.Note(now(), "Reconnection paused: Bluetooth is off"))
-                    transport.bluetoothEnabled.first { it }
-                    trace(TraceRecord.Note(now(), "Bluetooth is back on: resuming the reconnection"))
-                    delay(config.bluetoothOnSettleMs)
-                } else {
-                    val delays = config.reconnectDelaysMs
-                    delay(delays[minOf(attempt - 1, delays.lastIndex)])
+                if (!_appInForeground.value) {
+                    setConnection(ConnectionState.Reconnecting(address, attempt), null)
+                    trace(TraceRecord.Note(now(), "Reconnection paused: the app is in the background"))
+                    _appInForeground.first { it }
+                    trace(TraceRecord.Note(now(), "App is back in the foreground: resuming the reconnection"))
+                    attempt = 1
                 }
-                if (userDisconnected) return@launch
-                if (!transport.bluetoothEnabled.value) continue
-                try {
-                    connectMutex.withLock {
-                        if (userDisconnected) return@launch
-                        handshake(address)
-                        _connectionProblem.value = null
-                        requestControlLocked()
+                setConnection(ConnectionState.Reconnecting(address, attempt), null)
+                val step = whileInForeground { reconnectAttempt(address, attempt) }
+                when {
+                    step == null -> {
+                        // The app went to the background. If the handshake had just completed, the connection stands.
+                        if (_connection.value is ConnectionState.Connected) {
+                            connectMutex.withLock { requestControlLocked() }
+                            return@launch
+                        }
+                        trace(TraceRecord.Note(now(), "Reconnection attempt $attempt cancelled: the app went to the background"))
                     }
-                    return@launch
-                } catch (e: CancellationException) {
-                    withContext(NonCancellable) { runCatching { transport.disconnect() } }
-                    throw e
-                } catch (e: Exception) {
-                    trace(TraceRecord.Note(now(), "Reconnection $attempt failed: $e"))
-                    runCatching { transport.disconnect() }
-                    val problem = problemOf(e)
-                    _connectionProblem.value = problem
-                    // A failure caused by Bluetooth going off is not a failed attempt: the loop waits for it above.
-                    if (problem != ConnectionProblem.BluetoothOff) attempt++
+                    step == ReconnectStep.Done -> {
+                        connectMutex.withLock { requestControlLocked() }
+                        return@launch
+                    }
+                    step == ReconnectStep.Abort -> return@launch
+                    step == ReconnectStep.NextAttempt -> attempt++
+                    else -> Unit
                 }
             }
+        }
+    }
+
+    private enum class ReconnectStep { Done, Abort, SameAttempt, NextAttempt }
+
+    /** One reconnection attempt: backoff (or wait for Bluetooth), scan, connect and handshake. */
+    private suspend fun reconnectAttempt(address: String, attempt: Int): ReconnectStep {
+        if (!transport.bluetoothEnabled.value) {
+            _connectionProblem.value = ConnectionProblem.BluetoothOff
+            trace(TraceRecord.Note(now(), "Reconnection paused: Bluetooth is off"))
+            transport.bluetoothEnabled.first { it }
+            trace(TraceRecord.Note(now(), "Bluetooth is back on: resuming the reconnection"))
+            delay(config.bluetoothOnSettleMs)
+        } else {
+            val delays = config.reconnectDelaysMs
+            delay(delays[minOf(attempt - 1, delays.lastIndex)])
+        }
+        if (userDisconnected) return ReconnectStep.Abort
+        if (!transport.bluetoothEnabled.value) return ReconnectStep.SameAttempt
+        try {
+            connectMutex.withLock {
+                if (userDisconnected) return ReconnectStep.Abort
+                handshake(address)
+                _connectionProblem.value = null
+            }
+            return ReconnectStep.Done
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { runCatching { transport.disconnect() } }
+            throw e
+        } catch (e: Exception) {
+            trace(TraceRecord.Note(now(), "Reconnection $attempt failed: $e"))
+            runCatching { transport.disconnect() }
+            val problem = problemOf(e)
+            _connectionProblem.value = problem
+            // A failure caused by Bluetooth going off is not a failed attempt: the loop waits for it above.
+            return if (problem != ConnectionProblem.BluetoothOff) ReconnectStep.NextAttempt else ReconnectStep.SameAttempt
         }
     }
 

@@ -89,7 +89,7 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
                 NavButtons(ui, actions)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName)
+                ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName, ui.waitingForBluetooth)
                 if (recording) RecordingIndicator()
             }
         }
@@ -98,7 +98,7 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
             AppTitle()
             UserChip(ui.activeUser, ui.canSwitchUser, actions.onOpenUsers)
             NavButtons(ui, actions)
-            ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName)
+            ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName, ui.waitingForBluetooth)
             if (recording) RecordingIndicator()
             ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
         }
@@ -216,7 +216,13 @@ private fun GenericUserBanner(actions: MainActions) {
 
 /** Connection state, always visible. */
 @Composable
-fun ConnectionChip(connection: ConnectionState, modifier: Modifier = Modifier, name: String? = (connection as? ConnectionState.Connected)?.name) {
+fun ConnectionChip(
+    connection: ConnectionState,
+    modifier: Modifier = Modifier,
+    name: String? = (connection as? ConnectionState.Connected)?.name,
+    /** Reconnecting with Bluetooth off: "Waiting for Bluetooth" instead of the attempt counter. */
+    waitingForBluetooth: Boolean = false,
+) {
     val unnamed = stringResource(R.string.treadmill_unnamed)
     val (text, color) = when (connection) {
         ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected) to MaterialTheme.colorScheme.error
@@ -224,7 +230,8 @@ fun ConnectionChip(connection: ConnectionState, modifier: Modifier = Modifier, n
         is ConnectionState.Connected ->
             stringResource(R.string.conn_connected, name ?: unnamed) to MaterialTheme.extra.ok
         is ConnectionState.Reconnecting ->
-            stringResource(R.string.conn_reconnecting, connection.attempt) to MaterialTheme.extra.warning
+            (if (waitingForBluetooth) stringResource(R.string.conn_waiting_bluetooth) else stringResource(R.string.conn_reconnecting, connection.attempt)) to
+                MaterialTheme.extra.warning
     }
     Row(modifier.testTag("connection_chip"), verticalAlignment = Alignment.CenterVertically) {
         StatusDot(color, size = 14.dp)

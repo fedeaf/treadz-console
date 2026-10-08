@@ -3,6 +3,7 @@ package com.treadz.console.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -67,7 +68,7 @@ data class LiveSizes(
 fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSizes, modifier: Modifier = Modifier) {
     val reconnecting = ui.connection is ConnectionState.Reconnecting
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        if (reconnecting) ReconnectingBanner()
+        if (reconnecting) ReconnectingBanner(ui, actions)
         when {
             // The belt is not at rest: the controls, with STOP always in the same place.
             ui.beltActive && wide -> ActiveWide(ui, actions, sizes, Modifier.weight(1f).fillMaxWidth())
@@ -86,7 +87,8 @@ fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSi
             }
             else -> {
                 BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth(), compact = true)
-                MetricsGrid(ui, sizes, Modifier.weight(1f).fillMaxWidth())
+                // While reconnecting the figures are stale zeros and the banner needs the room.
+                if (reconnecting) Spacer(Modifier.weight(1f)) else MetricsGrid(ui, sizes, Modifier.weight(1f).fillMaxWidth())
                 RecordingNotice(ui, actions)
                 StartSection(ui, actions, sizes, showHint = ui.recordingNotice == null && !reconnecting)
             }
@@ -398,21 +400,4 @@ private fun startFailureMessage(result: CommandResult): String = when (result) {
     CommandResult.Success -> ""
     CommandResult.NotConnected -> stringResource(R.string.start_failed_not_connected)
     is CommandResult.Failure -> stringResource(R.string.start_failed, failureText(result.code))
-}
-
-@Composable
-private fun ReconnectingBanner() {
-    Surface(
-        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.extra.warning,
-        contentColor = MaterialTheme.extra.onWarning,
-    ) {
-        Text(
-            stringResource(R.string.reconnecting_banner),
-            Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-    }
 }

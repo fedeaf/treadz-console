@@ -4,6 +4,7 @@ import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.RecordingStatus
@@ -19,14 +20,18 @@ data class MainUiState(
     /** At least one scan has finished (so that "no treadmills" is only shown then). */
     val scanFinished: Boolean = false,
     val devices: List<DiscoveredTreadmill> = emptyList(),
-    /** Name (or address) of the last treadmill used, if any. */
+    /**
+     * Name of the last treadmill used, `null` if it never had one. Never replaced by the address: the address is not
+     * something to show the user.
+     */
     val rememberedName: String? = null,
     val rememberedAddress: String? = null,
-    /** The real name of the last treadmill, `null` if it never had one (unlike [rememberedName], no address fallback). */
-    val rememberedDeviceName: String? = null,
-    /** Connection (or scan) error to show on the connection screen. */
-    val connectFailure: CommandResult? = null,
-    val scanFailure: String? = null,
+    /** Why the last scan or connection started from the connection screen failed, if it did. */
+    val problem: ConnectionProblem? = null,
+    /** Whether Bluetooth is on. While it is off nothing is scanned or connected. */
+    val bluetoothEnabled: Boolean = true,
+    /** Why the controller's latest (re)connection attempt failed; explains a long "Reconnecting". */
+    val reconnectProblem: ConnectionProblem? = null,
     val startInProgress: Boolean = false,
     val startFailure: CommandResult? = null,
     /** Full-screen safety alert: the most recent of the controller's pending alerts. */
@@ -44,6 +49,20 @@ data class MainUiState(
 ) {
     val isConnected: Boolean get() = connection is ConnectionState.Connected
 
+    val isReconnecting: Boolean get() = connection is ConnectionState.Reconnecting
+
+    /** Reconnecting with Bluetooth off: the controller waits and resumes by itself when it is turned on. */
+    val waitingForBluetooth: Boolean get() = isReconnecting && !bluetoothEnabled
+
+    /**
+     * The reconnection is not working out: the treadmill was not found or several attempts have failed. The UI makes the
+     * explanation and the way out ("Stop reconnecting") more prominent then.
+     */
+    val reconnectStuck: Boolean
+        get() = (connection as? ConnectionState.Reconnecting)?.let { c ->
+            bluetoothEnabled && (reconnectProblem == ConnectionProblem.DeviceNotFound || c.attempt >= STUCK_RECONNECT_ATTEMPTS)
+        } ?: false
+
     /** Live data visible: connected, or reconnecting (the last known values are shown). */
     val showsLiveData: Boolean
         get() = connection is ConnectionState.Connected || connection is ConnectionState.Reconnecting
@@ -54,7 +73,7 @@ data class MainUiState(
      */
     val connectedName: String?
         get() = (connection as? ConnectionState.Connected)?.let { c ->
-            c.name ?: rememberedDeviceName.takeIf { c.address == rememberedAddress }
+            c.name ?: rememberedName.takeIf { c.address == rememberedAddress }
         }
 
     val canStart: Boolean
@@ -105,4 +124,9 @@ data class MainUiState(
 
     /** The screen must stay on while the belt is not stopped. */
     val keepScreenOn: Boolean get() = beltActive
+
+    companion object {
+        /** From this reconnection attempt on, the treadmill is assumed to be off or out of range. */
+        const val STUCK_RECONNECT_ATTEMPTS = 4
+    }
 }

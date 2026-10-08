@@ -194,6 +194,39 @@ class ManualControlsTest {
         assertEquals(listOf(18.0), controller.inclineCommands)
     }
 
+    @Test fun inclinePresetsAreZeroThreeSixNineTwelve() {
+        assertEquals(listOf(0.0, 3.0, 6.0, 9.0, 12.0), ManualControls.INCLINE_PRESETS)
+    }
+
+    @Test fun inclinePresetsAreCoalescedLikeEveryOtherTarget() {
+        val gates = ArrayDeque<CompletableDeferred<CommandResult>>()
+        controller.setInclineHandler = { percent ->
+            val gate = CompletableDeferred<CommandResult>()
+            gates += gate
+            val result = gate.await()
+            controller.showState { it.copy(inclinePercent = percent) }
+            result
+        }
+        // 3 % is where the belt already is; 6, 9 and 12 are tapped while the first command is still being verified.
+        for (preset in listOf(6.0, 9.0, 12.0, 0.0, 12.0)) controls.setIncline(preset)
+        assertEquals(listOf(6.0), controller.inclineCommands)
+        assertEquals(12.0, ui.controls.pendingIncline!!, 0.0)
+        assertEquals(12.0, ui.targetIncline!!, 0.0)
+
+        gates.removeFirst().complete(CommandResult.Success)
+        // Only the latest target follows; 9, 12 and 0 in between are skipped.
+        assertEquals(listOf(6.0, 12.0), controller.inclineCommands)
+        gates.removeFirst().complete(CommandResult.Success)
+        assertEquals(listOf(6.0, 12.0), controller.inclineCommands)
+        assertNull(ui.controls.pendingIncline)
+    }
+
+    @Test fun anInclinePresetOnlyWorksWhileTheBeltRuns() {
+        controller.showState { it.copy(status = BeltStatus.Paused) }
+        controls.setIncline(6.0)
+        assertTrue(controller.inclineCommands.isEmpty())
+    }
+
     @Test fun stepsAreOneTenthOfAKmhAndOneWholePercent() {
         controls.stepSpeed(+1)
         controls.stepIncline(-1)

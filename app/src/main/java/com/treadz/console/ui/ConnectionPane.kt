@@ -32,7 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.treadz.console.MainUiState
 import com.treadz.console.R
-import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.DiscoveredTreadmill
 
@@ -72,34 +72,28 @@ fun ConnectionPane(ui: MainUiState, actions: MainActions, modifier: Modifier = M
                 }
             }
 
-            val failure = ui.connectFailure
-            if (failure != null) {
-                Text(
-                    connectFailureMessage(failure),
-                    modifier = Modifier.testTag("connect_failure"),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            val scanFailure = ui.scanFailure
-            if (scanFailure != null) {
-                Text(
-                    stringResource(R.string.scan_failed, scanFailure),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
+            // The belt may still be moving while the app has no connection (e.g. after giving up on a reconnection).
+            if (ui.stopUnreachable) StopUnreachable(Modifier.fillMaxWidth().heightIn(min = 96.dp))
+
+            // One clear message: Bluetooth off replaces every other error (they are consequences of it).
+            val problem = ui.problem
+            if (!ui.bluetoothEnabled) {
+                BluetoothOffPrompt(actions.onEnableBluetooth)
+            } else if (problem != null && problem != ConnectionProblem.BluetoothOff) {
+                ProblemMessage(problem, actions)
             }
 
             if (ui.rememberedAddress != null && !connecting) {
                 Button(
                     onClick = actions.onReconnectRemembered,
+                    enabled = ui.bluetoothEnabled,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("reconnect_button"),
                     shape = RoundedCornerShape(24.dp),
                 ) {
+                    // Never the address: it means nothing to the user.
                     Text(
-                        stringResource(R.string.reconnect_remembered, ui.rememberedName ?: ui.rememberedAddress),
+                        ui.rememberedName?.let { stringResource(R.string.reconnect_remembered, it) }
+                            ?: stringResource(R.string.reconnect_generic),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
@@ -107,9 +101,9 @@ fun ConnectionPane(ui: MainUiState, actions: MainActions, modifier: Modifier = M
                 }
             }
 
-            if (!connecting) ScanControls(ui, actions, enabled = true)
+            if (!connecting) ScanControls(ui, actions, enabled = ui.bluetoothEnabled)
 
-            if (ui.devices.isEmpty() && ui.scanFinished && !ui.scanning && !connecting) {
+            if (ui.devices.isEmpty() && ui.scanFinished && !ui.scanning && !connecting && ui.problem == null && ui.bluetoothEnabled) {
                 Text(
                     stringResource(R.string.scan_empty),
                     style = MaterialTheme.typography.bodyLarge,
@@ -117,7 +111,7 @@ fun ConnectionPane(ui: MainUiState, actions: MainActions, modifier: Modifier = M
                 )
             }
             ui.devices.forEach { device ->
-                DeviceRow(device, enabled = !connecting, onClick = { actions.onConnect(device) })
+                DeviceRow(device, enabled = !connecting && ui.bluetoothEnabled, onClick = { actions.onConnect(device) })
             }
         }
     }
@@ -189,11 +183,4 @@ private fun DeviceRow(device: DiscoveredTreadmill, enabled: Boolean, onClick: ()
             )
         }
     }
-}
-
-@Composable
-private fun connectFailureMessage(result: CommandResult): String = when (result) {
-    CommandResult.Success -> ""
-    CommandResult.NotConnected -> stringResource(R.string.connect_failed_not_connected)
-    is CommandResult.Failure -> stringResource(R.string.connect_failed, failureText(result.code))
 }

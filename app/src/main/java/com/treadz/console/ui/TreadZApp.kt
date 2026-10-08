@@ -105,6 +105,7 @@ fun TreadZRoot(
                             onStopScan = viewModel::stopScan,
                             onConnect = { viewModel.connect(it.address, it.name) },
                             onReconnectRemembered = viewModel::reconnectToRemembered,
+                            onStopReconnecting = viewModel::stopReconnecting,
                             onDismissAlert = viewModel::dismissAlert,
                             onDismissRecordingNotice = viewModel::dismissRecordingNotice,
                             controls = controlActions,

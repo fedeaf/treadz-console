@@ -143,7 +143,8 @@ class SettingsViewModelTest {
         vm.cancelChoice()
         assertEquals(SyncSetup.NotConfigured, vm.uiState.value.sync.setup)
         assertEquals("", vm.uiState.value.tokenInput)
-        assertEquals("clear", app.sync.calls.last())
+        assertEquals("cancelSetup", app.sync.calls.last())
+        assertFalse(app.sync.calls.contains("clear"))
     }
 
     @Test fun dataToUploadAsksForConfirmationFirst() {
@@ -179,6 +180,110 @@ class SettingsViewModelTest {
         assertNull(vm.uiState.value.sync.firstLink)
         assertFalse(app.sync.calls.contains("confirmFirstLink"))
         assertFalse(app.sync.calls.contains("syncNow"))
+        assertEquals("cancelSetup", app.sync.calls.last())
+        assertFalse(app.sync.calls.contains("cancelFirstLink"))
+        assertEquals("", vm.uiState.value.tokenInput)
+    }
+
+    @Test fun cancellingNeverUnlinksALinkedDevice() {
+        val app = appWith()
+        app.sync.emit(linked())
+        val vm = settingsOf(app)
+        vm.cancelChoice()
+        vm.cancelFirstLink()
+        assertEquals(listOf("cancelSetup", "cancelSetup"), app.sync.calls)
+        assertTrue(vm.uiState.value.linked)
+        assertEquals(repo, vm.uiState.value.sync.repository)
+    }
+
+    // ---- Replacement token while linked ----
+
+    @Test fun aReplacementTokenForAnotherRepositoryIsRejectedAndTheDeviceStaysLinked() {
+        val app = appWith(sync = FakeSyncService(privateRepositories = listOf(other)))
+        app.sync.emit(linked())
+        val vm = settingsOf(app)
+        vm.setToken("github_pat_other_repo")
+        vm.saveToken()
+        val state = vm.uiState.value
+        assertEquals(SyncErrorCode.RepositoryNotFound, state.error?.code)
+        // Still linked to the same repository, with its last sync intact: nothing changed.
+        assertTrue(state.linked)
+        assertEquals(repo, state.sync.repository)
+        assertEquals(1_000L, state.sync.lastSyncMillis)
+        assertFalse(app.sync.calls.contains("clear"))
+        // The rejected attempt stays on screen, so the user can edit it or unlink first.
+        assertTrue(state.canReplaceToken)
+        assertTrue(state.showsTokenField)
+        assertEquals("github_pat_other_repo", state.tokenInput)
+        assertFalse(state.busy)
+    }
+
+    @Test fun aReplacementTokenThatSeesTheLinkedRepositoryKeepsTheLinkAndClearsTheField() {
+        val app = appWith(sync = FakeSyncService(privateRepositories = listOf(other, repo)))
+        app.sync.emit(linked(error = SyncError(SyncErrorCode.Unauthorized)))
+        val vm = settingsOf(app)
+        vm.setToken("github_pat_new")
+        vm.saveToken()
+        val state = vm.uiState.value
+        assertTrue(state.linked)
+        assertEquals(repo, state.sync.repository)
+        assertNull(state.error)
+        assertEquals("", state.tokenInput)
+        assertFalse(state.showsTokenField)
+    }
+
+    @Test fun aFailedReplacementOfAnyKindKeepsTheTypedToken() {
+        val app = appWith()
+        app.sync.emit(linked())
+        val vm = settingsOf(app)
+        vm.setToken("invalid")
+        assertFalse(vm.uiState.value.showsTokenField)
+        vm.saveToken()
+        val state = vm.uiState.value
+        assertEquals(SyncErrorCode.Unauthorized, state.error?.code)
+        assertTrue(state.linked)
+        assertTrue(state.showsTokenField)
+        assertEquals("invalid", state.tokenInput)
+    }
+
+    // ---- Dismissing a leftover error ----
+
+    @Test fun aLeftoverErrorWhileNotConfiguredCanBeDismissed() {
+        val app = appWith()
+        val vm = settingsOf(app)
+        vm.setToken("invalid")
+        vm.saveToken()
+        assertEquals(SyncErrorCode.Unauthorized, vm.uiState.value.error?.code)
+        assertEquals(SyncErrorCode.Unauthorized, vm.uiState.value.sync.error?.code)
+        vm.dismissError()
+        val state = vm.uiState.value
+        assertNull(state.error)
+        assertNull(state.sync.error)
+        assertEquals(SyncSetup.NotConfigured, state.sync.setup)
+        assertEquals("cancelSetup", app.sync.calls.last())
+        // What the user typed is not touched.
+        assertEquals("invalid", state.tokenInput)
+    }
+
+    @Test fun dismissingAnErrorNeverGivesUpASetupOrUnlinks() {
+        val app = appWith(sync = FakeSyncService(privateRepositories = listOf(repo, other)))
+        val vm = settingsOf(app)
+        vm.setToken("token")
+        vm.saveToken()
+        assertEquals(SyncSetup.ChoosingRepository, vm.uiState.value.sync.setup)
+        vm.dismissError()
+        assertEquals(SyncSetup.ChoosingRepository, vm.uiState.value.sync.setup)
+
+        val linkedApp = appWith(sync = FakeSyncService(privateRepositories = listOf(other)))
+        linkedApp.sync.emit(linked())
+        val linkedVm = settingsOf(linkedApp)
+        linkedVm.setToken("github_pat_other_repo")
+        linkedVm.saveToken()
+        linkedVm.dismissError()
+        assertNull(linkedVm.uiState.value.actionError)
+        assertTrue(linkedVm.uiState.value.linked)
+        assertFalse(linkedApp.sync.calls.contains("cancelSetup"))
+        assertFalse(linkedApp.sync.calls.contains("clear"))
     }
 
     // ---- Linked ----

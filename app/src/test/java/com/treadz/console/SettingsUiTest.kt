@@ -204,6 +204,30 @@ class SettingsUiTest {
         rule.onNodeWithTag("token_field").assertDoesNotExist()
     }
 
+    @Test fun aReplacementTokenForAnotherRepositoryExplainsToUnlinkFirstAndStaysLinked() {
+        app = FakeApp(sync = FakeSyncService(privateRepositories = listOf(RepositoryRef("demo", "treadz-backup", "main"))))
+        app.sync.emit(linked(error = SyncError(SyncErrorCode.Unauthorized)))
+        show(Screen.Settings)
+        type("token_field", "github_pat_other_repo")
+        click("token_save")
+        rule.onNodeWithTag("sync_error").assertTextContains("cannot access the linked repository", substring = true)
+        rule.onNodeWithTag("sync_error").assertTextContains("unlink this device first", substring = true)
+        rule.onNodeWithTag("sync_repository").assertTextContains("demo/treadz-data", substring = true)
+        rule.onNodeWithTag("sync_now").assertIsEnabled()
+        rule.onNodeWithTag("sync_unlink").assertIsDisplayed()
+        rule.onNodeWithTag("token_field").assertIsDisplayed()
+    }
+
+    @Test fun aLeftoverTokenErrorCanBeDismissedWhileNotConfigured() {
+        show(Screen.Settings)
+        type("token_field", "invalid")
+        click("token_save")
+        rule.onNodeWithTag("sync_error").assertIsDisplayed()
+        click("sync_error_dismiss")
+        rule.onNodeWithTag("sync_error").assertDoesNotExist()
+        rule.onNodeWithTag("sync_error_dismiss").assertDoesNotExist()
+    }
+
     // ---- Sync: repository choice and first link ----
 
     @Test fun severalPrivateRepositoriesAreListedAndOneIsPicked() {

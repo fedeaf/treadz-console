@@ -126,6 +126,7 @@
     <string name="action_save">Save</string>
     <string name="action_delete">Delete</string>
     <string name="action_edit">Edit</string>
+    <string name="action_dismiss">Dismiss</string>
     <string name="action_ok">OK</string>
     <string name="error_storage">The data could not be saved. Try again.</string>
     <string name="no_user_chosen">Choose a user first.</string>
@@ -389,6 +390,7 @@
     <string name="sync_error_unauthorized">GitHub rejected the token. It may be wrong, expired or revoked. Create a new one and paste it again.</string>
     <string name="sync_error_no_private_repository">The token does not give access to any private repository. Create it with access to your private data repository.</string>
     <string name="sync_error_repository_not_found">The repository cannot be found with this token. It may have been deleted or renamed, or the access removed.</string>
+    <string name="sync_error_linked_repository_not_found">This token cannot access the linked repository. To use another repository, unlink this device first.</string>
     <string name="sync_error_no_write_access">The token can read the repository but not write to it. Give it \"Contents\" read and write permission.</string>
     <string name="sync_error_rate_limited">GitHub\'s request limit was reached. It will be tried again later.</string>
     <string name="sync_error_rate_limited_minutes">GitHub\'s request limit was reached. Try again in about %1$d min.</string>

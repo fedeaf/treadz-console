@@ -126,6 +126,7 @@
     <string name="action_save">Guardar</string>
     <string name="action_delete">Eliminar</string>
     <string name="action_edit">Editar</string>
+    <string name="action_dismiss">Descartar</string>
     <string name="action_ok">Aceptar</string>
     <string name="error_storage">No se pudieron guardar los datos. Inténtalo de nuevo.</string>
     <string name="no_user_chosen">Elige primero un usuario.</string>
@@ -389,6 +390,7 @@
     <string name="sync_error_unauthorized">GitHub ha rechazado el token. Puede ser incorrecto, haber caducado o estar revocado. Crea uno nuevo y pégalo otra vez.</string>
     <string name="sync_error_no_private_repository">El token no da acceso a ningún repositorio privado. Créalo con acceso a tu repositorio privado de datos.</string>
     <string name="sync_error_repository_not_found">No se encuentra el repositorio con este token. Puede haberse borrado o renombrado, o haberse quitado el acceso.</string>
+    <string name="sync_error_linked_repository_not_found">Este token no puede acceder al repositorio enlazado. Para usar otro repositorio, desvincula primero este dispositivo.</string>
     <string name="sync_error_no_write_access">El token puede leer el repositorio pero no escribir en él. Dale permiso de lectura y escritura en \"Contents\".</string>
     <string name="sync_error_rate_limited">Se alcanzó el límite de peticiones de GitHub. Se volverá a intentar más tarde.</string>
     <string name="sync_error_rate_limited_minutes">Se alcanzó el límite de peticiones de GitHub. Inténtalo de nuevo en unos %1$d min.</string>

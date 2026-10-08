@@ -229,4 +229,15 @@ class ProfileEditorViewModelTest {
         val vm = editor(9_999)
         assertTrue(vm.uiState.value.notFound)
     }
+
+    @Test fun deleteWarningMentionsEveryDeviceOnlyWhileSyncIsLinked() {
+        val linked = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val id = app.userData.createProfile("Carla").id
+        val vm = ProfileEditorViewModel(id, profiles, app.controller, app::today, syncLinked = linked)
+        assertFalse(vm.uiState.value.syncLinked)
+        linked.value = true
+        assertTrue(vm.uiState.value.syncLinked)
+        linked.value = false
+        assertFalse(vm.uiState.value.syncLinked)
+    }
 }

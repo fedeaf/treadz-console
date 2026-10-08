@@ -1,6 +1,7 @@
 package com.treadz.console
 
 import android.Manifest
+import android.app.DownloadManager
 import android.bluetooth.BluetoothAdapter
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -45,7 +46,7 @@ class MainActivity : ComponentActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle) as T
+                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle, dependencies.sync) as T
         }
     }
 
@@ -106,6 +107,7 @@ class MainActivity : ComponentActivity() {
                     onRequestPermissions = request,
                     onEnableBluetooth = enableBluetooth,
                     onOpenSettings = ::openAppSettings,
+                    onOpenDownloads = ::openDownloads,
                     onFinish = ::finishAndRemoveTask,
                     onMoveToBackground = { moveTaskToBack(true) },
                 ),
@@ -124,8 +126,8 @@ class MainActivity : ComponentActivity() {
             else -> BluetoothPermission.DeniedPermanently
         }
         // Only warn about notifications once they have been requested and denied.
-        val notificationsDenied = asked && !granted(Manifest.permission.POST_NOTIFICATIONS)
-        return PermissionsUi(bluetooth, notificationsDenied)
+        val notificationsGranted = granted(Manifest.permission.POST_NOTIFICATIONS)
+        return PermissionsUi(bluetooth, notificationsDenied = asked && !notificationsGranted, notificationsGranted = notificationsGranted)
     }
 
     private fun share(recording: RecordingInfo) {
@@ -134,6 +136,14 @@ class MainActivity : ComponentActivity() {
 
     private fun shareExport(export: SavedExport) {
         startActivity(ExportShare.intent(export, getString(R.string.export_share_title)))
+    }
+
+    private fun openDownloads() {
+        try {
+            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (_: ActivityNotFoundException) {
+            // No app to show the downloads: nothing else to do.
+        }
     }
 
     private fun openAppSettings() {

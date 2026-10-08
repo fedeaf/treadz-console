@@ -14,6 +14,9 @@ sealed interface Screen {
      */
     data class ProfileEditor(val profileId: Long?, val token: Int) : Screen
 
+    /** General settings (synchronisation, users, treadmill, appearance, language, permissions, about). */
+    data object Settings : Screen
+
     data object Weight : Screen
 
     data object History : Screen

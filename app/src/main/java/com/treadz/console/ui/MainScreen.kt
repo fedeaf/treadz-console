@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -77,11 +76,11 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
     val recording = ui.recording is RecordingStatus.Recording
     if (compact) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // While the belt runs the phone drops the title and the theme switch: the controls need the room.
+            // While the belt runs the phone drops the title and the settings button: the controls need the room.
             if (!ui.beltActive) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     AppTitle(Modifier.weight(1f))
-                    ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
+                    SettingsButton(ui.canOpenSettings, ui.syncError != null, actions.onOpenSettingsScreen)
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,7 +99,7 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
             NavButtons(ui, actions)
             ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName, ui.waitingForBluetooth)
             if (recording) RecordingIndicator()
-            ThemeSwitch(ui.darkTheme, actions.onDarkThemeChange)
+            SettingsButton(ui.canOpenSettings, ui.syncError != null, actions.onOpenSettingsScreen)
         }
     }
 }
@@ -114,19 +113,6 @@ private fun AppTitle(modifier: Modifier = Modifier) {
         fontWeight = FontWeight.Bold,
         maxLines = 1,
     )
-}
-
-@Composable
-private fun ThemeSwitch(dark: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            stringResource(R.string.theme_dark),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 10.dp),
-        )
-        Switch(checked = dark, onCheckedChange = onChange, modifier = Modifier.testTag("theme_switch"))
-    }
 }
 
 /** Who is training; tapping it opens the user selection (not while the belt is running). */

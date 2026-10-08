@@ -2,6 +2,8 @@ package com.treadz.console.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.sync.service.SyncService
+import com.treadz.console.sync.service.SyncSetup
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -34,6 +37,8 @@ data class HistoryUiState(
     val confirmingDeleteId: Long? = null,
     val assigningId: Long? = null,
     val failed: Boolean = false,
+    /** Workouts whose latest state is not uploaded yet. Empty unless this device is linked to a GitHub repository. */
+    val pendingUploadIds: Set<Long> = emptySet(),
 ) {
     /** The tab to show: the unassigned one only exists while there is something in it. */
     val visibleTab: HistoryTab get() = if (unassigned.isEmpty()) HistoryTab.Mine else tab
@@ -42,6 +47,8 @@ data class HistoryUiState(
 /** Workout list of the active user, plus the workouts nobody owns. */
 class HistoryViewModel(
     private val userData: UserData,
+    /** Only used for the "not uploaded yet" indicator; `null` without synchronisation. */
+    sync: SyncService? = null,
 ) : ViewModel() {
 
     private data class Local(
@@ -58,12 +65,30 @@ class HistoryViewModel(
         if (user == null) flowOf(null to emptyList()) else userData.workouts.workouts(user.id).map { user to it }
     }
 
-    val uiState: StateFlow<HistoryUiState> = combine(
-        mine,
-        userData.workouts.unassignedWorkouts(),
-        userData.profiles.profiles,
-        local,
-    ) { (user, workouts), unassigned, users, local ->
+    /** Ids of the workouts waiting to be uploaded, only while linked (otherwise nothing is "pending": it is all local). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val pendingUploads: Flow<Set<Long>> = if (sync == null) {
+        flowOf(emptySet())
+    } else {
+        sync.status
+            .map { it.setup == SyncSetup.Linked }
+            .distinctUntilChanged()
+            .flatMapLatest { linked -> if (linked) sync.pendingWorkoutIds else flowOf(emptySet()) }
+    }
+
+    private data class Content(
+        val mine: Pair<UserProfile?, List<WorkoutSummary>>,
+        val unassigned: List<WorkoutSummary>,
+        val users: List<UserProfile>,
+        val pendingUploads: Set<Long>,
+    )
+
+    private val content = combine(mine, userData.workouts.unassignedWorkouts(), userData.profiles.profiles, pendingUploads, ::Content)
+
+    val uiState: StateFlow<HistoryUiState> = combine(content, local) { content, local ->
+        val (user, workouts) = content.mine
+        val unassigned = content.unassigned
+        val users = content.users
         HistoryUiState(
             loaded = true,
             user = user,
@@ -74,6 +99,7 @@ class HistoryViewModel(
             confirmingDeleteId = local.confirmingDeleteId,
             assigningId = local.assigningId,
             failed = local.failed,
+            pendingUploadIds = content.pendingUploads,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HistoryUiState())
 

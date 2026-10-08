@@ -1,5 +1,6 @@
 package com.treadz.console.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -23,6 +25,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -106,6 +110,7 @@ fun HistoryScreen(state: HistoryUiState, actions: HistoryActions, modifier: Modi
                     WorkoutCard(
                         workout = workout,
                         unassigned = tab == HistoryTab.Unassigned,
+                        pendingUpload = workout.id in state.pendingUploadIds,
                         onOpen = { actions.onOpen(workout.id) },
                         onAssign = { actions.onAssign(workout.id) },
                         onDelete = { actions.onDelete(workout.id) },
@@ -134,6 +139,7 @@ fun HistoryScreen(state: HistoryUiState, actions: HistoryActions, modifier: Modi
 private fun WorkoutCard(
     workout: WorkoutSummary,
     unassigned: Boolean,
+    pendingUpload: Boolean,
     onOpen: () -> Unit,
     onAssign: () -> Unit,
     onDelete: () -> Unit,
@@ -156,6 +162,7 @@ private fun WorkoutCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
+                if (pendingUpload) PendingUploadMark(Modifier.testTag("pending_upload_${workout.id}"))
                 if (workout.isInProgress) {
                     Tag(stringResource(R.string.history_in_progress), MaterialTheme.extra.ok, Modifier.testTag("in_progress_tag"))
                 } else {
@@ -217,4 +224,19 @@ fun AssignDialog(users: List<UserProfile>, onAssignTo: (Long) -> Unit, onDismiss
             }
         },
     )
+}
+
+/** Small "not uploaded yet" mark of a workout (an arrow pointing up, with text: the meaning never relies on the icon). */
+@Composable
+private fun PendingUploadMark(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Canvas(Modifier.size(14.dp)) {
+            val stroke = 2.dp.toPx()
+            drawLine(color, Offset(size.width / 2, size.height), Offset(size.width / 2, stroke), strokeWidth = stroke, cap = StrokeCap.Round)
+            drawLine(color, Offset(size.width / 2, stroke), Offset(size.width * 0.15f, size.height * 0.45f), strokeWidth = stroke, cap = StrokeCap.Round)
+            drawLine(color, Offset(size.width / 2, stroke), Offset(size.width * 0.85f, size.height * 0.45f), strokeWidth = stroke, cap = StrokeCap.Round)
+        }
+        Text(stringResource(R.string.history_pending_upload), style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1)
+    }
 }

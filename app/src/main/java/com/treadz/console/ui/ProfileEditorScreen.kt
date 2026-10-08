@@ -119,7 +119,7 @@ fun ProfileEditorScreen(
     if (state.confirmingDelete) {
         ConfirmDialog(
             title = stringResource(R.string.delete_user_title, state.form.name.ifBlank { stringResource(R.string.generic_user_label) }),
-            text = stringResource(R.string.delete_user_body),
+            text = stringResource(if (state.syncLinked) R.string.delete_user_body_synced else R.string.delete_user_body),
             confirmText = stringResource(R.string.action_delete),
             onConfirm = actions.onConfirmDelete,
             onDismiss = actions.onCancelDelete,
@@ -299,7 +299,7 @@ private fun Choice(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun BigChip(text: String, selected: Boolean, onClick: () -> Unit, tag: String) {
+internal fun BigChip(text: String, selected: Boolean, onClick: () -> Unit, tag: String) {
     FilterChip(
         selected = selected,
         onClick = onClick,

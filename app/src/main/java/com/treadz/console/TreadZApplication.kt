@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.treadz.console.lifecycle.ForegroundReporter
+import com.treadz.console.sync.TreadZSync
 import com.treadz.console.treadmill.android.TreadZTreadmill
 import com.treadz.console.userdata.TreadZUserData
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +24,9 @@ class TreadZApplication : Application() {
         TreadZUserData.get(this)
             .workoutObserver(TreadZTreadmill.controller(this), onError = { Log.e(TAG, "Workout history error", it) })
             .start(processScope)
+        // Resumes the uploads that were pending when the process died and starts downloading changes whenever the app
+        // comes to the foreground. Nothing touches the network until the user links a GitHub token.
+        TreadZSync.get(this)
         // The backend needs to know whether the app is visible (no scanning or connecting in the background).
         ForegroundReporter(dependencies.appLifecycle).attachTo(ProcessLifecycleOwner.get())
     }

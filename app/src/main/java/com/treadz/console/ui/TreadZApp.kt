@@ -1,6 +1,7 @@
 package com.treadz.console.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +22,7 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -33,6 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.treadz.console.AppDependencies
+import com.treadz.console.BuildConfig
 import com.treadz.console.MainViewModel
 import com.treadz.console.controls.ControlAxis
 import com.treadz.console.history.HistoryViewModel
@@ -41,10 +44,14 @@ import com.treadz.console.lifecycle.ExitPrompt
 import com.treadz.console.lifecycle.ExitViewModel
 import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.nav.Screen
+import com.treadz.console.settings.SettingsViewModel
+import com.treadz.console.sync.service.SyncSetup
+import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.users.ProfileEditorViewModel
 import com.treadz.console.users.UserSelectionViewModel
 import com.treadz.console.weight.WeightViewModel
+import kotlinx.coroutines.flow.map
 
 /**
  * App root: connects the ViewModels with the screens and hosts the navigation. The safety alert is drawn here, above
@@ -119,7 +126,7 @@ fun TreadZRoot(
                             onDismissAlert = viewModel::dismissAlert,
                             onDismissRecordingNotice = viewModel::dismissRecordingNotice,
                             controls = controlActions,
-                            onDarkThemeChange = viewModel::setDarkTheme,
+                            onOpenSettingsScreen = { navigation.push(Screen.Settings) },
                             onOpenUsers = { navigation.push(Screen.UserSelection) },
                             onOpenWeight = { navigation.push(Screen.Weight) },
                             onOpenHistory = { navigation.push(Screen.History) },
@@ -145,12 +152,60 @@ fun TreadZRoot(
                         )
                     }
 
+                    Screen.Settings -> {
+                        val vm = viewModel<SettingsViewModel>(
+                            factory = viewModelFactory {
+                                initializer { SettingsViewModel(dependencies.sync, dependencies.language, viewModel.uiState) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        val activity = LocalActivity.current
+                        LaunchedEffect(Unit) { vm.refreshLanguage() }
+                        // A token that was typed but not linked is not kept around when the screen is left (a rotation or a
+                        // language change recreates the screen and keeps it).
+                        DisposableEffect(Unit) {
+                            onDispose { if (activity?.isChangingConfigurations != true) vm.clearToken() }
+                        }
+                        val recording = ui.recording as? RecordingStatus.Saved
+                        SettingsScreen(
+                            state = state,
+                            permissions = permissions,
+                            versionName = BuildConfig.VERSION_NAME,
+                            actions = SettingsActions(
+                                onBack = navigation::pop,
+                                sync = SyncSettingsActions(
+                                    onToken = vm::setToken,
+                                    onTokenVisible = vm::setTokenVisible,
+                                    onSaveToken = vm::saveToken,
+                                    onSelectRepository = vm::selectRepository,
+                                    onConfirmFirstLink = vm::confirmFirstLink,
+                                    onCancelFirstLink = vm::cancelFirstLink,
+                                    onCancelChoice = vm::cancelChoice,
+                                    onSyncNow = vm::syncNow,
+                                    onUnlink = vm::requestUnlink,
+                                    onConfirmUnlink = vm::confirmUnlink,
+                                    onCancelUnlink = vm::cancelUnlink,
+                                ),
+                                onOpenUsers = { navigation.push(Screen.UserSelection) },
+                                onForgetTreadmill = viewModel::forgetTreadmill,
+                                onDarkTheme = viewModel::setDarkTheme,
+                                onLanguage = vm::setLanguage,
+                                onOpenAppSettings = actions.onOpenSettings,
+                                onOpenDownloads = actions.onOpenDownloads,
+                                onShareRecording = recording?.let { saved -> { actions.onShare(saved.info) } },
+                            ),
+                        )
+                    }
+
                     is Screen.ProfileEditor -> {
                         val vm = viewModel<ProfileEditorViewModel>(
                             key = "editor-${screen.profileId}-${screen.token}",
                             factory = viewModelFactory {
                                 initializer {
-                                    ProfileEditorViewModel(screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today)
+                                    ProfileEditorViewModel(
+                                        screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today,
+                                        syncLinked = dependencies.sync.status.map { it.setup == SyncSetup.Linked },
+                                    )
                                 }
                             },
                         )
@@ -204,7 +259,7 @@ fun TreadZRoot(
 
                     Screen.History -> {
                         val vm = viewModel<HistoryViewModel>(
-                            factory = viewModelFactory { initializer { HistoryViewModel(dependencies.userData) } },
+                            factory = viewModelFactory { initializer { HistoryViewModel(dependencies.userData, dependencies.sync) } },
                         )
                         val state by vm.uiState.collectAsStateWithLifecycle()
                         HistoryScreen(

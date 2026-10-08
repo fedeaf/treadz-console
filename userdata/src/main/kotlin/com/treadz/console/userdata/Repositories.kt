@@ -2,6 +2,7 @@ package com.treadz.console.userdata
 
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -141,3 +142,11 @@ val UserData.activeUserWeightKg: Flow<Double?>
     get() = profiles.activeUser.flatMapLatest { user ->
         if (user == null) flowOf(null) else weights.latestWeight(user.id).map { it?.weightKg }
     }
+
+/**
+ * A [UserData] that can also be synchronised with other devices: it exposes [sync], the port used by the `:sync`
+ * module. The real (Room) data layer is one; the UI does not need [sync].
+ */
+interface SyncableUserData : UserData {
+    val sync: SyncStore
+}

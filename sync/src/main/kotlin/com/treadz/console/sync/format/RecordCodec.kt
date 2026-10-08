@@ -84,12 +84,15 @@ internal object RecordCodec {
 
     // ---- weight.csv ----
 
-    private const val WEIGHT_HEADER = "uuid,date,weight_kg,deleted,updated_at,updated_by"
+    private const val WEIGHT_HEADER = "uuid,date,weight_kg,deleted,updated_at,updated_by,created_at"
 
-    /** The whole weight log of a user, tombstones included (they keep their uuid and version but no date or weight). */
+    /**
+     * The whole weight log of a user, tombstones included (they keep their uuid and version but no date or weight),
+     * ordered like the app orders them: by date, creation time and uuid.
+     */
     fun weightCsv(entries: List<SyncWeightEntry>): ByteArray {
         val out = StringBuilder(WEIGHT_HEADER).append('\n')
-        for (e in entries.sortedWith(compareBy({ it.date }, { it.uuid }))) {
+        for (e in entries.sortedWith(compareBy({ it.date }, { it.createdAtMillis }, { it.uuid }))) {
             val fields = listOf(
                 e.uuid,
                 if (e.deleted) "" else e.date.toString(),
@@ -97,15 +100,31 @@ internal object RecordCodec {
                 e.deleted.toString(),
                 time(e.version.updatedAtMillis),
                 e.version.deviceId,
+                time(e.createdAtMillis),
             )
             out.append(fields.joinToString(",") { csv(it) }).append('\n')
         }
         return out.toString().toByteArray(Charsets.UTF_8)
     }
 
+    /** Decimals written for speeds (km/h) and inclines (%) in the workout summary; the belt works in steps of 0.1. */
+    private const val SPEED_DECIMALS = 2
+    private const val INCLINE_DECIMALS = 1
+
+    /**
+     * [value] rounded half up to [decimals] places. It is computed on the decimal representation of the number, so
+     * the result is exact, does not depend on the locale and is the same on every device.
+     */
+    internal fun rounded(value: Double, decimals: Int): Double =
+        if (value.isFinite()) java.math.BigDecimal.valueOf(value).setScale(decimals, java.math.RoundingMode.HALF_UP).toDouble() else value
+
     fun decimal(value: Double): String = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString().let { if ('.' in it) it else "$it.0" }
 
-    /** Rows that cannot be understood are skipped. */
+    /**
+     * Rows that cannot be understood are skipped. Files written before the `created_at` column existed (or rows with
+     * an empty or unreadable value) get the row's `updated_at` as creation time, which is also what the app's
+     * database migration assigns to entries that already exist.
+     */
     fun parseWeightCsv(bytes: ByteArray, userUuid: String): List<SyncWeightEntry> {
         val rows = CsvRows.parse(String(bytes, Charsets.UTF_8))
         if (rows.isEmpty()) return emptyList()
@@ -114,13 +133,16 @@ internal object RecordCodec {
         return rows.drop(1).mapNotNull { row ->
             runCatching {
                 val deleted = col(row, "deleted") == "true"
+                val version = RecordVersion(parseTime(col(row, "updated_at")!!), col(row, "updated_by")!!)
                 SyncWeightEntry(
                     uuid = col(row, "uuid")!!.takeIf { it.isNotEmpty() }!!,
                     userUuid = userUuid,
-                    version = RecordVersion(parseTime(col(row, "updated_at")!!), col(row, "updated_by")!!),
+                    version = version,
                     deleted = deleted,
                     date = if (deleted) LocalDate.EPOCH else LocalDate.parse(col(row, "date")!!),
                     weightKg = if (deleted) 0.0 else col(row, "weight_kg")!!.toDouble(),
+                    createdAtMillis = col(row, "created_at")?.takeIf { it.isNotBlank() }?.let { runCatching { parseTime(it.trim()) }.getOrNull() }
+                        ?: version.updatedAtMillis,
                 )
             }.getOrNull()
         }
@@ -140,11 +162,11 @@ internal object RecordCodec {
                         .put("duration_s", w.stats.durationSeconds)
                         .put("distance_m", w.stats.distanceMeters)
                         .put("calories", w.stats.calories)
-                        .put("avg_speed_kmh", w.stats.averageSpeedKmh)
-                        .put("max_speed_kmh", w.stats.maxSpeedKmh)
+                        .put("avg_speed_kmh", rounded(w.stats.averageSpeedKmh, SPEED_DECIMALS))
+                        .put("max_speed_kmh", rounded(w.stats.maxSpeedKmh, SPEED_DECIMALS))
                         .put("avg_hr_bpm", w.stats.averageHeartRateBpm)
                         .put("max_hr_bpm", w.stats.maxHeartRateBpm)
-                        .put("max_incline_pct", w.stats.maxInclinePercent),
+                        .put("max_incline_pct", rounded(w.stats.maxInclinePercent, INCLINE_DECIMALS)),
                 )
         }
         json.put("updated_at", time(w.version.updatedAtMillis)).put("updated_by", w.version.deviceId)

@@ -27,10 +27,15 @@ import kotlin.math.roundToInt
  *
  * ## Session rules (the same as the debug recorder's)
  * - A session starts when the belt leaves [BeltStatus.Idle] (and the data is not stale).
- * - It ends when the belt is back to `Idle` **with speed 0** (after a stop the belt keeps decelerating for a few
- *   seconds in `Idle` with speed above 0; those samples still belong to the session), or when the connection is
- *   lost ([ConnectionState.Reconnecting] or [TreadmillEvent.ConnectionLost]) or closed
+ * - It ends when the belt is back to `Idle` **with speed 0** (after a stop the belt keeps decelerating, at about
+ *   0.5 km/h per second, in `Idle` with speed above 0; those samples still belong to the session), or when the
+ *   connection is lost ([ConnectionState.Reconnecting] or [TreadmillEvent.ConnectionLost]) or closed
  *   ([ConnectionState.Disconnected]).
+ * - The packet that reports speed 0 is recorded as the **last sample** of the session, so a workout that ended
+ *   normally always finishes with the belt really stopped. The treadmill resets its distance, time and calories to 0
+ *   in that very packet; the last sample keeps the values the session had reached instead. If the speed in `Idle`
+ *   stops changing for [WorkoutObserverConfig.idleStallMs] (or the deceleration lasts longer than
+ *   [WorkoutObserverConfig.idleMaxMs]) without ever reaching 0, the session ends anyway with the last sample as it is.
  * - After the session ends, stale states (the last known values replayed on a lost connection) never start a new one.
  * - A session in which the belt never moved (e.g. the countdown was interrupted) is discarded.
  *
@@ -140,7 +145,7 @@ class WorkoutHistoryObserver(
                         else -> Unit
                     }
                     is Input.ConnectionLost -> endSession(WorkoutEndReason.ConnectionLost, input.at)
-                    is Input.Tick -> flush()
+                    is Input.Tick -> onTick(input.at)
                     is Input.Stop -> {
                         endSession(WorkoutEndReason.Closed, input.at)
                         input.done.complete(Unit)
@@ -166,16 +171,22 @@ class WorkoutHistoryObserver(
             return
         }
         if (idle) {
-            val reason = if (s.lastNonIdleStatus == BeltStatus.SafetyKeyRemoved) {
-                WorkoutEndReason.SafetyKeyRemoved
-            } else {
-                WorkoutEndReason.Stopped
-            }
-            endSession(reason, at)
+            s.add(state, at, config, terminal = true)
+            endSession(normalEndReason(s), at)
         } else {
             s.add(state, at, config)
+            if (s.decelerationTimedOut(at, config)) endSession(normalEndReason(s), at)
         }
     }
+
+    private suspend fun onTick(at: Long) {
+        // States keep arriving while connected, but a silent controller must not keep a decelerating session open.
+        val s = session
+        if (s != null && s.decelerationTimedOut(at, config)) endSession(normalEndReason(s), at) else flush()
+    }
+
+    private fun normalEndReason(s: Session) =
+        if (s.lastNonIdleStatus == BeltStatus.SafetyKeyRemoved) WorkoutEndReason.SafetyKeyRemoved else WorkoutEndReason.Stopped
 
     private suspend fun startSession(at: Long): Session? {
         val scope = processScope ?: return null
@@ -264,6 +275,11 @@ class WorkoutHistoryObserver(
         val buffer = ArrayDeque<WorkoutSample>()
         var statsDirty = false
         var lastNonIdleStatus: BeltStatus = BeltStatus.Starting
+
+        // The belt reported Idle but is still moving: when that began, when its speed last changed, and that speed.
+        private var decelerationSince: Long? = null
+        private var decelerationProgressAt = 0L
+        private var decelerationSpeed = 0.0
         private var seq = 0
         private var lastSampleAt = Long.MIN_VALUE
         private var lastStatus: BeltStatus? = null
@@ -281,31 +297,52 @@ class WorkoutHistoryObserver(
 
         val hasMoved: Boolean get() = maxSpeed > 0.0
 
-        fun add(state: TreadmillState, at: Long, config: WorkoutObserverConfig) {
-            if (state.status != BeltStatus.Idle) lastNonIdleStatus = state.status
+        /** True when the belt has been in `Idle` while still moving for too long (see [WorkoutObserverConfig]). */
+        fun decelerationTimedOut(at: Long, config: WorkoutObserverConfig): Boolean {
+            val since = decelerationSince ?: return false
+            return at - decelerationProgressAt >= config.idleStallMs || at - since >= config.idleMaxMs
+        }
+
+        /**
+         * @param terminal the packet that reports the belt stopped: always recorded (it is the end of the workout,
+         *   whatever the spacing), keeping the distance, time and calories reached, which the treadmill has just reset.
+         */
+        fun add(state: TreadmillState, at: Long, config: WorkoutObserverConfig, terminal: Boolean = false) {
+            if (state.status != BeltStatus.Idle) {
+                lastNonIdleStatus = state.status
+                decelerationSince = null
+            } else if (state.speedKmh > 0.0) {
+                if (decelerationSince == null) {
+                    decelerationSince = at
+                    decelerationProgressAt = at
+                    decelerationSpeed = state.speedKmh
+                } else if (state.speedKmh != decelerationSpeed) {
+                    decelerationSpeed = state.speedKmh
+                    decelerationProgressAt = at
+                }
+            }
             val spaced = at - lastSampleAt >= config.minSampleSpacingMs
-            if (!spaced && state.status == lastStatus) return
+            if (!terminal && !spaced && state.status == lastStatus) return
             lastSampleAt = at
             lastStatus = state.status
-            buffer.addLast(
-                WorkoutSample(
-                    seq = seq++,
-                    timestampMillis = at,
-                    elapsedSeconds = state.elapsedSeconds,
-                    speedKmh = state.speedKmh,
-                    targetSpeedKmh = state.targetSpeedKmh,
-                    inclinePercent = state.inclinePercent,
-                    distanceMeters = state.distanceMeters,
-                    calories = state.calories,
-                    heartRateBpm = state.heartRateBpm,
-                    beltStatus = state.status,
-                    isStale = state.isStale,
-                ),
+            val sample = WorkoutSample(
+                seq = seq++,
+                timestampMillis = at,
+                elapsedSeconds = if (terminal) maxOf(state.elapsedSeconds, duration) else state.elapsedSeconds,
+                speedKmh = state.speedKmh,
+                targetSpeedKmh = state.targetSpeedKmh,
+                inclinePercent = state.inclinePercent,
+                distanceMeters = if (terminal) maxOf(state.distanceMeters, distance) else state.distanceMeters,
+                calories = if (terminal) maxOf(state.calories, calories) else state.calories,
+                heartRateBpm = state.heartRateBpm,
+                beltStatus = state.status,
+                isStale = state.isStale,
             )
-            duration = maxOf(duration, state.elapsedSeconds)
-            distance = maxOf(distance, state.distanceMeters)
-            calories = maxOf(calories, state.calories)
-            if (!state.isStale) {
+            buffer.addLast(sample)
+            duration = maxOf(duration, sample.elapsedSeconds)
+            distance = maxOf(distance, sample.distanceMeters)
+            calories = maxOf(calories, sample.calories)
+            if (!state.isStale && !terminal) {
                 maxSpeed = maxOf(maxSpeed, state.speedKmh)
                 if (state.speedKmh > 0.0) {
                     speedSum += state.speedKmh

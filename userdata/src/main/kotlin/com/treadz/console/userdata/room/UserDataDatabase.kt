@@ -11,6 +11,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 2. Synchronisation bookkeeping on profiles, weight entries and workouts: global `uuid`, version
  *    (`updatedAtMillis` + `updatedBy`), `deleted` tombstone and `dirty` flag. The unique index on the profile name
  *    became a plain index. See [Migration1To2].
+ * 3. Weight entries carry `createdAtMillis`, the synchronised tie-break between entries of the same day. See
+ *    [Migration2To3].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -36,7 +38,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun workouts(): WorkoutDao
 
     companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -46,7 +48,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId))
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3())
     }
 }
 
@@ -88,5 +90,20 @@ internal class Migration1To2(private val deviceId: String) : Migration(1, 2) {
         const val UUID_V4_SQL =
             "lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || " +
                 "substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))"
+    }
+}
+
+/**
+ * Version 2 to 3. Adds `weight_entries.createdAtMillis` and keeps every row. Existing entries get their
+ * `updatedAtMillis` as creation time. That is deliberately a function of synchronised data only: a repository
+ * written by a version without the column has no creation times, and readers fall back to the same value
+ * (`updated_at`), so devices that already share entries keep agreeing on their order. (Entries migrated from
+ * version 1 have midnight UTC of their date there, so such old entries of the same day are ordered by uuid.) The
+ * rows are not flagged `dirty`: nothing needs uploading because of this migration.
+ */
+internal class Migration2To3 : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `weight_entries` ADD COLUMN `createdAtMillis` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE `weight_entries` SET `createdAtMillis` = `updatedAtMillis`")
     }
 }

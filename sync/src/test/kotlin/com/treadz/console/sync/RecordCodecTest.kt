@@ -101,10 +101,10 @@ class RecordCodecTest {
         val csv = text(RecordCodec.weightCsv(entries))
         assertEquals(
             """
-            uuid,date,weight_kg,deleted,updated_at,updated_by
-            w-1,2026-10-01,61.5,false,2026-10-08T00:40:00.123Z,tablet
-            w-3,,,true,2026-10-08T00:40:00.005Z,phone
-            w-2,2026-10-05,61.0,false,2026-10-08T00:40:00.123Z,tablet
+            uuid,date,weight_kg,deleted,updated_at,updated_by,created_at
+            w-1,2026-10-01,61.5,false,2026-10-08T00:40:00.123Z,tablet,2026-10-08T00:40:00.123Z
+            w-3,,,true,2026-10-08T00:40:00.005Z,phone,2026-10-08T00:40:00.005Z
+            w-2,2026-10-05,61.0,false,2026-10-08T00:40:00.123Z,tablet,2026-10-08T00:40:00.123Z
             """.trimIndent() + "\n",
             csv,
         )
@@ -117,10 +117,64 @@ class RecordCodecTest {
         assertEquals(3, RecordCodec.parseWeightCsv(damaged.toByteArray(), uuid).size)
     }
 
+    @Test fun `entries of one day are ordered by creation time then uuid, whatever the order they come in`() {
+        val day = LocalDate.of(2026, 10, 8)
+        fun entry(id: String, createdAt: Long, kg: Double, updatedAt: Long = T0 + 100_000) =
+            SyncWeightEntry(id, uuid, RecordVersion(updatedAt, "tablet"), false, day, kg, createdAtMillis = createdAt)
+        val entries = listOf(entry("c", T0 + 2, 88.2), entry("b", T0 + 1, 88.0, updatedAt = T0 + 500_000), entry("a", T0 + 2, 87.0))
+        for (shuffled in listOf(entries, entries.reversed(), listOf(entries[1], entries[2], entries[0]))) {
+            val csv = text(RecordCodec.weightCsv(shuffled))
+            val rows = csv.trim().lines().drop(1)
+            assertEquals(listOf("b", "a", "c"), rows.map { it.substringBefore(',') }) // by creation time, then uuid
+            val parsed = RecordCodec.parseWeightCsv(csv.toByteArray(), uuid)
+            assertEquals(entries.sortedBy { it.uuid }, parsed.sortedBy { it.uuid }) // creation times survive the round trip
+        }
+        assertEquals(T0 + 1, RecordCodec.parseWeightCsv(RecordCodec.weightCsv(entries), uuid).first { it.uuid == "b" }.createdAtMillis)
+    }
+
+    @Test fun `a weight csv written before created_at existed still parses and falls back to the update time`() {
+        val old = """
+            uuid,date,weight_kg,deleted,updated_at,updated_by
+            w-1,2026-10-01,61.5,false,2026-10-08T00:40:00.123Z,tablet
+            w-3,,,true,2026-10-08T00:40:00.005Z,phone
+        """.trimIndent() + "\n"
+        val parsed = RecordCodec.parseWeightCsv(old.toByteArray(), uuid)
+        assertEquals(listOf("w-1", "w-3"), parsed.map { it.uuid })
+        assertEquals(parsed.map { it.version.updatedAtMillis }, parsed.map { it.createdAtMillis })
+        // a row with an empty or unreadable created_at falls back the same way
+        val partial = old.replace("tablet", "tablet,").replace("phone", "phone,garbage")
+            .replace("updated_by\n", "updated_by,created_at\n")
+        val fallback = RecordCodec.parseWeightCsv(partial.toByteArray(), uuid)
+        assertEquals(parsed.map { it.createdAtMillis }, fallback.map { it.createdAtMillis })
+    }
+
     private val workout = SyncWorkout(
         "99999999-8888-4777-8666-555555555555", uuid, "Ana", v, false, T0, T0 + 45 * 60_000, WorkoutEndReason.SafetyKeyRemoved,
         WorkoutStats(2700, 5200, 310, 7.0, 9.5, 141, 168, 2.5),
     )
+
+    @Test fun `workout stats are written with sensible precision and old precise values are still read`() {
+        val precise = workout.copy(stats = workout.stats.copy(averageSpeedKmh = 4.81130063965887, maxSpeedKmh = 6.050000001, maxInclinePercent = 2.4500000001))
+        val json = text(RecordCodec.workout(precise))
+        assertTrue(json, json.contains("\"avg_speed_kmh\": 4.81,"))
+        assertTrue(json, json.contains("\"max_speed_kmh\": 6.05,"))
+        assertTrue(json, json.contains("\"max_incline_pct\": 2.5"))
+        // half up on the decimal representation, and the same text whatever the default locale
+        val previous = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.GERMANY)
+            assertEquals(json, text(RecordCodec.workout(precise)))
+        } finally {
+            java.util.Locale.setDefault(previous)
+        }
+        assertEquals(4.81, RecordCodec.parseWorkout(json.toByteArray(), uuid)!!.stats.averageSpeedKmh, 0.0)
+        assertEquals("7.0", RecordCodec.rounded(7.0, 2).toString())
+        assertEquals(0.0, RecordCodec.rounded(0.004, 2), 0.0)
+        assertTrue(RecordCodec.rounded(Double.NaN, 2).isNaN())
+        // a file written by an older version, with every decimal
+        val old = json.replace("\"avg_speed_kmh\": 4.81,", "\"avg_speed_kmh\": 4.81130063965887,")
+        assertEquals(4.81130063965887, RecordCodec.parseWorkout(old.toByteArray(), uuid)!!.stats.averageSpeedKmh, 0.0)
+    }
 
     @Test fun `workout json round trips and a tombstone keeps only identity and start`() {
         val json = text(RecordCodec.workout(workout))

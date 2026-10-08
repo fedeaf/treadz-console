@@ -22,7 +22,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 
 /**
- * Migration 1 to 2 with the real Room tooling: the database is created from the exported version-1 schema, filled with
+ * Migrations 1 to 2 and 2 to 3 with the real Room tooling: the database is created from the exported version-1 schema, filled with
  * a realistic amount of data, migrated, and validated against the exported version-2 schema.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -186,6 +186,76 @@ class MigrationTest {
             assertFalse(data.profiles.profiles.first().any { it.id == ana.id })
             assertEquals(2, data.profiles.profiles.first().size)
             assertTrue(data.workouts.detail(1) == null)
+        } finally {
+            db.close()
+        }
+    }
+
+    // ---- 2 to 3 ----
+
+    /** A version-2 database: two synchronised profiles, one with two weights on the same day recorded out of id order. */
+    private fun populateVersion2(db: SupportSQLiteDatabase) {
+        for ((id, uuid) in listOf(1 to "user-ana", 2 to "user-beto")) {
+            db.execSQL(
+                "INSERT INTO users (id, name, nameKey, sex, heightCm, birthEpochDay, createdAtMillis, isGeneric, uuid, updatedAtMillis, " +
+                    "updatedBy, deleted, dirty) VALUES ($id, 'U$id', 'u$id', 'Female', 168, 6764, $T0, 0, '$uuid', $T0, 'tablet-1', 0, 0)",
+            )
+        }
+        fun weight(id: Int, user: Int, day: Long, kg: Double, uuid: String, updatedAt: Long, deleted: Int, dirty: Int) = db.execSQL(
+            "INSERT INTO weight_entries (id, userId, epochDay, weightKg, isPlaceholder, uuid, updatedAtMillis, updatedBy, deleted, dirty) " +
+                "VALUES ($id, $user, $day, $kg, 0, '$uuid', $updatedAt, 'tablet-1', $deleted, $dirty)",
+        )
+        weight(1, 1, 20000, 90.0, "w-old", 20000L * 86_400_000L, 0, 1) // from version 1: midnight of its date
+        weight(2, 1, 20300, 88.2, "w-b", T0 + 2_000, 0, 0) // same day, local id 2, created second
+        weight(3, 1, 20300, 88.0, "w-a", T0 + 1_000, 0, 0) // same day, local id 3, but created first
+        weight(4, 1, 20300, 0.0, "w-gone", T0 + 9_000, 1, 1) // a tombstone, still pending
+        weight(5, 2, 20301, 70.0, "w-beto", T0 + 3_000, 0, 1)
+    }
+
+    @Test fun `the populated version 2 database migrates to version 3 keeping every row and giving entries a creation time`() {
+        val weightColumnsV2 = "id, userId, epochDay, weightKg, isPlaceholder, uuid, updatedAtMillis, updatedBy, deleted, dirty"
+        val before: Map<String, List<List<Any?>>>
+        helper.createDatabase(dbName, 2).use { db ->
+            populateVersion2(db)
+            before = mapOf(
+                "users" to rows(db, "SELECT * FROM users ORDER BY id"),
+                "weights" to rows(db, "SELECT $weightColumnsV2 FROM weight_entries ORDER BY id"),
+            )
+        }
+        // Also validates the resulting schema against the exported 3.json.
+        helper.runMigrationsAndValidate(dbName, 3, true, *UserDataDatabase.migrations("tablet-1")).use { db ->
+            assertEquals(before["users"], rows(db, "SELECT * FROM users ORDER BY id"))
+            // nothing lost or changed (versions and pending flags included) ...
+            assertEquals(before["weights"], rows(db, "SELECT $weightColumnsV2 FROM weight_entries ORDER BY id"))
+            // ... and the creation time of every entry is its last change time
+            assertEquals(
+                rows(db, "SELECT updatedAtMillis FROM weight_entries ORDER BY id"),
+                rows(db, "SELECT createdAtMillis FROM weight_entries ORDER BY id"),
+            )
+        }
+    }
+
+    @Test fun `after the 2 to 3 migration both entries of a day are ordered by their synchronised creation time`() = runBlocking<Unit> {
+        helper.createDatabase(dbName, 2).use { populateVersion2(it) }
+        helper.runMigrationsAndValidate(dbName, 3, true, *UserDataDatabase.migrations("tablet-1")).close()
+        val context = RuntimeEnvironment.getApplication() as Context
+        val db = Room.databaseBuilder(context, UserDataDatabase::class.java, dbName)
+            .addMigrations(*UserDataDatabase.migrations("tablet-1"))
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val data = RoomUserData(db, MutableClock(T0 + 30L * 86_400_000L), ZoneOffset.UTC, deviceId = "tablet-1")
+            val ana = data.profiles.profiles.first().first { it.name == "U1" }
+            // The local id says 88.0 is the latest (id 3); the synchronised creation time says 88.2 (created last).
+            assertEquals(listOf(90.0, 88.0, 88.2), data.weights.entries(ana.id).first().map { it.weightKg })
+            assertEquals(88.2, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
+            // the pending tombstone and entries are still pending, and the exposed value is the stored one
+            assertEquals(listOf("w-beto", "w-gone", "w-old"), data.sync.pendingChanges().weights.map { it.uuid }.sorted())
+            assertEquals(T0 + 2_000, data.sync.weightEntries("user-ana").first { it.uuid == "w-b" }.createdAtMillis)
+
+            // a new entry gets the current time as creation time and wins the day
+            data.weights.add(ana.id, LocalDate.ofEpochDay(20300), 87.9)
+            assertEquals(87.9, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
         } finally {
             db.close()
         }

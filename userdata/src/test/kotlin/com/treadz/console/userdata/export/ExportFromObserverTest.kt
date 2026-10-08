@@ -57,18 +57,19 @@ class ExportFromObserverTest {
         runCurrent()
 
         val detail = data.workouts.detail(data.workouts.workouts(user.id).first().single().id)!!
-        assertEquals("stored as they arrive", 40, detail.samples.size)
+        assertEquals("stored as they arrive, plus the packet that reports the belt stopped", 41, detail.samples.size)
 
         val exporter = WorkoutExporter("0.1.0", InMemoryExportStorage(), ZoneOffset.UTC)
         val csv = String((exporter.render(detail, ExportFormat.Csv) as ExportResult.Success).value.content)
         val rows = csv.trimEnd('\n').split('\n').drop(1)
-        assertEquals("one row per second", 20, rows.size)
-        assertEquals((1..20).toList(), rows.map { it.split(',')[2].toInt() })
+        assertEquals("one row per second plus the stop", 21, rows.size)
+        assertEquals((1..20).toList() + 20, rows.map { it.split(',')[2].toInt() })
+        assertEquals("the last row is the belt really stopped", 0.0, rows.last().split(',')[3].toDouble(), 0.0)
 
         val tcx = TcxChecks.parse((exporter.render(detail, ExportFormat.Tcx) as ExportResult.Success).value.content)
         TcxChecks.assertSchemaOrder(tcx)
-        assertEquals(20, TcxChecks.trackpoints(tcx).size)
-        assertEquals(19.0, TcxChecks.lap(tcx).totalTimeSeconds, 0.0)
+        assertEquals(21, TcxChecks.trackpoints(tcx).size)
+        assertEquals(20.0, TcxChecks.lap(tcx).totalTimeSeconds, 0.0)
         scope.cancel()
     }
 }

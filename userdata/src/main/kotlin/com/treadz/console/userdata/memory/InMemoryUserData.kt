@@ -64,7 +64,7 @@ class InMemoryUserData(
             id = d.nextId, name = "", sex = input.sex, heightCm = input.heightCm, birthDate = input.birthDate,
             createdAtMillis = clock.nowMillis(), isGeneric = true,
         )
-        val weight = WeightEntry(d.nextId + 1, profile.id, today, GenericProfile.WEIGHT_KG, isPlaceholder = true)
+        val weight = WeightEntry(d.nextId + 1, profile.id, today, GenericProfile.WEIGHT_KG, isPlaceholder = true, createdAtMillis = clock.nowMillis())
         return d.copy(
             profiles = d.profiles + profile,
             weights = d.weights + weight,
@@ -121,7 +121,7 @@ class InMemoryUserData(
             return modify { d ->
                 val (saved, result) = save(d, id, input)
                 if (result !is DataResult.Success || weightKg == null) return@modify saved to result
-                val entry = WeightEntry(saved.nextId, id, today, weightKg)
+                val entry = WeightEntry(saved.nextId, id, today, weightKg, createdAtMillis = clock.nowMillis())
                 saved.copy(
                     weights = saved.weights.filterNot { it.userId == id && it.isPlaceholder } + entry,
                     nextId = saved.nextId + 1,
@@ -174,7 +174,7 @@ class InMemoryUserData(
 
     override val weights: WeightRepository = object : WeightRepository {
         override fun entries(userId: Long): Flow<List<WeightEntry>> = data.map { d ->
-            d.weights.filter { it.userId == userId }.sortedWith(compareBy({ it.date }, { it.id }))
+            d.weights.filter { it.userId == userId }.sortedWith(compareBy({ it.date }, { it.createdAtMillis }, { it.id }))
         }
 
         override fun latestWeight(userId: Long): Flow<WeightEntry?> = entries(userId).map { it.lastOrNull() }
@@ -186,7 +186,7 @@ class InMemoryUserData(
             if (issues.isNotEmpty()) return DataResult.Invalid(issues)
             return modify { d ->
                 if (d.profiles.none { it.id == userId }) return@modify d to DataResult.NotFound
-                val entry = WeightEntry(d.nextId, userId, date, weightKg)
+                val entry = WeightEntry(d.nextId, userId, date, weightKg, createdAtMillis = clock.nowMillis())
                 d.copy(
                     weights = d.weights.filterNot { it.userId == userId && it.isPlaceholder } + entry,
                     nextId = d.nextId + 1,

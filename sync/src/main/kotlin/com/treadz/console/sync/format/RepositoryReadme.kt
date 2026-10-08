@@ -31,7 +31,10 @@ users/<name>-<uuid>/profile.json
 `profile.json`: `name`, `sex` (`male`/`female`), `height_cm`, `birth_date`, `resting_hr_bpm`, `max_hr_bpm`,
 `fitness_level`, `goal`, `target_weight_kg`, `created_at`. Unset optional values are `null`.
 
-`weight.csv`: `uuid,date,weight_kg,deleted,updated_at,updated_by`, one row per weight entry, ordered by date.
+`weight.csv`: `uuid,date,weight_kg,deleted,updated_at,updated_by,created_at`, one row per weight entry, ordered by
+`date`, then `created_at`, then `uuid`. The last row that is not deleted is the user's current weight, the same on every device
+(several entries on one day are allowed). `created_at` is when the entry was created and never changes; files
+written by older versions of the app lack the column, and `updated_at` is used instead.
 
 `workouts/.../<time>.csv`: one row per sample (about one per second, repeated packets collapsed).
 
@@ -50,7 +53,8 @@ users/<name>-<uuid>/profile.json
 
 `workouts/.../<time>.json`: `uuid`, `user_uuid`, `started_at`, `ended_at`, `end_reason` (`stopped`,
 `safety_key_removed`, `connection_lost`, `disconnected`, `closed`, `interrupted`) and `stats` (`duration_s`,
-`distance_m`, `calories`, `avg_speed_kmh`, `max_speed_kmh`, `avg_hr_bpm`, `max_hr_bpm`, `max_incline_pct`).
+`distance_m`, `calories`, `avg_speed_kmh`, `max_speed_kmh` (both rounded to 2 decimals), `avg_hr_bpm`, `max_hr_bpm`,
+`max_incline_pct` (1 decimal)).
 
 `programs/<uuid>.json`: `uuid`, `user_uuid`, and the program itself under `program`.
 

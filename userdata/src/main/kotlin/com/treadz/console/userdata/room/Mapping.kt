@@ -28,7 +28,7 @@ internal fun UserEntity.toProfile() = UserProfile(
     isGeneric = isGeneric,
 )
 
-internal fun WeightEntryEntity.toEntry() = WeightEntry(id, userId, LocalDate.ofEpochDay(epochDay), weightKg, isPlaceholder)
+internal fun WeightEntryEntity.toEntry() = WeightEntry(id, userId, LocalDate.ofEpochDay(epochDay), weightKg, isPlaceholder, createdAtMillis)
 
 internal fun WorkoutEntity.toSummary() = WorkoutSummary(
     id = id,

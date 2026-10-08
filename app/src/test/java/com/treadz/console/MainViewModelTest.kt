@@ -86,7 +86,7 @@ class MainViewModelTest {
         val slow = object : com.treadz.console.treadmill.TreadmillController by controller {
             override suspend fun start(): CommandResult = gate.await()
         }
-        val slowVm = MainViewModel(slow, app.recorder, app.settings, app.userData)
+        val slowVm = MainViewModel(slow, app.recorder, app.settings, app.userData, app.appLifecycle)
         slowVm.start()
         assertTrue(slowVm.uiState.value.startInProgress)
         assertFalse(slowVm.uiState.value.canStart)
@@ -116,7 +116,7 @@ class MainViewModelTest {
     @Test fun alertRaisedBeforeTheScreenExistsIsStillShown() {
         // The alert happened with nobody listening to events (e.g. with the app in the background).
         controller.emit(TreadmillEvent.ConnectionLost)
-        val lateVm = MainViewModel(controller, app.recorder, app.settings, app.userData)
+        val lateVm = MainViewModel(controller, app.recorder, app.settings, app.userData, app.appLifecycle)
         assertEquals(TreadmillEvent.ConnectionLost, lateVm.uiState.value.alert)
     }
 

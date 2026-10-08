@@ -37,6 +37,8 @@ import com.treadz.console.MainViewModel
 import com.treadz.console.controls.ControlAxis
 import com.treadz.console.history.HistoryViewModel
 import com.treadz.console.history.WorkoutDetailViewModel
+import com.treadz.console.lifecycle.ExitPrompt
+import com.treadz.console.lifecycle.ExitViewModel
 import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.nav.Screen
 import com.treadz.console.treadmill.TreadmillAlert
@@ -57,12 +59,19 @@ fun TreadZRoot(
     navigation: NavigationViewModel = viewModel(
         factory = viewModelFactory { initializer { NavigationViewModel(dependencies.userData.profiles) } },
     ),
+    exit: ExitViewModel = viewModel(
+        factory = viewModelFactory { initializer { ExitViewModel(dependencies.appLifecycle, dependencies.controller) } },
+    ),
 ) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
     val stack by navigation.stack.collectAsStateWithLifecycle()
     val screen = stack?.lastOrNull()
 
-    BackHandler(enabled = (stack?.size ?: 0) > 1) { navigation.pop() }
+    val stackSize = stack?.size ?: 0
+    BackHandler(enabled = stackSize > 1) { navigation.pop() }
+    // Back on the root screen: ask before leaving (or say the belt must be stopped first), never close silently.
+    BackHandler(enabled = stackSize == 1, onBack = exit::onBack)
+    val exitPrompt by exit.prompt.collectAsStateWithLifecycle()
 
     val controls = viewModel.controls
     val controlActions = remember(viewModel, navigation) {
@@ -90,6 +99,7 @@ fun TreadZRoot(
         onStop = controls::stop.takeIf { ui.showStop },
     ) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (exitPrompt == ExitPrompt.BeltMoving) BeltMovingNotice(onDismiss = exit::dismiss)
             // Anything but the main screen: STOP and the speed stay in view while the belt is not at rest.
             if (screen != null && screen != Screen.Main && ui.beltActive) SessionBar(ui, controlActions)
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -240,6 +250,12 @@ fun TreadZRoot(
                 }
             }
         }
+        ExitPromptHost(
+            prompt = exitPrompt,
+            onExit = { exit.exit(onExiting = actions.onFinish) },
+            onKeepInBackground = { exit.keepInBackground(actions.onMoveToBackground) },
+            onDismiss = exit::dismiss,
+        )
     }
 }
 

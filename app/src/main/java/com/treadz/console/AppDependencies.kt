@@ -8,6 +8,7 @@ import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
 import com.treadz.console.treadmill.android.TreadZTreadmill
+import com.treadz.console.treadmill.lifecycle.AppLifecycle
 import com.treadz.console.userdata.TreadZUserData
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.export.WorkoutExporter
@@ -23,6 +24,9 @@ interface AppDependencies {
     val settings: SettingsStore
     val userData: UserData
 
+    /** App visibility reported to the backend, and the one way to leave the app. */
+    val appLifecycle: AppLifecycle
+
     /** Writes workouts to CSV or TCX files in the Downloads folder. */
     val exporter: WorkoutExporter
     fun shareIntent(recording: RecordingInfo): Intent
@@ -36,6 +40,7 @@ class RealDependencies(private val context: Context) : AppDependencies {
     override val recorder: WorkoutRecorder by lazy { TreadZTreadmill.recorder(context) }
     override val settings: SettingsStore by lazy { SharedPreferencesSettingsStore(context) }
     override val userData: UserData by lazy { TreadZUserData.get(context) }
+    override val appLifecycle: AppLifecycle by lazy { TreadZTreadmill.lifecycle(context) }
     override val exporter: WorkoutExporter by lazy { WorkoutExporter.create(context, BuildConfig.VERSION_NAME) }
     override fun shareIntent(recording: RecordingInfo): Intent = TreadZTreadmill.shareIntent(context, recording)
     override fun today(): LocalDate = LocalDate.now()

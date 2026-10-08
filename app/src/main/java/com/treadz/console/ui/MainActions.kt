@@ -48,6 +48,10 @@ data class MainActions(
     val controls: ControlActions = ControlActions(),
     /** Opens the share sheet for an exported workout file. */
     val onShareExport: (SavedExport) -> Unit = {},
+    /** Closes the app's task (after the backend accepted the exit). */
+    val onFinish: () -> Unit = {},
+    /** Sends the app to the background, keeping it connected. */
+    val onMoveToBackground: () -> Unit = {},
 )
 
 enum class BluetoothPermission {

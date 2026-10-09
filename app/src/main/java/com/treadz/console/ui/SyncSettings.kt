@@ -142,7 +142,7 @@ private fun TokenEntry(state: SettingsUiState, actions: SyncSettingsActions, rep
             }
         }
         BigButton(
-            text = stringResource(R.string.sync_token_save),
+            text = stringResource(if (replacing) R.string.sync_token_use else R.string.sync_token_save),
             onClick = actions.onSaveToken,
             enabled = state.canSaveToken,
             modifier = Modifier.fillMaxWidth().testTag("token_save"),

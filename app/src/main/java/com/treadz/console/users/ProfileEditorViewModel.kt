@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.treadz.console.Decimals
 import com.treadz.console.beltBusy
+import com.treadz.console.programs.fitness.FitnessProfile
+import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.FitnessLevel
+import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.HeartRateEstimates
 import com.treadz.console.userdata.InputField
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -71,7 +75,12 @@ data class ProfileEditorUiState(
     val confirmingDelete: Boolean = false,
     /** Synchronisation is linked: a deleted user disappears from every linked device, which the confirmation says. */
     val syncLinked: Boolean = false,
+    /** Fitness figures of an existing profile; `null` while loading or when the fitness data is not available. */
+    val fitness: FitnessSummary? = null,
 )
+
+/** The user's VO2max, MAS and maximum heart rate, with where the maximum comes from (read only here). */
+data class FitnessSummary(val profile: FitnessProfile?, val heartRateMax: HeartRateMaxDecision?)
 
 /**
  * Create / edit / personalise a profile. [profileId] is `null` to create. Editing the generic profile always
@@ -84,6 +93,8 @@ class ProfileEditorViewModel(
     private val today: () -> LocalDate,
     /** `true` while this device is linked to a GitHub repository. */
     syncLinked: Flow<Boolean> = flowOf(false),
+    /** Fitness test results and the maximum heart rate decision; `null` hides the fitness block. */
+    private val fitnessTests: FitnessTestRepository? = null,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(
@@ -98,6 +109,12 @@ class ProfileEditorViewModel(
     init {
         viewModelScope.launch { controller.beltBusy.collect { beltBusy = it; refreshDeleteLock() } }
         viewModelScope.launch { syncLinked.collect { linked -> state.update { it.copy(syncLinked = linked) } } }
+        if (profileId != null && fitnessTests != null) {
+            viewModelScope.launch {
+                combine(fitnessTests.liveFitnessProfile(profileId), fitnessTests.heartRateMax(profileId)) { profile, hrMax -> FitnessSummary(profile, hrMax) }
+                    .collect { summary -> state.update { it.copy(fitness = summary) } }
+            }
+        }
         if (profileId != null) {
             viewModelScope.launch {
                 val loaded = profiles.profile(profileId).first()
@@ -136,6 +153,22 @@ class ProfileEditorViewModel(
                 refreshDeleteLock()
             }
         }
+    }
+
+    /** "Use the measured value": the manual maximum heart rate is cleared (also from the field, so saving does not bring it back). */
+    fun useMeasuredHeartRateMax() {
+        val id = profileId ?: return
+        viewModelScope.launch {
+            if (fitnessTests?.useMeasuredHeartRateMax(id) is DataResult.Success) {
+                state.update { it.copy(form = it.form.copy(maxHeartRate = ""), errors = it.errors - InputField.MaxHeartRate) }
+            }
+        }
+    }
+
+    /** "Keep mine": the manual value stays and the question is not asked again until a newer test measures something different. */
+    fun keepManualHeartRateMax() {
+        val id = profileId ?: return
+        viewModelScope.launch { fitnessTests?.keepManualHeartRateMax(id) }
     }
 
     private fun refreshDeleteLock() {

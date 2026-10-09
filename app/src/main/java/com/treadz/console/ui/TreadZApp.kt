@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
@@ -24,7 +23,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -37,7 +36,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.treadz.console.AppDependencies
 import com.treadz.console.BuildConfig
 import com.treadz.console.MainViewModel
+import com.treadz.console.R
 import com.treadz.console.controls.ControlAxis
+import com.treadz.console.controls.SessionKind
 import com.treadz.console.history.HistoryViewModel
 import com.treadz.console.history.WorkoutDetailViewModel
 import com.treadz.console.lifecycle.ExitPrompt
@@ -48,10 +49,19 @@ import com.treadz.console.settings.SettingsViewModel
 import com.treadz.console.sync.service.SyncSetup
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillAlert
+import com.treadz.console.training.FitnessResultViewModel
+import com.treadz.console.training.FitnessStartViewModel
+import com.treadz.console.training.FitnessTestsViewModel
+import com.treadz.console.training.ProgramEditorViewModel
+import com.treadz.console.training.ProgramStartViewModel
+import com.treadz.console.training.ProgramsViewModel
+import com.treadz.console.training.RunViewModel
 import com.treadz.console.users.ProfileEditorViewModel
 import com.treadz.console.users.UserSelectionViewModel
 import com.treadz.console.weight.WeightViewModel
 import kotlinx.coroutines.flow.map
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.getValue
 
 /**
  * App root: connects the ViewModels with the screens and hosts the navigation. The safety alert is drawn here, above
@@ -81,6 +91,7 @@ fun TreadZRoot(
     val exitPrompt by exit.prompt.collectAsStateWithLifecycle()
 
     val controls = viewModel.controls
+    val training = dependencies.training
     val controlActions = remember(viewModel, navigation) {
         ControlActions(
             onStop = controls::stop,
@@ -113,26 +124,51 @@ fun TreadZRoot(
                 when (screen) {
                     null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
 
-                    Screen.Main -> MainScreen(
-                        ui = ui,
-                        permissions = permissions,
-                        actions = actions.copy(
-                            onStart = viewModel::start,
-                            onScan = viewModel::startScan,
-                            onStopScan = viewModel::stopScan,
-                            onConnect = { viewModel.connect(it.address, it.name) },
-                            onReconnectRemembered = viewModel::reconnectToRemembered,
-                            onStopReconnecting = viewModel::stopReconnecting,
-                            onDismissAlert = viewModel::dismissAlert,
-                            onDismissRecordingNotice = viewModel::dismissRecordingNotice,
-                            controls = controlActions,
-                            onOpenSettingsScreen = { navigation.push(Screen.Settings) },
-                            onOpenUsers = { navigation.push(Screen.UserSelection) },
-                            onOpenWeight = { navigation.push(Screen.Weight) },
-                            onOpenHistory = { navigation.push(Screen.History) },
-                            onPersonalize = { ui.activeUser?.let { navigation.openEditor(it.id) } },
-                        ),
-                    )
+                    Screen.Main -> {
+                        val visible by training.visible.collectAsStateWithLifecycle()
+                        if (visible == SessionKind.None) {
+                            MainScreen(
+                                ui = ui,
+                                permissions = permissions,
+                                actions = actions.copy(
+                                    onStart = viewModel::start,
+                                    onScan = viewModel::startScan,
+                                    onStopScan = viewModel::stopScan,
+                                    onConnect = { viewModel.connect(it.address, it.name) },
+                                    onReconnectRemembered = viewModel::reconnectToRemembered,
+                                    onStopReconnecting = viewModel::stopReconnecting,
+                                    onDismissAlert = viewModel::dismissAlert,
+                                    onDismissRecordingNotice = viewModel::dismissRecordingNotice,
+                                    controls = controlActions,
+                                    onOpenSettingsScreen = { navigation.push(Screen.Settings) },
+                                    onOpenUsers = { navigation.push(Screen.UserSelection) },
+                                    onOpenWeight = { navigation.push(Screen.Weight) },
+                                    onOpenHistory = { navigation.push(Screen.History) },
+                                    onOpenPrograms = { navigation.push(Screen.Programs) },
+                                    onPersonalize = { ui.activeUser?.let { navigation.openEditor(it.id) } },
+                                ),
+                            )
+                        } else {
+                            // A program or a fitness test is on (or has just ended): its screen takes the place of the live data.
+                            val runVm = viewModel<RunViewModel>(
+                                factory = viewModelFactory { initializer { RunViewModel(training, dependencies.userData) } },
+                            )
+                            val run by runVm.uiState.collectAsStateWithLifecycle()
+                            val runActions = RunActions(
+                                onSkipPrevious = runVm::skipToPrevious,
+                                onSkipNext = runVm::skipToNext,
+                                onContinue = runVm::continueProgram,
+                                onAbandon = runVm::abandon,
+                                onExhausted = runVm::exhausted,
+                                onEndTest = runVm::endTest,
+                                onDismiss = runVm::dismiss,
+                                onUseMeasuredHeartRateMax = runVm::useMeasuredHeartRateMax,
+                                onKeepManualHeartRateMax = runVm::keepManualHeartRateMax,
+                            )
+                            if (visible == SessionKind.Program) ProgramRunScreen(ui, run, controlActions, runActions)
+                            else FitnessRunScreen(ui, run, controlActions, runActions)
+                        }
+                    }
 
                     Screen.UserSelection -> {
                         val vm = viewModel<UserSelectionViewModel>(
@@ -206,6 +242,7 @@ fun TreadZRoot(
                                     ProfileEditorViewModel(
                                         screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today,
                                         syncLinked = dependencies.sync.status.map { it.setup == SyncSetup.Linked },
+                                        fitnessTests = dependencies.userData.fitnessTests,
                                     )
                                 }
                             },
@@ -229,6 +266,8 @@ fun TreadZRoot(
                                 onDelete = vm::requestDelete,
                                 onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::onProfileDeleted) },
                                 onCancelDelete = vm::cancelDelete,
+                                onUseMeasuredHeartRateMax = vm::useMeasuredHeartRateMax,
+                                onKeepManualHeartRateMax = vm::keepManualHeartRateMax,
                             ),
                         )
                     }
@@ -300,6 +339,150 @@ fun TreadZRoot(
                                 onCancelExport = vm::cancelExport,
                                 onDismissExportNotice = vm::dismissExportNotice,
                                 onShareExport = actions.onShareExport,
+                                onOpenTest = { navigation.push(Screen.FitnessResult(it)) },
+                            ),
+                        )
+                    }
+
+                    Screen.Programs -> {
+                        val context = LocalContext.current
+                        val vm = viewModel<ProgramsViewModel>(
+                            factory = viewModelFactory {
+                                initializer { ProgramsViewModel(dependencies.userData) { name -> context.getString(R.string.program_copy_name, name) } }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        ProgramsScreen(
+                            state = state,
+                            actions = ProgramsActions(
+                                onBack = navigation::pop,
+                                onOpen = { navigation.push(Screen.ProgramStart(it)) },
+                                onEdit = { navigation.openProgramEditor(it) },
+                                onNew = { navigation.openProgramEditor(null) },
+                                onDuplicate = { id -> vm.duplicate(id) },
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = vm::confirmDelete,
+                                onCancelDelete = vm::cancelDelete,
+                                onOpenFitnessTests = { navigation.push(Screen.FitnessTests) },
+                            ),
+                        )
+                    }
+
+                    is Screen.ProgramStart -> {
+                        val vm = viewModel<ProgramStartViewModel>(
+                            key = "program-start-${screen.programId}",
+                            factory = viewModelFactory {
+                                initializer { ProgramStartViewModel(screen.programId, dependencies.userData, training, dependencies.controller) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        ProgramStartScreen(
+                            state = state,
+                            actions = ProgramStartActions(
+                                onBack = navigation::pop,
+                                onDurationStep = vm::stepDuration,
+                                onEasySpeed = vm::setEasySpeed,
+                                onEasySpeedStep = vm::stepEasySpeed,
+                                onMaxSpeed = vm::setMaxSpeed,
+                                onMaxSpeedStep = vm::stepMaxSpeed,
+                                onMaxIncline = vm::setMaxIncline,
+                                onMaxInclineStep = vm::stepMaxIncline,
+                                onAdjustmentStep = vm::stepAdjustment,
+                                onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
+                                onSaveAsFree = { name -> vm.saveAsFreeProgram(name) { id -> navigation.openProgramEditor(id) } },
+                            ),
+                        )
+                    }
+
+                    is Screen.ProgramEditor -> {
+                        val vm = viewModel<ProgramEditorViewModel>(
+                            key = "program-editor-${screen.programId}-${screen.token}",
+                            factory = viewModelFactory {
+                                initializer { ProgramEditorViewModel(screen.programId, dependencies.userData, dependencies.controller) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        BackHandler { vm.requestBack(navigation::pop) }
+                        ProgramEditorScreen(
+                            state = state,
+                            actions = ProgramEditorActions(
+                                onBack = { vm.requestBack(navigation::pop) },
+                                onName = vm::setName,
+                                onDescription = vm::setDescription,
+                                onAddBlock = vm::addBlock,
+                                onAddRepeat = vm::addRepeat,
+                                onRemoveStep = vm::removeStep,
+                                onMoveStep = vm::moveStep,
+                                onDuplicateStep = vm::duplicateStep,
+                                onEditBlock = vm::editBlock,
+                                onRepeatCount = vm::setRepeatCount,
+                                onAddBlockToRepeat = vm::addBlockToRepeat,
+                                onRemoveBlockFromRepeat = vm::removeBlockFromRepeat,
+                                onMoveBlockInRepeat = vm::moveBlockInRepeat,
+                                onSave = { vm.save(onSaved = navigation::pop) },
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::pop) },
+                                onCancelDelete = vm::cancelDelete,
+                                onDiscard = navigation::pop,
+                                onCancelDiscard = vm::cancelDiscard,
+                            ),
+                        )
+                    }
+
+                    Screen.FitnessTests -> {
+                        val vm = viewModel<FitnessTestsViewModel>(
+                            factory = viewModelFactory { initializer { FitnessTestsViewModel(dependencies.userData) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        FitnessTestsScreen(
+                            state = state,
+                            actions = FitnessTestsActions(
+                                onBack = navigation::pop,
+                                onStartTest = { navigation.push(Screen.FitnessStart(it)) },
+                                onOpenResult = { navigation.push(Screen.FitnessResult(it)) },
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = vm::confirmDelete,
+                                onCancelDelete = vm::cancelDelete,
+                                onUseMeasuredHeartRateMax = vm::useMeasuredHeartRateMax,
+                                onKeepManualHeartRateMax = vm::keepManualHeartRateMax,
+                            ),
+                        )
+                    }
+
+                    is Screen.FitnessStart -> {
+                        val vm = viewModel<FitnessStartViewModel>(
+                            key = "fitness-start-${screen.type}",
+                            factory = viewModelFactory {
+                                initializer { FitnessStartViewModel(screen.type, dependencies.userData, training, dependencies.controller, dependencies::today) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        FitnessStartScreen(
+                            state = state,
+                            actions = FitnessStartActions(
+                                onBack = navigation::pop,
+                                onSpeed = vm::setSpeed,
+                                onSpeedStep = vm::stepSpeed,
+                                onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
+                            ),
+                        )
+                    }
+
+                    is Screen.FitnessResult -> {
+                        val vm = viewModel<FitnessResultViewModel>(
+                            key = "fitness-result-${screen.testId}",
+                            factory = viewModelFactory { initializer { FitnessResultViewModel(screen.testId, dependencies.userData) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        FitnessResultScreen(
+                            state = state,
+                            actions = FitnessResultActions(
+                                onBack = navigation::pop,
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = { vm.confirmDelete(onDeleted = navigation::pop) },
+                                onCancelDelete = vm::cancelDelete,
+                                onUseMeasuredHeartRateMax = vm::useMeasuredHeartRateMax,
+                                onKeepManualHeartRateMax = vm::keepManualHeartRateMax,
                             ),
                         )
                     }

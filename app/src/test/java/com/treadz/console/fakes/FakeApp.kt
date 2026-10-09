@@ -4,7 +4,16 @@ import android.content.Intent
 import com.treadz.console.AppDependencies
 import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
+import com.treadz.console.programs.engine.ProgramRunner
+import com.treadz.console.programs.fitness.FitnessTestRunner
 import com.treadz.console.sync.service.FakeSyncService
+import com.treadz.console.training.FitnessTestIds
+import com.treadz.console.training.SessionLinks
+import com.treadz.console.training.TrainingCoordinator
+import com.treadz.console.userdata.WorkoutLink
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.export.InMemoryExportStorage
@@ -31,7 +40,21 @@ class FakeApp(
     ),
     override val sync: FakeSyncService = FakeSyncService(now = { date.atTime(12, 0).atZone(zone).toInstant().toEpochMilli() }),
     override val language: FakeLanguageSettings = FakeLanguageSettings(),
+    /** Where the program and fitness test runners run. Tests with virtual time pass their own scope and clock. */
+    private val trainingScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val trainingClock: Clock = Clock.System,
 ) : AppDependencies {
+
+    /** The links the training coordinator asked for, in order. */
+    val links = RecordingSessionLinks()
+    val testIds = FitnessTestIds()
+    val programRunner: ProgramRunner by lazy { ProgramRunner(controller, trainingScope, trainingClock) }
+    val fitnessRunner: FitnessTestRunner by lazy { FitnessTestRunner(controller, trainingScope, trainingClock, idFactory = testIds::next) }
+
+    override val training: TrainingCoordinator by lazy {
+        TrainingCoordinator(controller, programRunner, fitnessRunner, testIds, links, userData, trainingScope)
+    }
+
 
     /** Where exported files end up in tests. */
     val exportStorage = InMemoryExportStorage()
@@ -42,7 +65,7 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
-    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync) }
+    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training) }
 
     /** A new navigation state, as when the app opens (create it after setting up the profiles). */
     fun newNavigation(): NavigationViewModel = NavigationViewModel(userData.profiles)
@@ -51,5 +74,19 @@ class FakeApp(
 
     companion object {
         val TODAY: LocalDate = LocalDate.of(2026, 10, 7)
+    }
+}
+
+/** Remembers what the training coordinator linked to the workout history. */
+class RecordingSessionLinks : SessionLinks {
+    val linked = mutableListOf<WorkoutLink>()
+    var clears = 0
+
+    override fun link(link: WorkoutLink) {
+        linked += link
+    }
+
+    override fun clear() {
+        clears++
     }
 }

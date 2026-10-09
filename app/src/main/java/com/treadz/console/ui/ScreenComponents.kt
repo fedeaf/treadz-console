@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
@@ -186,7 +187,8 @@ fun Tag(text: String, color: Color, modifier: Modifier = Modifier) {
         modifier
             .background(color.copy(alpha = 0.18f), RoundedCornerShape(50))
             .border(1.dp, color.copy(alpha = 0.6f), RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .semantics(mergeDescendants = true) {},
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
     }

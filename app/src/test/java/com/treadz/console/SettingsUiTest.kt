@@ -204,6 +204,15 @@ class SettingsUiTest {
         rule.onNodeWithTag("token_field").assertDoesNotExist()
     }
 
+    @Test fun theTokenButtonSaysLinkFirstAndUseThisTokenWhenReplacingOne() {
+        show(Screen.Settings)
+        rule.onNodeWithTag("token_save").assertTextContains("Link")
+
+        app.sync.emit(linked(error = SyncError(SyncErrorCode.Unauthorized)))
+        rule.waitForIdle()
+        rule.onNodeWithTag("token_save").assertTextContains("Use this token")
+    }
+
     @Test fun aReplacementTokenForAnotherRepositoryExplainsToUnlinkFirstAndStaysLinked() {
         app = FakeApp(sync = FakeSyncService(privateRepositories = listOf(RepositoryRef("demo", "treadz-backup", "main"))))
         app.sync.emit(linked(error = SyncError(SyncErrorCode.Unauthorized)))

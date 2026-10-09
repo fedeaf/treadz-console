@@ -2,13 +2,16 @@ package com.treadz.console
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.controls.ControllerCommands
 import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
+import com.treadz.console.controls.SessionControls
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.settings.SettingsStore
 import com.treadz.console.sync.SyncError
 import com.treadz.console.sync.service.SyncService
 import com.treadz.console.sync.service.SyncSetup
+import com.treadz.console.training.TrainingCoordinator
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionProblem
@@ -52,6 +55,11 @@ class MainViewModel(
     private val appLifecycle: AppLifecycle,
     /** Only used to show a discreet error indicator on the settings button; `null` when there is no synchronisation. */
     sync: SyncService? = null,
+    /**
+     * Routes the manual controls through the program / fitness test runner while one is active; `null` sends every
+     * command straight to the controller.
+     */
+    private val training: TrainingCoordinator? = null,
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -73,7 +81,15 @@ class MainViewModel(
     )
 
     /** The manual controls of the live screen (and the STOP of every screen). */
-    val controls = ManualControls(controller, viewModelScope, canOperate = { uiState.value.activeUser != null })
+    val controls = ManualControls(
+        controller,
+        viewModelScope,
+        canOperate = { uiState.value.activeUser != null },
+        commands = training?.commands ?: ControllerCommands(controller),
+        session = { training?.controls?.value ?: SessionControls() },
+    )
+
+    private val controlsAndSession = combine(controls.state, training?.controls ?: flowOf(SessionControls())) { c, s -> c to s }
 
     /** The error of the last synchronisation attempt, only while the device is linked. */
     private val syncError: Flow<SyncError?> =
@@ -93,6 +109,7 @@ class MainViewModel(
         val unassigned: Int,
         val syncError: SyncError?,
         val controls: ControlsState,
+        val session: SessionControls,
         val bluetoothEnabled: Boolean,
         val reconnectProblem: ConnectionProblem?,
     )
@@ -100,11 +117,11 @@ class MainViewModel(
     private val extras = combine(
         local,
         people,
-        controls.state,
+        controlsAndSession,
         controller.bluetoothEnabled,
         controller.connectionProblem,
     ) { local, people, controls, bluetooth, reconnectProblem ->
-        Extras(local, people.first, people.second, people.third, controls, bluetooth, reconnectProblem)
+        Extras(local, people.first, people.second, people.third, controls.first, controls.second, bluetooth, reconnectProblem)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -138,6 +155,7 @@ class MainViewModel(
             unassignedWorkoutCount = extras.unassigned,
             syncError = extras.syncError,
             controls = extras.controls,
+            session = extras.session,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
 

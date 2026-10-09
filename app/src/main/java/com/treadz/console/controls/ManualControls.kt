@@ -71,11 +71,15 @@ data class ControlsState(
  * Everything is meant to be called from the main thread; [scope] must run on it.
  *
  * @param canOperate whether treadmill commands other than STOP are allowed (there is an active user).
+ * @param commands where the commands go: the controller, or the runner of the program / fitness test in progress.
+ * @param session what the program / fitness test in progress allows (STOP is always allowed).
  */
 class ManualControls(
     private val controller: TreadmillController,
     private val scope: CoroutineScope,
     private val canOperate: () -> Boolean = { true },
+    private val commands: TreadmillCommands = ControllerCommands(controller),
+    private val session: () -> SessionControls = { SessionControls() },
 ) {
 
     private data class Local(
@@ -156,13 +160,13 @@ class ManualControls(
     fun startRepeat(axis: ControlAxis, direction: Int) {
         repeatJob?.cancel()
         repeatJob = null
-        if (!canAdjustNow()) return
+        if (!canAdjustNow(axis)) return
         step(axis, direction) // the first step is immediate: a short tap is one step
         repeatJob = scope.launch {
             var interval = REPEAT_FIRST_INTERVAL_MILLIS
             var held = REPEAT_START_DELAY_MILLIS
             delay(REPEAT_START_DELAY_MILLIS)
-            while (held < REPEAT_MAX_MILLIS && canAdjustNow()) {
+            while (held < REPEAT_MAX_MILLIS && canAdjustNow(axis)) {
                 step(axis, direction)
                 delay(interval)
                 held += interval
@@ -177,13 +181,13 @@ class ManualControls(
     }
 
     private fun step(axis: ControlAxis, direction: Int) {
-        if (!canAdjustNow()) return
+        if (!canAdjustNow(axis)) return
         val base = local.value.pending(axis) ?: currentTarget(axis) ?: return
         setTarget(axis, base + direction * stepOf(axis))
     }
 
     private fun setTarget(axis: ControlAxis, requested: Double) {
-        if (!canAdjustNow()) return
+        if (!canAdjustNow(axis)) return
         val target = clamp(axis, requested)
         local.update { it.withPending(axis, target).copy(failure = null) }
         pump(axis)
@@ -194,7 +198,7 @@ class ManualControls(
         val s = local.value
         val target = s.pending(axis) ?: return
         if (s.inFlight(axis)) return
-        if (!canAdjustNow()) {
+        if (!canAdjustNow(axis)) {
             clearPending(axis)
             return
         }
@@ -207,8 +211,8 @@ class ManualControls(
         scope.launch {
             val result = try {
                 when (axis) {
-                    ControlAxis.Speed -> controller.setSpeed(target)
-                    ControlAxis.Incline -> controller.setIncline(target)
+                    ControlAxis.Speed -> commands.setSpeed(target)
+                    ControlAxis.Incline -> commands.setIncline(target)
                 }
             } catch (e: CancellationException) {
                 local.update { it.withInFlight(axis, false) }
@@ -262,15 +266,15 @@ class ManualControls(
 
     /** Pause with the belt running. */
     fun pause() {
-        if (!canOperateNow() || controller.state.value.status != BeltStatus.Running) return
-        launchBeltCommand(ControlAction.Pause) { controller.pause() }
+        if (!canOperateNow() || !session().pause || controller.state.value.status != BeltStatus.Running) return
+        launchBeltCommand(ControlAction.Pause) { commands.pause() }
     }
 
     /** Resume a pause. Only once the belt has stopped (the treadmill refuses before that). */
     fun resume() {
         val t = controller.state.value
         if (!canOperateNow() || t.status != BeltStatus.Paused || t.speedKmh > STOPPED_SPEED_KMH) return
-        launchBeltCommand(ControlAction.Resume) { controller.resume() }
+        launchBeltCommand(ControlAction.Resume) { commands.resume() }
     }
 
     private fun launchBeltCommand(action: ControlAction, command: suspend () -> CommandResult) {
@@ -296,7 +300,7 @@ class ManualControls(
         local.update { it.copy(stopInFlight = true, failure = null) }
         scope.launch {
             try {
-                controller.stop()
+                commands.stop()
             } finally {
                 local.update { it.copy(stopInFlight = false) }
             }
@@ -311,7 +315,8 @@ class ManualControls(
 
     private fun canOperateNow(): Boolean = canOperate() && connected() && !controller.state.value.isStale
 
-    private fun canAdjustNow(): Boolean = canOperateNow() && controller.state.value.status == BeltStatus.Running
+    private fun canAdjustNow(axis: ControlAxis): Boolean =
+        canOperateNow() && session().allows(axis) && controller.state.value.status == BeltStatus.Running
 
     private fun reportFailure(action: ControlAction, result: CommandResult) {
         // A stop that superseded the command is not an error.

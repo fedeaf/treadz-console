@@ -1,37 +1,30 @@
 package com.treadz.console
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.treadz.console.lifecycle.ForegroundReporter
 import com.treadz.console.sync.TreadZSync
-import com.treadz.console.treadmill.android.TreadZTreadmill
-import com.treadz.console.userdata.TreadZUserData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 class TreadZApplication : Application() {
-    val dependencies: AppDependencies by lazy { RealDependencies(this) }
-
-    /** Lives as long as the process: it hosts the workout history observer. */
+    /** Lives as long as the process: it hosts the workout history observer and the program and fitness test runners. */
     private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val dependencies: RealDependencies by lazy { RealDependencies(this, processScope) }
 
     override fun onCreate() {
         super.onCreate()
         // Records every treadmill session into the workout history, whatever screen is open. It only observes the
         // controller and is never stopped on disconnect.
-        TreadZUserData.get(this)
-            .workoutObserver(TreadZTreadmill.controller(this), onError = { Log.e(TAG, "Workout history error", it) })
-            .start(processScope)
+        dependencies.workoutObserver.start(processScope)
+        // The runners and the coordinator that stores fitness test results exist from the start, not with the first screen.
+        dependencies.training
         // Resumes the uploads that were pending when the process died and starts downloading changes whenever the app
         // comes to the foreground. Nothing touches the network until the user links a GitHub token.
         TreadZSync.get(this)
         // The backend needs to know whether the app is visible (no scanning or connecting in the background).
         ForegroundReporter(dependencies.appLifecycle).attachTo(ProcessLifecycleOwner.get())
-    }
-
-    private companion object {
-        const val TAG = "TreadZ"
     }
 }

@@ -240,4 +240,62 @@ class ProfileEditorViewModelTest {
         linked.value = false
         assertFalse(vm.uiState.value.syncLinked)
     }
+
+    // ---- Fitness block (milestone 5c) ----
+
+    private fun editorWithFitness(profileId: Long?) =
+        ProfileEditorViewModel(profileId, profiles, app.controller, app::today, fitnessTests = app.userData.fitnessTests)
+
+    private fun betoWithANewMaximalTest(): Long {
+        val (_, beto) = runBlocking { com.treadz.console.userdata.memory.DemoData.populate(app.userData, app.date) }
+        val started = app.date.atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        runBlocking {
+            app.userData.fitnessTests.save(
+                beto.id,
+                com.treadz.console.userdata.memory.DemoPrograms.maxTest(
+                    id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b41", startedAtMillis = started, peakBpm = 193, ageYears = 42,
+                    sex = com.treadz.console.programs.fitness.Sex.Male, weightKg = 90.0,
+                ),
+            )
+        }
+        return beto.id
+    }
+
+    @Test fun anExistingProfileShowsItsFitnessFigures() {
+        val (ana, _) = runBlocking { com.treadz.console.userdata.memory.DemoData.populate(app.userData, app.date) }
+        val fitness = checkNotNull(editorWithFitness(ana.id).uiState.value.fitness)
+        assertEquals(183, fitness.heartRateMax!!.bpm)
+        assertEquals(com.treadz.console.programs.fitness.HeartRateMaxOrigin.Measured, fitness.heartRateMax!!.origin)
+        assertTrue(fitness.profile!!.vo2max != null)
+    }
+
+    @Test fun theFitnessBlockIsNotLoadedWithoutTheRepositoryOrForANewProfile() {
+        assertNull(editor(null).uiState.value.fitness)
+        val id = app.userData.createProfile("Carla").id
+        assertNull(editor(id).uiState.value.fitness)
+    }
+
+    @Test fun usingTheMeasuredMaximumHeartRateClearsTheFieldToo() {
+        val betoId = betoWithANewMaximalTest()
+        val vm = editorWithFitness(betoId)
+        assertEquals("184", vm.uiState.value.form.maxHeartRate)
+        assertTrue(vm.uiState.value.fitness!!.heartRateMax!!.askUser)
+
+        vm.useMeasuredHeartRateMax()
+        assertEquals("", vm.uiState.value.form.maxHeartRate)
+        assertEquals(193, vm.uiState.value.fitness!!.heartRateMax!!.bpm)
+        assertFalse(vm.uiState.value.fitness!!.heartRateMax!!.askUser)
+        // Saving does not bring the old value back.
+        vm.save { }
+        assertNull(runBlocking { profiles.profile(betoId).first() }!!.maxHeartRateBpm)
+    }
+
+    @Test fun keepingTheManualMaximumHeartRateLeavesTheFieldAlone() {
+        val betoId = betoWithANewMaximalTest()
+        val vm = editorWithFitness(betoId)
+        vm.keepManualHeartRateMax()
+        assertEquals("184", vm.uiState.value.form.maxHeartRate)
+        assertFalse(vm.uiState.value.fitness!!.heartRateMax!!.askUser)
+        assertEquals(184, vm.uiState.value.fitness!!.heartRateMax!!.bpm)
+    }
 }

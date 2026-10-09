@@ -16,11 +16,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -36,6 +34,8 @@ import com.treadz.console.ui.BluetoothPermission
 import com.treadz.console.ui.MainActions
 import com.treadz.console.ui.PermissionsUi
 import com.treadz.console.ui.TreadZRoot
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity() {
 
@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle, dependencies.sync) as T
+                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle, dependencies.sync, dependencies.training) as T
         }
     }
 

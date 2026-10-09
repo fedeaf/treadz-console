@@ -3,6 +3,7 @@ package com.treadz.console.history
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.treadz.console.userdata.DataResult
+import com.treadz.console.userdata.FitnessTestRecord
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.WorkoutDetail
@@ -41,6 +42,8 @@ data class WorkoutDetailUiState(
     val choosingExport: Boolean = false,
     val exporting: Boolean = false,
     val exportNotice: ExportNotice? = null,
+    /** The fitness test result this workout was recorded for, when it still exists. */
+    val fitnessTest: FitnessTestRecord? = null,
 ) {
     /** A workout that has not ended cannot be exported yet. */
     val canExport: Boolean get() = detail != null && !detail.summary.isInProgress && !exporting
@@ -70,6 +73,7 @@ class WorkoutDetailViewModel(
     private suspend fun load() {
         val detail = userData.workouts.detail(workoutId)
         val users = userData.profiles.profiles.first()
+        val test = detail?.summary?.fitnessTestId?.let { userData.fitnessTests.get(it) }
         state.update {
             if (detail == null) {
                 it.copy(loading = false, notFound = true, detail = null)
@@ -80,6 +84,7 @@ class WorkoutDetailViewModel(
                     detail = detail,
                     owner = users.firstOrNull { u -> u.id == detail.summary.userId },
                     users = users,
+                    fitnessTest = test,
                 )
             }
         }

@@ -57,6 +57,9 @@ class NavigationViewModel(private val profiles: ProfileRepository) : ViewModel()
         state.value = listOf(screen)
     }
 
+    /** Opens the editor of a free program: `null` creates one. */
+    fun openProgramEditor(programId: String?) = push(Screen.ProgramEditor(programId, ++tokens))
+
     /** Opens the profile editor: `null` creates a profile. */
     fun openEditor(profileId: Long?) = push(Screen.ProfileEditor(profileId, ++tokens))
 

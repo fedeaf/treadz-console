@@ -47,6 +47,7 @@ data class MainActions(
     val onOpenUsers: () -> Unit = {},
     val onOpenWeight: () -> Unit = {},
     val onOpenHistory: () -> Unit = {},
+    val onOpenPrograms: () -> Unit = {},
     /** Opens the editor to personalise the generic profile. */
     val onPersonalize: () -> Unit = {},
     val controls: ControlActions = ControlActions(),

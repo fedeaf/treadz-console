@@ -162,6 +162,12 @@ private fun WorkoutCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
+                if (workout.programId != null) {
+                    Tag(programDisplayName(workout.programId, workout.programName), MaterialTheme.colorScheme.secondary, Modifier.testTag("program_tag_${workout.id}"))
+                }
+                if (workout.fitnessTestId != null) {
+                    Tag(stringResource(R.string.history_fitness_test), MaterialTheme.colorScheme.secondary, Modifier.testTag("test_tag_${workout.id}"))
+                }
                 if (pendingUpload) PendingUploadMark(Modifier.testTag("pending_upload_${workout.id}"))
                 if (workout.isInProgress) {
                     Tag(stringResource(R.string.history_in_progress), MaterialTheme.extra.ok, Modifier.testTag("in_progress_tag"))

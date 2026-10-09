@@ -23,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -39,6 +38,7 @@ import com.treadz.console.R
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionState
+import androidx.compose.ui.graphics.Color
 
 /** Sizes that change with the window size class. */
 data class LiveSizes(
@@ -63,6 +63,21 @@ data class LiveSizes(
     val stopHeight: Dp,
     val stopText: androidx.compose.ui.unit.TextUnit,
 )
+
+/** The sizes of the live screens: the big ones of the tablet in landscape, the smaller ones of the phone. */
+fun liveSizes(wide: Boolean): LiveSizes = if (wide) {
+    LiveSizes(
+        maxValue = 120.sp, unit = 30.sp, startHeight = 112.dp, startText = 56.sp, gap = 16.dp, unitInline = true,
+        wide = true, stepButton = 108.dp, stepRowHeight = 112.dp, stepValue = 120.sp, presetHeight = 64.dp,
+        pauseHeight = 88.dp, pauseText = 40.sp, stopHeight = 128.dp, stopText = 88.sp,
+    )
+} else {
+    LiveSizes(
+        maxValue = 52.sp, unit = 22.sp, startHeight = 88.dp, startText = 34.sp, gap = 12.dp, unitInline = false,
+        wide = false, stepButton = 72.dp, stepRowHeight = 100.dp, stepValue = 60.sp, presetHeight = 52.dp,
+        pauseHeight = 64.dp, pauseText = 26.sp, stopHeight = 92.dp, stopText = 52.sp,
+    )
+}
 
 @Composable
 fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSizes, modifier: Modifier = Modifier) {
@@ -367,6 +382,11 @@ private fun StartSection(
                 )
             }
         }
+        BigOutlinedButton(
+            stringResource(R.string.main_programs),
+            actions.onOpenPrograms,
+            Modifier.fillMaxWidth().testTag("programs_button"),
+        )
         val failure = ui.startFailure
         if (failure != null) {
             Text(

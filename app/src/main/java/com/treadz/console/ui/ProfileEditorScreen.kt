@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
+import com.treadz.console.programs.fitness.HeartRateMaxOrigin
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.InputField
@@ -53,6 +54,8 @@ data class ProfileEditorActions(
     val onDelete: () -> Unit = {},
     val onConfirmDelete: () -> Unit = {},
     val onCancelDelete: () -> Unit = {},
+    val onUseMeasuredHeartRateMax: () -> Unit = {},
+    val onKeepManualHeartRateMax: () -> Unit = {},
 )
 
 @Composable
@@ -202,11 +205,19 @@ private fun TrainingFields(state: ProfileEditorUiState, actions: ProfileEditorAc
         keyboardType = KeyboardType.Number,
         supporting = when {
             form.maxHeartRate.isNotBlank() -> null
+            state.fitness?.heartRateMax?.origin == HeartRateMaxOrigin.Measured ->
+                stringResource(R.string.hint_max_hr_measured, state.fitness.heartRateMax.bpm)
             estimated != null -> stringResource(R.string.hint_max_hr_estimated, estimated)
             else -> stringResource(R.string.hint_max_hr_needs_birth)
         },
         supportingTag = "max_hr_estimate",
     )
+    if (state.mode == EditorMode.Edit) {
+        state.fitness?.let { fitness ->
+            HeartRateMaxQuestion(fitness.heartRateMax, actions.onUseMeasuredHeartRateMax, actions.onKeepManualHeartRateMax)
+            FitnessSummaryPanel(fitness.profile, fitness.heartRateMax, Modifier.testTag("profile_fitness"))
+        }
+    }
     Choice(label = stringResource(R.string.field_fitness)) {
         BigChip(stringResource(R.string.option_not_set), selected = form.fitnessLevel == null, onClick = { actions.onFitnessLevel(null) }, tag = "fitness_none")
         FitnessLevel.entries.forEach { level ->

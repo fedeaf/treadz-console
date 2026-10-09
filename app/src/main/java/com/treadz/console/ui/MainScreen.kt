@@ -39,19 +39,7 @@ fun MainScreen(ui: MainUiState, permissions: PermissionsUi, actions: MainActions
     val layout = LocalLayout.current
     val compact = layout.compact
     val wide = layout.wide
-    val sizes = if (wide) {
-        LiveSizes(
-            maxValue = 120.sp, unit = 30.sp, startHeight = 112.dp, startText = 56.sp, gap = 16.dp, unitInline = true,
-            wide = true, stepButton = 108.dp, stepRowHeight = 112.dp, stepValue = 120.sp, presetHeight = 64.dp,
-            pauseHeight = 88.dp, pauseText = 40.sp, stopHeight = 128.dp, stopText = 88.sp,
-        )
-    } else {
-        LiveSizes(
-            maxValue = 52.sp, unit = 22.sp, startHeight = 88.dp, startText = 34.sp, gap = 12.dp, unitInline = false,
-            wide = false, stepButton = 72.dp, stepRowHeight = 100.dp, stepValue = 60.sp, presetHeight = 52.dp,
-            pauseHeight = 64.dp, pauseText = 26.sp, stopHeight = 92.dp, stopText = 52.sp,
-        )
-    }
+    val sizes = liveSizes(wide)
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TopBar(ui, actions, compact = compact)

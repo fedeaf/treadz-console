@@ -2,6 +2,7 @@ package com.treadz.console
 
 import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
+import com.treadz.console.controls.SessionControls
 import com.treadz.console.sync.SyncError
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
@@ -49,6 +50,8 @@ data class MainUiState(
     val syncError: SyncError? = null,
     /** Pending targets, commands in flight and the last failure of the manual controls. */
     val controls: ControlsState = ControlsState(),
+    /** What a program or fitness test in progress allows the manual controls to do. */
+    val session: SessionControls = SessionControls(),
 ) {
     val isConnected: Boolean get() = connection is ConnectionState.Connected
 
@@ -111,7 +114,12 @@ data class MainUiState(
     /** Speed and incline controls: only with the belt running. */
     val canAdjust: Boolean get() = canOperate && treadmill.status == BeltStatus.Running
 
-    val canPause: Boolean get() = canOperate && treadmill.status == BeltStatus.Running && !controls.pauseInFlight
+    /** The speed controls: also locked by an interrupted program or a fitness test (see [session]). */
+    val canAdjustSpeed: Boolean get() = canAdjust && session.speed
+
+    val canAdjustIncline: Boolean get() = canAdjust && session.incline
+
+    val canPause: Boolean get() = canOperate && treadmill.status == BeltStatus.Running && !controls.pauseInFlight && session.pause
 
     /** Resume only once the belt has stopped: the treadmill refuses before that. */
     val canResume: Boolean

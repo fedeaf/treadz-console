@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,11 +23,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,10 +49,15 @@ import androidx.compose.ui.unit.sp
 import com.treadz.console.MainUiState
 import com.treadz.console.R
 import com.treadz.console.controls.ControlAction
+import com.treadz.console.controls.ControlsNote
+import com.treadz.console.controls.SessionKind
 import com.treadz.console.controls.ControlFailure
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.treadmill.CommandResult
 import kotlin.math.abs
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 // ---------------------------------------------------------------------------------------------------------------
 // Speed and incline
@@ -249,7 +251,7 @@ fun SpeedPanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, modif
     val target = ui.targetSpeed?.takeIf { abs(it - t.speedKmh) >= TARGET_VISIBLE_DIFFERENCE }
     val failure = ui.controls.failure?.takeIf { it.action == ControlAction.Speed }
     val range = ui.controls.speedRange
-    val enabled = ui.canAdjust
+    val enabled = ui.canAdjustSpeed
     AdjustPanel(
         label = stringResource(R.string.metric_speed),
         unit = stringResource(R.string.unit_speed),
@@ -277,7 +279,7 @@ fun SpeedPanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, modif
                 PresetButton(
                     text = if (clamped % 1.0 == 0.0) clamped.toInt().toString() else Format.speed(clamped),
                     description = stringResource(R.string.control_speed_preset, Format.speed(clamped)),
-                    selected = ui.canAdjust && abs(shown - clamped) < TARGET_VISIBLE_DIFFERENCE,
+                    selected = enabled && abs(shown - clamped) < TARGET_VISIBLE_DIFFERENCE,
                     enabled = enabled,
                     height = sizes.presetHeight,
                     tag = "speed_preset_${preset.toInt()}",
@@ -295,7 +297,7 @@ fun InclinePanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, mod
     val t = ui.treadmill
     val target = ui.targetIncline?.takeIf { abs(it - t.inclinePercent) >= TARGET_VISIBLE_DIFFERENCE }
     val failure = ui.controls.failure?.takeIf { it.action == ControlAction.Incline }
-    val enabled = ui.canAdjust
+    val enabled = ui.canAdjustIncline
     val range = ui.controls.inclineRange
     AdjustPanel(
         label = stringResource(R.string.metric_incline),
@@ -324,7 +326,7 @@ fun InclinePanel(ui: MainUiState, actions: ControlActions, sizes: LiveSizes, mod
                 PresetButton(
                     text = Format.incline(clamped),
                     description = stringResource(R.string.control_incline_preset, Format.incline(clamped)),
-                    selected = ui.canAdjust && abs(shown - clamped) < TARGET_VISIBLE_DIFFERENCE,
+                    selected = enabled && abs(shown - clamped) < TARGET_VISIBLE_DIFFERENCE,
                     enabled = enabled,
                     height = sizes.presetHeight,
                     tag = "incline_preset_${preset.toInt()}",
@@ -519,6 +521,9 @@ fun controlHint(ui: MainUiState): Pair<String, Boolean>? {
     return when {
         failure != null -> failureMessage(failure) to true
         ui.activeUser == null && ui.isConnected -> stringResource(R.string.control_hint_no_user) to false
+        ui.session.note == ControlsNote.ProgramInterrupted -> stringResource(R.string.control_hint_program_interrupted) to false
+        ui.session.note == ControlsNote.TestSpeedOnly -> stringResource(R.string.control_hint_test_speed_only) to false
+        ui.session.note == ControlsNote.TestLocked -> stringResource(R.string.control_hint_test_locked) to false
         ui.resumeWaitsForBelt -> stringResource(R.string.control_resume_waiting) to false
         else -> null
     }
@@ -619,12 +624,12 @@ fun SessionBar(ui: MainUiState, actions: ControlActions, modifier: Modifier = Mo
             if (compact) {
                 Column(Modifier.weight(1f)) {
                     SessionSpeed(ui)
-                    BackToMainButton(actions.onBackToMain)
+                    BackToMainButton(ui.session.kind, actions.onBackToMain)
                 }
                 SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(1.3f) else Modifier.width(132.dp).height(80.dp))
             } else {
                 SessionSpeed(ui)
-                BackToMainButton(actions.onBackToMain)
+                BackToMainButton(ui.session.kind, actions.onBackToMain)
                 Box(Modifier.weight(1f))
                 SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(2f) else Modifier.width(220.dp).height(80.dp))
             }
@@ -644,10 +649,16 @@ private fun SessionSpeed(ui: MainUiState) {
 }
 
 @Composable
-private fun BackToMainButton(onClick: () -> Unit) {
+private fun BackToMainButton(kind: SessionKind, onClick: () -> Unit) {
     androidx.compose.material3.TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp).testTag("session_back_button")) {
         Text(
-            "← " + stringResource(R.string.session_bar_main),
+            "← " + stringResource(
+                when (kind) {
+                    SessionKind.None -> R.string.session_bar_main
+                    SessionKind.Program -> R.string.session_bar_program
+                    SessionKind.FitnessTest -> R.string.session_bar_test
+                },
+            ),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,

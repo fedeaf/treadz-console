@@ -29,6 +29,7 @@ import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.export.ExportError
 import com.treadz.console.userdata.export.ExportFormat
 import com.treadz.console.userdata.export.SavedExport
+import com.treadz.console.training.segments
 
 data class WorkoutDetailActions(
     val onBack: () -> Unit = {},
@@ -44,6 +45,8 @@ data class WorkoutDetailActions(
     val onDismissExportNotice: () -> Unit = {},
     /** Opens the share sheet again for the file that was already saved. */
     val onShareExport: (SavedExport) -> Unit = {},
+    /** Opens the stored result of the fitness test this workout was recorded for. */
+    val onOpenTest: (String) -> Unit = {},
 )
 
 private const val MAX_CHART_POINTS = 400
@@ -73,7 +76,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (state.owner == null) UnassignedBanner(actions)
-                    Summary(detail)
+                    Summary(detail, state, actions)
                     ExportSection(state, actions)
                     DeleteWorkoutButton(actions)
                 }
@@ -84,7 +87,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (state.owner == null) UnassignedBanner(actions)
-                Summary(detail)
+                Summary(detail, state, actions)
                 ExportSection(state, actions)
                 Charts(detail, Modifier.fillMaxWidth())
                 DeleteWorkoutButton(actions)
@@ -190,17 +193,27 @@ private fun FormatOption(name: String, hint: String, tag: String, onClick: () ->
 }
 
 @Composable
-private fun Summary(detail: WorkoutDetail) {
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+private fun Summary(detail: WorkoutDetail, state: WorkoutDetailUiState, actions: WorkoutDetailActions) {
     val locale = currentLocale()
     val summary = detail.summary
     val stats = summary.stats
     val hrUnit = stringResource(R.string.unit_heart_rate)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically) {
         if (summary.isInProgress) {
             Tag(stringResource(R.string.history_in_progress), MaterialTheme.extra.ok, Modifier.testTag("in_progress_tag"))
         } else {
             summary.endReason?.let { Tag(it.label(), MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        if (summary.programId != null) {
+            Tag(programDisplayName(summary.programId, summary.programName), MaterialTheme.colorScheme.secondary, Modifier.testTag("detail_program_tag"))
+        }
+        if (summary.fitnessTestId != null) {
+            Tag(stringResource(R.string.history_fitness_test), MaterialTheme.colorScheme.secondary, Modifier.testTag("detail_test_tag"))
+        }
+    }
+    state.fitnessTest?.let { test ->
+        RowButton(stringResource(R.string.detail_view_test), { actions.onOpenTest(test.id) }, Modifier.testTag("view_test_button"))
     }
     if (summary.isInProgress) {
         Text(stringResource(R.string.detail_in_progress_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -261,6 +274,7 @@ private fun Charts(detail: WorkoutDetail, modifier: Modifier) {
         samples.mapNotNull { s -> value(s)?.let { ChartPoint((s.timestampMillis - start) / 1000.0, it) } }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        detail.plan?.let { plan -> PlannedVersusActual(plan, samples, if (layout.wide) Modifier.weight(1.4f) else Modifier.height(240.dp)) }
         chart(speedText, "chart_speed", MaterialTheme.colorScheme.primary, series { it.speedKmh }, { Format.speed(it, locale) }, 0.0, stringResource(R.string.chart_empty))
         chart(inclineText, "chart_incline", MaterialTheme.colorScheme.secondary, series { it.inclinePercent }, { Format.incline(it, locale) }, 0.0, stringResource(R.string.chart_empty))
         chart(
@@ -285,6 +299,25 @@ private fun UnassignedBanner(actions: WorkoutDetailActions) {
                 style = MaterialTheme.typography.bodyMedium,
             )
             RowButton(stringResource(R.string.workout_assign_short), actions.onAssign, Modifier.testTag("assign_banner_button"))
+        }
+    }
+}
+
+/** What the program asked for (speed and incline) against what the treadmill did, on the program's own clock. */
+@Composable
+private fun PlannedVersusActual(plan: com.treadz.console.programs.plan.ResolvedPlan, samples: List<WorkoutSample>, modifier: Modifier) {
+    val segments = androidx.compose.runtime.remember(plan) { plan.segments() }
+    val speed = androidx.compose.runtime.remember(samples) { runningSeries(samples) { it.speedKmh } }
+    val incline = androidx.compose.runtime.remember(samples) { runningSeries(samples) { it.inclinePercent } }
+    val title = stringResource(R.string.detail_plan_chart, programDisplayName(plan.source.programId, plan.source.programName))
+    Panel(modifier.fillMaxWidth().testTag("chart_plan")) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            PlanChart(
+                segments = segments, description = title, modifier = Modifier.weight(1f).fillMaxWidth(),
+                actualSpeed = ChartMath.downsample(speed, MAX_CHART_POINTS), actualIncline = ChartMath.downsample(incline, MAX_CHART_POINTS),
+            )
+            PlanLegend(stringResource(R.string.detail_plan_speed), stringResource(R.string.detail_plan_incline), actualLabel = stringResource(R.string.detail_plan_actual))
         }
     }
 }

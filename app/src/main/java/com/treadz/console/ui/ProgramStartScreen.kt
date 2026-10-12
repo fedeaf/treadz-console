@@ -183,7 +183,6 @@ private fun adjustmentText(percent: Int): String = when {
 @Composable
 private fun PlanPreview(state: ProgramStartUiState, onSaveAsFree: (String) -> Unit, modifier: Modifier, fill: Boolean) {
     val plan = state.plan
-    val locale = currentLocale()
     Panel(modifier.testTag("plan_preview")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SectionLabel(stringResource(R.string.start_preview))
@@ -196,7 +195,7 @@ private fun PlanPreview(state: ProgramStartUiState, onSaveAsFree: (String) -> Un
             )
             PlanLegend(stringResource(R.string.chart_speed), stringResource(R.string.chart_incline))
             if (plan != null) {
-                PlanTotals(plan, locale)
+                PlanTotals(plan)
                 PlanWarnings(plan.warnings)
                 val copyName = stringResource(R.string.program_copy_name, programDisplayName(state.programId, state.name))
                 RowButton(stringResource(R.string.start_save_as_free), { onSaveAsFree(copyName) }, Modifier.testTag("save_as_free_button"), enabled = !state.savingCopy)
@@ -207,10 +206,10 @@ private fun PlanPreview(state: ProgramStartUiState, onSaveAsFree: (String) -> Un
 }
 
 @Composable
-internal fun PlanTotals(plan: ResolvedPlan, locale: java.util.Locale) {
+internal fun PlanTotals(plan: ResolvedPlan) {
     Row(Modifier.fillMaxWidth().testTag("plan_totals"), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        Total(stringResource(R.string.stat_duration), Format.duration(plan.estimatedDurationSeconds, locale))
-        Total(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(plan.estimatedDistanceMeters, locale)))
+        Total(stringResource(R.string.stat_duration), Format.duration(plan.estimatedDurationSeconds))
+        Total(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(plan.estimatedDistanceMeters)))
         Total(stringResource(R.string.start_blocks), plan.blocks.size.toString())
     }
 }

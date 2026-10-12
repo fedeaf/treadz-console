@@ -707,7 +707,7 @@
     <string name="result_mas_short">MAS %1$s km/h</string>
     <string name="result_mas_lower_bound">At least this: you reached the top speed allowed.</string>
     <string name="result_peak_hr">Peak heart rate</string>
-    <string name="result_measured_hrmax">Measured maximum heart rate</string>
+    <string name="result_peak_is_measured_hrmax">Counts as your measured maximum heart rate.</string>
     <string name="result_effort">Effort</string>
     <string name="result_test_speed">Test speed</string>
     <string name="result_steady_hr">Steady heart rate</string>

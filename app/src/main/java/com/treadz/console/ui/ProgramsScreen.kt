@@ -144,12 +144,11 @@ private fun ProgramCard(card: ProgramCardState, actions: ProgramsActions) {
 
 @Composable
 private fun meta(card: ProgramCardState): String {
-    val locale = currentLocale()
     val min = card.minDurationSeconds
     val max = card.maxDurationSeconds
     return if (min != null && max != null) {
         stringResource(R.string.program_meta_standard, min / 60, max / 60, card.durationSeconds / 60)
     } else {
-        stringResource(R.string.program_meta_free, Format.duration(card.durationSeconds, locale), Format.distanceKm(card.distanceMeters, locale))
+        stringResource(R.string.program_meta_free, Format.duration(card.durationSeconds), Format.distanceKm(card.distanceMeters))
     }
 }

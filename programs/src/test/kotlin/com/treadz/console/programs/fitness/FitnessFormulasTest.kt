@@ -193,6 +193,16 @@ class FitnessFormulasTest {
         assertNull(FitnessProfileCalculator.compute(listOf(maxTest("c", 5, 12.0, EffortAssessment.NotMaximal)), now).hrMax)
     }
 
+    @Test
+    fun `a measured maximum far below the age estimate is not adopted`() {
+        val age = sampleResult(FitnessTestType.MaxIncrementalRun).inputs.ageYears
+        val floor = FitnessFormulas.tanakaHrMax(age) - 25
+        assertNull(FitnessProfileCalculator.compute(listOf(maxTest("low", 1, 12.0, peak = floor - 1)), now).hrMax)
+        assertEquals(floor, FitnessProfileCalculator.compute(listOf(maxTest("ok", 1, 12.0, peak = floor)), now).hrMax?.measuredBpm)
+        // The result still counts for VO2max and MAS.
+        assertEquals(12.0, FitnessProfileCalculator.compute(listOf(maxTest("low", 1, 12.0, peak = floor - 1)), now).mas?.valueKmh)
+    }
+
     // ------------------------------------------------------------------ JSON
 
     @Test

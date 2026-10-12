@@ -57,7 +57,12 @@ data class TreadmillState(
      * (showing the belt as stopped could be false), and the UI should present them as stale.
      */
     val isStale: Boolean = false,
-)
+) {
+    companion object {
+        /** Below this speed (km/h) the belt counts as stopped: the data resolution is 0.01 km/h and moving is ≥ 0.1. */
+        const val STOPPED_SPEED_KMH = 0.05
+    }
+}
 
 data class ValueRange(val min: Double, val max: Double, val step: Double)
 

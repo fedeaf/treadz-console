@@ -173,7 +173,7 @@ class MaxTestScenariosTest {
     }
 
     @Test
-    fun `a heart-rate plateau with confirmed exhaustion is a maximal effort even far below the estimated maximum`() = runTest {
+    fun `a heart-rate plateau with confirmed exhaustion is a maximal effort even far below the estimated maximum, but not adopted as HRmax`() = runTest {
         val rig = started(plateauModel(cap = 130)) // the cap is reached at 12 km/h
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(11 * 60_000L + 20_000) // 11 completed stages (8 ... 13), 20 s into the 13.5 km/h stage
@@ -195,9 +195,11 @@ class MaxTestScenariosTest {
         assertEquals(300, r.coolDownSeconds, "button exhaustion still has the recovery walk")
         assertEquals(r, FitnessTestJson.decode(FitnessTestJson.encode(r)))
 
-        // The measured maximum is adopted by the fitness profile.
+        // 130 is more than 25 bpm below the Tanaka estimate for 35 (184): the profile does not adopt it, but the result
+        // still counts for VO2max and MAS.
         val profile = FitnessProfileCalculator.compute(listOf(r), r.endedAtMillis, 35, Sex.Male)
-        assertEquals(HrMaxEstimate(130, r.id, r.startedAtMillis), profile.hrMax)
+        assertNull(profile.hrMax)
+        assertEquals(o.masKmh, profile.mas?.valueKmh)
     }
 
     @Test

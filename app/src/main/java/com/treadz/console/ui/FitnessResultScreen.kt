@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
 import com.treadz.console.programs.fitness.EbbelingMeasurements
+import com.treadz.console.programs.fitness.EffortAssessment
+import com.treadz.console.programs.fitness.FitnessProfileCalculator
 import com.treadz.console.programs.fitness.FitnessTestFlag
 import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.FitnessTestType
@@ -190,7 +192,6 @@ private fun com.treadz.console.programs.fitness.Sex.label(): String = stringReso
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Figures(result: FitnessTestResult) {
-    val locale = currentLocale()
     val outputs = result.outputs
     val max = result.measurements as? MaxTestMeasurements
     val ebbeling = result.measurements as? EbbelingMeasurements
@@ -198,32 +199,34 @@ private fun Figures(result: FitnessTestResult) {
         val tile = Modifier.weight(1f)
         outputs?.masKmh?.let {
             StatTile(
-                stringResource(R.string.result_mas), (if (outputs.masIsLowerBound) "≥ " else "") + Format.speed(it, locale), tile, unit = stringResource(R.string.unit_speed),
+                stringResource(R.string.result_mas), (if (outputs.masIsLowerBound) "≥ " else "") + Format.speed(it), tile, unit = stringResource(R.string.unit_speed),
                 note = if (outputs.masIsLowerBound) stringResource(R.string.result_mas_lower_bound) else null, valueTag = "result_mas",
             )
         }
         if (result.testType == FitnessTestType.MaxIncrementalRun) {
             val peak = max?.peakHeartRateBpm
+            // One tile: the peak is also the measured maximum when the effort was maximal and the value plausible.
+            val candidate = outputs?.hrMaxCandidateBpm
+            val countsAsMaximum = candidate != null && outputs.effort == EffortAssessment.Maximal &&
+                FitnessProfileCalculator.isAdoptableHrMax(candidate, result.inputs.ageYears)
             StatTile(
-                stringResource(R.string.result_peak_hr), peak?.let { Format.whole(it.toInt(), locale) } ?: Format.NO_VALUE, tile,
+                stringResource(R.string.result_peak_hr), peak?.let { Format.whole(it.toInt()) } ?: Format.NO_VALUE, tile,
                 unit = if (peak != null) stringResource(R.string.unit_heart_rate) else null, valueTag = "result_peak_hr",
+                note = if (countsAsMaximum) stringResource(R.string.result_peak_is_measured_hrmax) else null,
             )
-            outputs?.hrMaxCandidateBpm?.let {
-                StatTile(stringResource(R.string.result_measured_hrmax), Format.whole(it, locale), tile, unit = stringResource(R.string.unit_heart_rate), valueTag = "result_measured_hrmax")
-            }
             outputs?.effort?.let {
                 StatTile(stringResource(R.string.result_effort), it.label(), tile, valueTag = "result_effort")
             }
         }
         ebbeling?.let { m ->
-            m.testSpeedKmh?.let { StatTile(stringResource(R.string.result_test_speed), Format.speed(it, locale), tile, unit = stringResource(R.string.unit_speed)) }
-            m.steadyStateHeartRateBpm?.let { StatTile(stringResource(R.string.result_steady_hr), Format.whole(it.toInt(), locale), tile, unit = stringResource(R.string.unit_heart_rate)) }
+            m.testSpeedKmh?.let { StatTile(stringResource(R.string.result_test_speed), Format.speed(it), tile, unit = stringResource(R.string.unit_speed)) }
+            m.steadyStateHeartRateBpm?.let { StatTile(stringResource(R.string.result_steady_hr), Format.whole(it.toInt()), tile, unit = stringResource(R.string.unit_heart_rate)) }
         }
-        StatTile(stringResource(R.string.result_effort_time), Format.duration(result.effortSeconds, locale), tile)
+        StatTile(stringResource(R.string.result_effort_time), Format.duration(result.effortSeconds), tile)
         StatTile(
             stringResource(R.string.result_subject),
             stringResource(R.string.result_subject_value, result.inputs.ageYears), tile,
-            note = stringResource(R.string.value_kg, Format.weight(result.inputs.weightKg, locale)),
+            note = stringResource(R.string.value_kg, Format.weight(result.inputs.weightKg)),
         )
     }
 }
@@ -235,11 +238,11 @@ private fun Comparison(c: FitnessComparison) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             SectionLabel(stringResource(R.string.result_comparison_title))
             Text(
-                stringResource(R.string.result_comparison_vo2, signed(c.vo2maxDelta, locale), Format.weight(c.previousVo2max, locale), Format.date(java.time.Instant.ofEpochMilli(c.previousStartedAtMillis).atZone(java.time.ZoneId.systemDefault()).toLocalDate(), locale)),
+                stringResource(R.string.result_comparison_vo2, signed(c.vo2maxDelta), Format.weight(c.previousVo2max), Format.date(java.time.Instant.ofEpochMilli(c.previousStartedAtMillis).atZone(java.time.ZoneId.systemDefault()).toLocalDate(), locale)),
                 Modifier.testTag("comparison_vo2"),
                 style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
             )
-            c.masDelta?.let { Text(stringResource(R.string.result_comparison_mas, signed(it, locale)), style = MaterialTheme.typography.bodyLarge) }
+            c.masDelta?.let { Text(stringResource(R.string.result_comparison_mas, signed(it)), style = MaterialTheme.typography.bodyLarge) }
             if (c.withinMeasurementError) {
                 Text(stringResource(R.string.result_comparison_within_error), Modifier.testTag("comparison_within_error"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -247,7 +250,7 @@ private fun Comparison(c: FitnessComparison) {
     }
 }
 
-private fun signed(value: Double, locale: java.util.Locale): String = String.format(locale, "%+.1f", value)
+private fun signed(value: Double): String = Format.number("%+.1f", value)
 
 @Composable
 private fun WhatHappened(result: FitnessTestResult) {
@@ -282,13 +285,12 @@ private fun FlagRow(flag: FitnessTestFlag) {
 private fun MinutesChart(result: FitnessTestResult) {
     val points = result.minutes.mapNotNull { m -> m.heartRateBpm?.let { ChartPoint(m.endSecond.toDouble(), it) } }
     if (points.size < 2) return
-    val locale = currentLocale()
     Panel(Modifier.fillMaxWidth().height(200.dp).testTag("result_chart")) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             Text(stringResource(R.string.result_hr_chart), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LineChart(
                 points = points, color = MaterialTheme.colorScheme.error,
-                yLabel = { Format.whole(it.toInt(), locale) }, xLabel = { Format.duration(it.toInt(), locale) },
+                yLabel = { Format.whole(it.toInt()) }, xLabel = { Format.duration(it.toInt()) },
                 description = stringResource(R.string.result_hr_chart), modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), showDots = true,
             )
         }

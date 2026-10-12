@@ -16,6 +16,8 @@ data class EbbelingParameters(
     val subject: FitnessSubject,
     /** Walking speed of stage 1 (the UI suggests the last test's speed). Clamped to 3.2-7.2 km/h and the limits. */
     val startSpeedKmh: Double = 4.8,
+    /** Id of the result, when the caller needs it before the test starts (e.g. to link the workout); else a new one. */
+    val resultId: String? = null,
 )
 
 /** Start parameters of the maximal incremental test. */
@@ -23,6 +25,8 @@ data class MaxTestParameters(
     val subject: FitnessSubject,
     /** Speed of the first incremental stage. Clamped to 6-10 km/h and to the speed cap. */
     val startSpeedKmh: Double = 8.0,
+    /** Id of the result, when the caller needs it before the test starts (e.g. to link the workout); else a new one. */
+    val resultId: String? = null,
 )
 
 /** What the user should be doing now: a stable code the UI turns into a short instruction. */

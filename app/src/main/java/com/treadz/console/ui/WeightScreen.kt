@@ -92,7 +92,7 @@ fun WeightScreen(state: WeightUiState, today: LocalDate, actions: WeightActions,
         val entry = state.entries.firstOrNull { it.id == id }
         ConfirmDialog(
             title = stringResource(R.string.weight_delete_title),
-            text = entry?.let { stringResource(R.string.weight_delete_body, Format.date(it.date, currentLocale()), Format.weight(it.weightKg, currentLocale())) }.orEmpty(),
+            text = entry?.let { stringResource(R.string.weight_delete_body, Format.date(it.date, currentLocale()), Format.weight(it.weightKg)) }.orEmpty(),
             confirmText = stringResource(R.string.action_delete),
             onConfirm = actions.onConfirmDelete,
             onDismiss = actions.onCancelDelete,
@@ -108,7 +108,7 @@ private fun Summary(state: WeightUiState, actions: WeightActions) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatTile(
             label = stringResource(R.string.weight_current),
-            value = current?.let { Format.weight(it.weightKg, locale) } ?: Format.NO_VALUE,
+            value = current?.let { Format.weight(it.weightKg) } ?: Format.NO_VALUE,
             unit = stringResource(R.string.unit_kg),
             note = if (current?.isPlaceholder == true) stringResource(R.string.weight_placeholder_tag) else current?.let { Format.date(it.date, locale) },
             valueTag = "current_weight",
@@ -116,14 +116,14 @@ private fun Summary(state: WeightUiState, actions: WeightActions) {
         )
         StatTile(
             label = stringResource(R.string.weight_target),
-            value = target?.let { Format.weight(it, locale) } ?: Format.NO_VALUE,
+            value = target?.let { Format.weight(it) } ?: Format.NO_VALUE,
             unit = if (target != null) stringResource(R.string.unit_kg) else null,
             note = when {
                 target == null -> stringResource(R.string.weight_target_none)
                 current == null || current.isPlaceholder -> null
                 abs(current.weightKg - target) < 0.05 -> stringResource(R.string.weight_target_reached)
-                current.weightKg > target -> stringResource(R.string.weight_above_target, Format.weight(current.weightKg - target, locale))
-                else -> stringResource(R.string.weight_below_target, Format.weight(target - current.weightKg, locale))
+                current.weightKg > target -> stringResource(R.string.weight_above_target, Format.weight(current.weightKg - target))
+                else -> stringResource(R.string.weight_below_target, Format.weight(target - current.weightKg))
             },
             valueTag = "target_weight",
             modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -142,7 +142,7 @@ private fun PlaceholderBanner(state: WeightUiState, actions: WeightActions) {
     Panel(Modifier.fillMaxWidth().testTag("placeholder_banner"), color = MaterialTheme.colorScheme.surfaceContainerHigh, borderColor = MaterialTheme.extra.warning) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.weight_placeholder_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.extra.warning)
-            Text(stringResource(R.string.weight_placeholder_body, Format.weight(kg, currentLocale())), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.weight_placeholder_body, Format.weight(kg)), style = MaterialTheme.typography.bodyMedium)
             state.current?.let { entry ->
                 RowButton(stringResource(R.string.weight_enter_real), { actions.onEdit(entry) }, Modifier.testTag("enter_real_weight_button"))
             }
@@ -156,13 +156,13 @@ private fun WeightChartPanel(state: WeightUiState, modifier: Modifier) {
     val points = state.entries.map { ChartPoint(it.date.toEpochDay().toDouble(), it.weightKg, hollow = it.isPlaceholder) }
     val spanDays = if (points.size >= 2) points.last().x - points.first().x else 0.0
     val reference = state.targetKg?.let {
-        ReferenceLine(it, stringResource(R.string.weight_chart_target, Format.weight(it, locale)), MaterialTheme.extra.warning)
+        ReferenceLine(it, stringResource(R.string.weight_chart_target, Format.weight(it)), MaterialTheme.extra.warning)
     }
     Panel(modifier.testTag("weight_chart")) {
         LineChart(
             points = points,
             color = MaterialTheme.colorScheme.primary,
-            yLabel = { Format.weight(it, locale) },
+            yLabel = { Format.weight(it) },
             xLabel = { Format.axisDate(LocalDate.ofEpochDay(it.roundToLong()), withYear = spanDays > 300, locale = locale) },
             description = stringResource(R.string.weight_chart_description),
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 12.dp),
@@ -204,7 +204,7 @@ private fun EntryRow(entry: WeightEntry, actions: WeightActions) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "${Format.weight(entry.weightKg, locale)} ${stringResource(R.string.unit_kg)}",
+                    "${Format.weight(entry.weightKg)} ${stringResource(R.string.unit_kg)}",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = if (placeholder) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,

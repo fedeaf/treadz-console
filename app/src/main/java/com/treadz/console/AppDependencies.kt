@@ -9,7 +9,6 @@ import com.treadz.console.settings.SettingsStore
 import com.treadz.console.settings.SharedPreferencesSettingsStore
 import com.treadz.console.sync.TreadZSync
 import com.treadz.console.sync.service.SyncService
-import com.treadz.console.training.FitnessTestIds
 import com.treadz.console.training.ObserverSessionLinks
 import com.treadz.console.training.TrainingCoordinator
 import com.treadz.console.programs.engine.ProgramRunner
@@ -74,12 +73,10 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
     }
 
     override val training: TrainingCoordinator by lazy {
-        val ids = FitnessTestIds()
         TrainingCoordinator(
             controller = controller,
             programRunner = ProgramRunner(controller, scope),
-            fitnessRunner = FitnessTestRunner(controller, scope, idFactory = ids::next),
-            testIds = ids,
+            fitnessRunner = FitnessTestRunner(controller, scope),
             links = ObserverSessionLinks(workoutObserver),
             userData = userData,
             scope = scope,

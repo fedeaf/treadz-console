@@ -195,7 +195,6 @@ private fun FormatOption(name: String, hint: String, tag: String, onClick: () ->
 @Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun Summary(detail: WorkoutDetail, state: WorkoutDetailUiState, actions: WorkoutDetailActions) {
-    val locale = currentLocale()
     val summary = detail.summary
     val stats = summary.stats
     val hrUnit = stringResource(R.string.unit_heart_rate)
@@ -219,20 +218,20 @@ private fun Summary(detail: WorkoutDetail, state: WorkoutDetailUiState, actions:
         Text(stringResource(R.string.detail_in_progress_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatTile(stringResource(R.string.stat_duration), Format.duration(stats.durationSeconds, locale), Modifier.weight(1f))
-        StatTile(stringResource(R.string.stat_distance), Format.distanceKm(stats.distanceMeters, locale), Modifier.weight(1f), unit = stringResource(R.string.unit_distance))
+        StatTile(stringResource(R.string.stat_duration), Format.duration(stats.durationSeconds), Modifier.weight(1f))
+        StatTile(stringResource(R.string.stat_distance), Format.distanceKm(stats.distanceMeters), Modifier.weight(1f), unit = stringResource(R.string.unit_distance))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatTile(stringResource(R.string.stat_calories), Format.calories(stats.calories, locale), Modifier.weight(1f), unit = stringResource(R.string.unit_calories))
-        StatTile(stringResource(R.string.stat_avg_speed), Format.speed(stats.averageSpeedKmh, locale), Modifier.weight(1f), unit = stringResource(R.string.unit_speed))
+        StatTile(stringResource(R.string.stat_calories), Format.calories(stats.calories), Modifier.weight(1f), unit = stringResource(R.string.unit_calories))
+        StatTile(stringResource(R.string.stat_avg_speed), Format.speed(stats.averageSpeedKmh), Modifier.weight(1f), unit = stringResource(R.string.unit_speed))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatTile(stringResource(R.string.stat_avg_hr), Format.heartRate(stats.averageHeartRateBpm, locale), Modifier.weight(1f), unit = if (stats.averageHeartRateBpm != null) hrUnit else null)
-        StatTile(stringResource(R.string.stat_max_hr), Format.heartRate(stats.maxHeartRateBpm, locale), Modifier.weight(1f), unit = if (stats.maxHeartRateBpm != null) hrUnit else null)
+        StatTile(stringResource(R.string.stat_avg_hr), Format.heartRate(stats.averageHeartRateBpm), Modifier.weight(1f), unit = if (stats.averageHeartRateBpm != null) hrUnit else null)
+        StatTile(stringResource(R.string.stat_max_hr), Format.heartRate(stats.maxHeartRateBpm), Modifier.weight(1f), unit = if (stats.maxHeartRateBpm != null) hrUnit else null)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        StatTile(stringResource(R.string.stat_max_speed), Format.speed(stats.maxSpeedKmh, locale), Modifier.weight(1f), unit = stringResource(R.string.unit_speed))
-        StatTile(stringResource(R.string.stat_max_incline), Format.incline(stats.maxInclinePercent, locale), Modifier.weight(1f), unit = stringResource(R.string.unit_incline))
+        StatTile(stringResource(R.string.stat_max_speed), Format.speed(stats.maxSpeedKmh), Modifier.weight(1f), unit = stringResource(R.string.unit_speed))
+        StatTile(stringResource(R.string.stat_max_incline), Format.incline(stats.maxInclinePercent), Modifier.weight(1f), unit = stringResource(R.string.unit_incline))
     }
 }
 
@@ -243,9 +242,8 @@ private fun DeleteWorkoutButton(actions: WorkoutDetailActions) {
 
 @Composable
 private fun Charts(detail: WorkoutDetail, modifier: Modifier) {
-    val locale = currentLocale()
     val samples = detail.samples
-    val xLabel: (Double) -> String = { Format.duration(it.toInt(), locale) }
+    val xLabel: (Double) -> String = { Format.duration(it.toInt()) }
     val layout = LocalLayout.current
     val speedText = stringResource(R.string.chart_speed)
     val inclineText = stringResource(R.string.chart_incline)
@@ -275,11 +273,11 @@ private fun Charts(detail: WorkoutDetail, modifier: Modifier) {
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         detail.plan?.let { plan -> PlannedVersusActual(plan, samples, if (layout.wide) Modifier.weight(1.4f) else Modifier.height(240.dp)) }
-        chart(speedText, "chart_speed", MaterialTheme.colorScheme.primary, series { it.speedKmh }, { Format.speed(it, locale) }, 0.0, stringResource(R.string.chart_empty))
-        chart(inclineText, "chart_incline", MaterialTheme.colorScheme.secondary, series { it.inclinePercent }, { Format.incline(it, locale) }, 0.0, stringResource(R.string.chart_empty))
+        chart(speedText, "chart_speed", MaterialTheme.colorScheme.primary, series { it.speedKmh }, { Format.speed(it) }, 0.0, stringResource(R.string.chart_empty))
+        chart(inclineText, "chart_incline", MaterialTheme.colorScheme.secondary, series { it.inclinePercent }, { Format.incline(it) }, 0.0, stringResource(R.string.chart_empty))
         chart(
             hrText, "chart_heart_rate", MaterialTheme.colorScheme.error,
-            series { it.heartRateBpm?.toDouble() }, { Format.whole(it.toInt(), locale) }, null, stringResource(R.string.chart_no_hr),
+            series { it.heartRateBpm?.toDouble() }, { Format.whole(it.toInt()) }, null, stringResource(R.string.chart_no_hr),
         )
     }
 }

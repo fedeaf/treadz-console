@@ -184,12 +184,12 @@ private fun WorkoutCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 maxItemsInEachRow = 3,
             ) {
-                Stat(stringResource(R.string.stat_duration), Format.duration(stats.durationSeconds, locale))
-                Stat(stringResource(R.string.stat_distance), "${Format.distanceKm(stats.distanceMeters, locale)} ${stringResource(R.string.unit_distance)}")
-                Stat(stringResource(R.string.stat_calories), "${Format.calories(stats.calories, locale)} ${stringResource(R.string.unit_calories)}")
-                Stat(stringResource(R.string.stat_avg_speed_short), "${Format.speed(stats.averageSpeedKmh, locale)} ${stringResource(R.string.unit_speed)}")
-                Stat(stringResource(R.string.stat_avg_hr_short), stats.averageHeartRateBpm?.let { "${Format.whole(it, locale)} ${stringResource(R.string.unit_heart_rate)}" } ?: Format.NO_VALUE)
-                Stat(stringResource(R.string.stat_max_hr_short), stats.maxHeartRateBpm?.let { "${Format.whole(it, locale)} ${stringResource(R.string.unit_heart_rate)}" } ?: Format.NO_VALUE)
+                Stat(stringResource(R.string.stat_duration), Format.duration(stats.durationSeconds))
+                Stat(stringResource(R.string.stat_distance), "${Format.distanceKm(stats.distanceMeters)} ${stringResource(R.string.unit_distance)}")
+                Stat(stringResource(R.string.stat_calories), "${Format.calories(stats.calories)} ${stringResource(R.string.unit_calories)}")
+                Stat(stringResource(R.string.stat_avg_speed_short), "${Format.speed(stats.averageSpeedKmh)} ${stringResource(R.string.unit_speed)}")
+                Stat(stringResource(R.string.stat_avg_hr_short), stats.averageHeartRateBpm?.let { "${Format.whole(it)} ${stringResource(R.string.unit_heart_rate)}" } ?: Format.NO_VALUE)
+                Stat(stringResource(R.string.stat_max_hr_short), stats.maxHeartRateBpm?.let { "${Format.whole(it)} ${stringResource(R.string.unit_heart_rate)}" } ?: Format.NO_VALUE)
             }
             if (unassigned) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {

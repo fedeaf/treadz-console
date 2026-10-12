@@ -156,7 +156,7 @@ class FitnessStartViewModel(
                 if (!local.value.suggested && p.user != null) {
                     val suggestion = if (ebbeling) FitnessResults.suggestedEbbelingSpeed(p.results, defaultSpeed) else FitnessResults.suggestedMaxStartSpeed(p.results, defaultSpeed)
                     val speed = (suggestion.coerceIn(speedRange.start, speedRange.endInclusive) * 10).roundToInt() / 10.0
-                    local.update { it.copy(speedText = Decimals.format(speed, java.util.Locale.ROOT), suggested = true) }
+                    local.update { it.copy(speedText = Decimals.format(speed), suggested = true) }
                 }
             }
         }
@@ -167,7 +167,7 @@ class FitnessStartViewModel(
     fun stepSpeed(direction: Int) {
         val current = Decimals.parse(local.value.speedText) ?: defaultSpeed
         val value = (((current + direction * SPEED_STEP) * 10).roundToInt() / 10.0).coerceIn(speedRange.start, speedRange.endInclusive)
-        setSpeed(Decimals.format(value, java.util.Locale.ROOT))
+        setSpeed(Decimals.format(value))
     }
 
     /** Starts the test; [onStarted] is called once the belt runs and the test clock has started. */

@@ -18,6 +18,15 @@ object FitnessFormulas {
      */
     fun agePredictedHrMax(ageYears: Int): Int = 220 - ageYears
 
+    /** Maximum heart rate estimated from the age with the Tanaka formula, `208 − 0.7 · age` (the profile's estimate). */
+    fun tanakaHrMax(ageYears: Int): Int = (208.0 - 0.7 * ageYears).roundToInt()
+
+    /**
+     * A measured maximum more than this below the Tanaka estimate is not adopted (approved by the user, 2026-10-12): it is
+     * about twice the spread of the estimate, so it more likely comes from a strap or effort problem than from the person.
+     */
+    const val HR_MAX_FLOOR_BELOW_ESTIMATE_BPM = 25
+
     // ------------------------------------------------------------------ Ebbeling
 
     /** Standard error of estimate of the Ebbeling equation (Ebbeling et al. 1991). */

@@ -327,7 +327,6 @@ private fun SmallChip(text: String, selected: Boolean, tag: String, onClick: () 
 @Composable
 private fun Preview(state: ProgramEditorUiState, modifier: Modifier, fill: Boolean) {
     val plan = state.plan
-    val locale = currentLocale()
     Panel(modifier.testTag("editor_preview")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SectionLabel(stringResource(R.string.start_preview))
@@ -340,7 +339,7 @@ private fun Preview(state: ProgramEditorUiState, modifier: Modifier, fill: Boole
             )
             PlanLegend(stringResource(R.string.chart_speed), stringResource(R.string.chart_incline))
             if (plan != null) {
-                PlanTotals(plan, locale)
+                PlanTotals(plan)
                 PlanWarnings(plan.warnings.filter { it.code != com.treadz.console.programs.plan.WarningCode.ShortBlock })
             }
             if (state.shortBlocks.isNotEmpty()) {

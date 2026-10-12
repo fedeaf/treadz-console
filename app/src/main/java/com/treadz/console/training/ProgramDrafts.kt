@@ -88,7 +88,7 @@ object ProgramDrafts {
                 byDistance = end is BlockEnd.Distance,
                 duration = if (end is BlockEnd.Duration) formatDuration(end.seconds) else "5:00",
                 distance = if (end is BlockEnd.Distance) end.meters.toString() else "1000",
-                speed = Decimals.format(target.speedKmh, java.util.Locale.ROOT),
+                speed = Decimals.format(target.speedKmh),
                 incline = target.inclinePercent.roundToInt().toString(),
                 name = b.name.orEmpty(),
             )
@@ -258,7 +258,7 @@ object ProgramDrafts {
 internal fun BlockDraft.stepSpeed(direction: Int): BlockDraft {
     val current = Decimals.parse(speed) ?: return this
     val value = ((current + direction * 0.5) * 10).roundToInt() / 10.0
-    return copy(speed = Decimals.format(value.coerceIn(ProgramLimits.MIN_SPEED_KMH, ProgramLimits.MAX_SPEED_KMH), java.util.Locale.ROOT))
+    return copy(speed = Decimals.format(value.coerceIn(ProgramLimits.MIN_SPEED_KMH, ProgramLimits.MAX_SPEED_KMH)))
 }
 
 internal fun BlockDraft.stepIncline(direction: Int): BlockDraft {

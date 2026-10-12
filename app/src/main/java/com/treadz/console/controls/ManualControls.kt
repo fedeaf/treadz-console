@@ -6,6 +6,7 @@ import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.FailureCode
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
+import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.ValueRange
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -345,8 +346,8 @@ class ManualControls(
         /** Inclines offered as presets (%). */
         val INCLINE_PRESETS = listOf(0.0, 3.0, 6.0, 9.0, 12.0)
 
-        /** The belt counts as stopped below this speed (km/h). The treadmill's own threshold. */
-        const val STOPPED_SPEED_KMH = 0.05
+        /** The belt counts as stopped below this speed (km/h): the contract's [TreadmillState.STOPPED_SPEED_KMH]. */
+        const val STOPPED_SPEED_KMH = TreadmillState.STOPPED_SPEED_KMH
 
         const val FAILURE_VISIBLE_MILLIS = 6_000L
 

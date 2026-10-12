@@ -7,7 +7,6 @@ import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.programs.engine.ProgramRunner
 import com.treadz.console.programs.fitness.FitnessTestRunner
 import com.treadz.console.sync.service.FakeSyncService
-import com.treadz.console.training.FitnessTestIds
 import com.treadz.console.training.SessionLinks
 import com.treadz.console.training.TrainingCoordinator
 import com.treadz.console.userdata.WorkoutLink
@@ -47,12 +46,11 @@ class FakeApp(
 
     /** The links the training coordinator asked for, in order. */
     val links = RecordingSessionLinks()
-    val testIds = FitnessTestIds()
     val programRunner: ProgramRunner by lazy { ProgramRunner(controller, trainingScope, trainingClock) }
-    val fitnessRunner: FitnessTestRunner by lazy { FitnessTestRunner(controller, trainingScope, trainingClock, idFactory = testIds::next) }
+    val fitnessRunner: FitnessTestRunner by lazy { FitnessTestRunner(controller, trainingScope, trainingClock) }
 
     override val training: TrainingCoordinator by lazy {
-        TrainingCoordinator(controller, programRunner, fitnessRunner, testIds, links, userData, trainingScope)
+        TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, trainingScope)
     }
 
 

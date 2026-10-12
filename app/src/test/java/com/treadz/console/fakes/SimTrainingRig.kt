@@ -2,7 +2,6 @@ package com.treadz.console.fakes
 
 import com.treadz.console.programs.engine.ProgramRunner
 import com.treadz.console.programs.fitness.FitnessTestRunner
-import com.treadz.console.training.FitnessTestIds
 import com.treadz.console.training.TrainingCoordinator
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.control.Clock
@@ -33,10 +32,9 @@ class SimTrainingRig(
     val sim = SimulatedTreadmill(bg, timeSource = { clock.nowMillis() })
     val controller = FtmsTreadmillController(sim, bg, clock, ControllerConfig())
     val links = RecordingSessionLinks()
-    val ids = FitnessTestIds()
     val programRunner = ProgramRunner(controller, bg, clock)
-    val fitnessRunner = FitnessTestRunner(controller, bg, clock, idFactory = ids::next)
-    val training = TrainingCoordinator(controller, programRunner, fitnessRunner, ids, links, userData, bg)
+    val fitnessRunner = FitnessTestRunner(controller, bg, clock)
+    val training = TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, bg)
 
     init {
         sim.heartRateModel = model

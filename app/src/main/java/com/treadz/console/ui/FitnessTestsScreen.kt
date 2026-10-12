@@ -118,7 +118,6 @@ private fun Fitness(state: FitnessTestsUiState, actions: FitnessTestsActions) {
 /** The fitness figures of a user (also shown in the profile). */
 @Composable
 fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.console.programs.fitness.HeartRateMaxDecision?, modifier: Modifier = Modifier) {
-    val locale = currentLocale()
     Panel(modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionLabel(stringResource(R.string.fitness_summary_title))
@@ -126,7 +125,7 @@ fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.conso
             if (vo2 != null) {
                 FactRow(
                     stringResource(R.string.result_vo2max),
-                    stringResource(R.string.value_vo2max, Format.weight(vo2.valueMlKgMin, locale)) + (vo2.classification?.let { " · " + it.category.label() } ?: ""),
+                    stringResource(R.string.value_vo2max, Format.weight(vo2.valueMlKgMin)) + (vo2.classification?.let { " · " + it.category.label() } ?: ""),
                     tag = "summary_vo2max",
                 )
             } else {
@@ -135,7 +134,7 @@ fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.conso
             profile?.mas?.let {
                 FactRow(
                     stringResource(R.string.result_mas),
-                    stringResource(R.string.value_kmh, Format.speed(it.valueKmh, locale)) + if (it.estimated) " (" + stringResource(R.string.fitness_summary_estimated) + ")" else "",
+                    stringResource(R.string.value_kmh, Format.speed(it.valueKmh)) + if (it.estimated) " (" + stringResource(R.string.fitness_summary_estimated) + ")" else "",
                     tag = "summary_mas",
                 )
             }
@@ -171,8 +170,8 @@ private fun ResultRow(record: FitnessTestRecord, actions: FitnessTestsActions) {
             }
             result.outputs?.let { o ->
                 Text(
-                    stringResource(R.string.value_vo2max, Format.weight(o.vo2maxMlKgMin, locale)) + (o.classification?.let { " · " + it.category.label() } ?: "") +
-                        (o.masKmh?.let { " · " + stringResource(R.string.result_mas_short, Format.speed(it, locale)) } ?: ""),
+                    stringResource(R.string.value_vo2max, Format.weight(o.vo2maxMlKgMin)) + (o.classification?.let { " · " + it.category.label() } ?: "") +
+                        (o.masKmh?.let { " · " + stringResource(R.string.result_mas_short, Format.speed(it)) } ?: ""),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
@@ -237,7 +236,6 @@ private fun WarningPanel(type: FitnessTestType) {
 
 @Composable
 private fun SubjectPanel(state: FitnessStartUiState) {
-    val locale = currentLocale()
     Panel(Modifier.fillMaxWidth().testTag("test_subject")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionLabel(stringResource(R.string.test_subject_title))
@@ -246,7 +244,7 @@ private fun SubjectPanel(state: FitnessStartUiState) {
                 FactRow(stringResource(R.string.test_subject_age_sex), stringResource(R.string.test_subject_age_sex_value, state.ageYears, user.sex.label()))
             }
             state.weight?.let {
-                FactRow(stringResource(R.string.weight_title), stringResource(R.string.value_kg, Format.weight(it.weightKg, locale)))
+                FactRow(stringResource(R.string.weight_title), stringResource(R.string.value_kg, Format.weight(it.weightKg)))
                 if (it.isPlaceholder) Text(stringResource(R.string.test_subject_placeholder_weight), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.warning)
             }
             state.heartRateMax?.let { FactRow(stringResource(R.string.hrmax_label), hrMaxValue(it), tag = "subject_hrmax") }

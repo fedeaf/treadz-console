@@ -6,6 +6,6 @@ import java.util.Locale
 object Decimals {
     fun parse(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
 
-    /** One decimal, in the system language (the field shows what the user is used to read). */
-    fun format(value: Double, locale: Locale = Locale.getDefault()): String = String.format(locale, "%.1f", value)
+    /** One decimal, with a decimal point like every number in the app. */
+    fun format(value: Double): String = String.format(Locale.ROOT, "%.1f", value)
 }

@@ -99,7 +99,8 @@ data class FitnessProfile(
  * [EffortAssessment.Maximal] (a peak from a submaximal effort is not a maximum). A maximal effort is either a peak
  * close to the maximum used by the test or a confirmed exhaustion with a heart-rate plateau (see
  * [MaxIncrementalProtocol]), so the measured value may be below the estimate. How it competes with the manual value
- * and the estimate: [HeartRateMaxPolicy].
+ * and the estimate: [HeartRateMaxPolicy]. A peak more than [FitnessFormulas.HR_MAX_FLOOR_BELOW_ESTIMATE_BPM] below the
+ * Tanaka estimate for the age at the test is not adopted (the result itself still counts for VO2max and MAS).
  */
 object FitnessProfileCalculator {
 
@@ -168,11 +169,19 @@ object FitnessProfileCalculator {
         // -- measured maximum heart rate
         val hrMax = maxTests
             .filter { it.outputs?.effort == EffortAssessment.Maximal && it.outputs.hrMaxCandidateBpm != null }
+            .filter { isAdoptableHrMax(checkNotNull(it.outputs?.hrMaxCandidateBpm), it.inputs.ageYears) }
             .maxWithOrNull(compareBy<FitnessTestResult> { it.outputs?.hrMaxCandidateBpm }.thenBy { it.startedAtMillis })
             ?.let { HrMaxEstimate(checkNotNull(it.outputs?.hrMaxCandidateBpm), it.id, it.startedAtMillis) }
 
         return FitnessProfile(nowMillis, vo2, mas, hrMax, rules)
     }
+
+    /**
+     * Whether a peak heart rate of a maximal effort is plausible enough to become the measured maximum of a person of
+     * [ageYears] (see [FitnessFormulas.HR_MAX_FLOOR_BELOW_ESTIMATE_BPM]).
+     */
+    fun isAdoptableHrMax(peakBpm: Int, ageYears: Int): Boolean =
+        peakBpm >= FitnessFormulas.tanakaHrMax(ageYears) - FitnessFormulas.HR_MAX_FLOOR_BELOW_ESTIMATE_BPM
 
     /** Days between the test and [now]; a test dated in the future (clock differences between devices) counts as 0. */
     private fun ageDays(r: FitnessTestResult, now: Long): Double = maxOf(0L, now - r.startedAtMillis).toDouble() / DAY_MS

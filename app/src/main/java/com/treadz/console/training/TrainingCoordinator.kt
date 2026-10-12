@@ -62,28 +62,6 @@ interface SessionLinks {
 }
 
 /**
- * The id of the next fitness test result, known **before** the test starts so that the workout can be linked to it
- * while the belt is still stopped. The test runner asks for its ids through [next].
- */
-class FitnessTestIds(private val generate: () -> String = { java.util.UUID.randomUUID().toString() }) {
-    private var reserved: String? = null
-
-    /** Picks the id the next test will use. */
-    @Synchronized
-    fun reserve(): String = generate().also { reserved = it }
-
-    /** The test did not start: forget the picked id. */
-    @Synchronized
-    fun release() {
-        reserved = null
-    }
-
-    /** The runner's `idFactory`: the reserved id if there is one, else a new one. */
-    @Synchronized
-    fun next(): String = reserved?.also { reserved = null } ?: generate()
-}
-
-/**
  * Owns what ties the treadmill to the training screens: it decides where the manual controls' commands go, starts
  * programs and fitness tests, and keeps the fitness test result stored. It lives as long as the process (the runners
  * do), so a program or test goes on, and a test result is saved, whatever screen is open or even if the app is in the
@@ -98,10 +76,11 @@ class TrainingCoordinator(
     private val controller: TreadmillController,
     val programRunner: ProgramRunner,
     val fitnessRunner: FitnessTestRunner,
-    private val testIds: FitnessTestIds,
     private val links: SessionLinks,
     private val userData: UserData,
     private val scope: CoroutineScope,
+    /** Ids of fitness test results, known before the test starts so the workout can be linked to the result. */
+    private val newTestId: () -> String = { java.util.UUID.randomUUID().toString() },
 ) {
 
     /** Owner of the test that is running or ran last: its result is stored for this user. */
@@ -190,35 +169,33 @@ class TrainingCoordinator(
     }
 
     suspend fun startEbbeling(userId: Long, parameters: EbbelingParameters): StartOutcome =
-        startTest(userId) { fitnessRunner.startEbbeling(parameters) }
+        startTest(userId) { id -> fitnessRunner.startEbbeling(parameters.copy(resultId = id)) }
 
     suspend fun startMaxTest(userId: Long, parameters: MaxTestParameters): StartOutcome =
-        startTest(userId) { fitnessRunner.startMaxTest(parameters) }
+        startTest(userId) { id -> fitnessRunner.startMaxTest(parameters.copy(resultId = id)) }
 
     /**
      * A test needs the belt at rest: the workout is linked to the result id before the belt moves, and a session already
      * in progress would take the link.
      */
-    private suspend fun startTest(userId: Long, start: suspend () -> FitnessActionResult): StartOutcome =
+    private suspend fun startTest(userId: Long, start: suspend (String) -> FitnessActionResult): StartOutcome =
         scope.async { startTestBody(userId, start) }.await()
 
-    private suspend fun startTestBody(userId: Long, start: suspend () -> FitnessActionResult): StartOutcome {
+    private suspend fun startTestBody(userId: Long, start: suspend (String) -> FitnessActionResult): StartOutcome {
         val belt = controller.state.value
         val atRest = belt.status == BeltStatus.Idle && belt.speedKmh <= ManualControls.STOPPED_SPEED_KMH
         if (!atRest || programRunner.progress.value.state.isActive() || fitnessRunner.progress.value.phase.isActive()) return StartOutcome.Busy
-        val id = testIds.reserve()
+        val id = newTestId()
         testOwnerId = userId
         links.link(WorkoutLink(fitnessTestId = id))
-        return when (val result = start()) {
+        return when (val result = start(id)) {
             FitnessActionResult.Success -> StartOutcome.Started
             is FitnessActionResult.NotAllowed -> {
                 links.clear()
-                testIds.release()
                 StartOutcome.TestRefused(result.refusal, result.message)
             }
             is FitnessActionResult.CommandFailed -> {
                 links.clear()
-                testIds.release()
                 StartOutcome.CommandFailed(result.result)
             }
         }

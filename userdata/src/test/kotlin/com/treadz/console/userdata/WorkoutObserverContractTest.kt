@@ -399,6 +399,20 @@ abstract class WorkoutObserverContractTest {
         assertEquals(samples.size, data.workouts.detail(w.id)!!.samples.size)
     }
 
+    @Test fun `the stopped sample keeps the last heart rate, not the drop the console reports in it`() = scenario {
+        packet(state(BeltStatus.Starting, speed = 0.0))
+        run(5, hr = 98)
+        push(state(BeltStatus.Idle, speed = 2.0, distance = 10, elapsed = 5, hr = 98))
+        wait(1)
+        push(state(BeltStatus.Idle, speed = 0.0, hr = 77))
+
+        val w = only()
+        val last = data.workouts.detail(w.id)!!.samples.last()
+        assertEquals(0.0, last.speedKmh, 0.0)
+        assertEquals(98, last.heartRateBpm)
+        assertEquals(98, w.stats.averageHeartRateBpm)
+    }
+
     @Test fun `a long deceleration from a high speed is recorded to the end`() = scenario {
         packet(state(BeltStatus.Starting, speed = 0.0))
         runAt2Hz(5, speed = 18.0)

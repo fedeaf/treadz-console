@@ -489,7 +489,7 @@
     <string name="phase_recovery">Recuperación</string>
     <string name="phase_cool_down">Vuelta a la calma</string>
     <string name="phase_other">Otro</string>
-    <string name="warning_short_block">El bloque %1$d dura solo unos %2$d s: gran parte se va en la rampa de velocidad (unos 0,5 km/h por segundo).</string>
+    <string name="warning_short_block">El bloque %1$d dura solo unos %2$d s: gran parte se va en la rampa de velocidad (unos 0.5 km/h por segundo).</string>
     <string name="warning_speed_clamped">Bloque %1$d: la velocidad se cambió de %2$s a %3$s km/h para ajustarse a la cinta o a sus límites.</string>
     <string name="warning_incline_clamped">Bloque %1$d: la inclinación se cambió de %2$s a %3$s %% para ajustarse a la cinta o a sus límites.</string>
     <string name="warning_heart_rate_control">El bloque %1$d pide control por pulso, que aún no está disponible: se ejecuta con sus valores iniciales.</string>
@@ -588,7 +588,7 @@
     <string name="editor_duration_hint">Minutos y segundos, como 4:30</string>
     <string name="editor_distance">Distancia (m)</string>
     <string name="editor_block_name">Nombre del bloque (opcional)</string>
-    <string name="editor_short_block">Menos de %1$d s: gran parte de este bloque se va en la rampa de velocidad (unos 0,5 km/h por segundo).</string>
+    <string name="editor_short_block">Menos de %1$d s: gran parte de este bloque se va en la rampa de velocidad (unos 0.5 km/h por segundo).</string>
     <string name="editor_short_blocks_summary">%1$d bloque(s) de menos de %2$d s. Gran parte de su tiempo se va en la rampa de velocidad.</string>
     <string name="editor_preview_invalid">Completa el programa para ver la vista previa.</string>
     <string name="editor_fix_problems">Corrige los valores marcados para guardar.</string>
@@ -636,7 +636,7 @@
     <string name="test_subject_placeholder_weight">Este es el peso inventado del usuario genérico. Escribe tu peso real en la pantalla de Peso.</string>
     <string name="test_start_speed">Velocidad inicial</string>
     <string name="test_start_speed_hint_ebbeling">Un paso de caminata cómodo, entre %1$s y %2$s km/h. Se sugiere la velocidad de tu último test.</string>
-    <string name="test_start_speed_hint_max">La velocidad de la primera etapa, entre %1$s y %2$s km/h. Después sube 0,5 km/h cada minuto.</string>
+    <string name="test_start_speed_hint_max">La velocidad de la primera etapa, entre %1$s y %2$s km/h. Después sube 0.5 km/h cada minuto.</string>
     <string name="test_start_button">EMPEZAR TEST</string>
     <string name="test_heart_rate_now">Pulso ahora: %1$d ppm</string>
     <string name="test_heart_rate_missing">Todavía no hay pulso. Ponte la banda de pecho.</string>
@@ -707,7 +707,7 @@
     <string name="result_mas_short">VAM %1$s km/h</string>
     <string name="result_mas_lower_bound">Al menos esto: llegaste a la velocidad máxima permitida.</string>
     <string name="result_peak_hr">Pulso máximo alcanzado</string>
-    <string name="result_measured_hrmax">Pulso máximo medido</string>
+    <string name="result_peak_is_measured_hrmax">Cuenta como tu pulso máximo medido.</string>
     <string name="result_effort">Esfuerzo</string>
     <string name="result_test_speed">Velocidad del test</string>
     <string name="result_steady_hr">Pulso estable</string>

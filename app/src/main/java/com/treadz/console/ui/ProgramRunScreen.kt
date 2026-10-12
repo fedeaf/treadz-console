@@ -187,9 +187,9 @@ private fun blockTargetText(block: ResolvedBlock): String =
     stringResource(R.string.block_target, Format.speed(block.speedKmh), Format.incline(block.inclinePercent))
 
 @Composable
-private fun blockLengthText(block: ResolvedBlock, locale: java.util.Locale): String = when (val e = block.end) {
-    is BlockEnd.Duration -> Format.duration(e.seconds, locale)
-    is BlockEnd.Distance -> stringResource(R.string.value_km, Format.distanceKm(e.meters, locale))
+private fun blockLengthText(block: ResolvedBlock): String = when (val e = block.end) {
+    is BlockEnd.Duration -> Format.duration(e.seconds)
+    is BlockEnd.Distance -> stringResource(R.string.value_km, Format.distanceKm(e.meters))
 }
 
 /** The current block: phase, name, how much is left, what it asks for, what comes next, and the plan with the position. */
@@ -202,7 +202,6 @@ private fun BlockPanel(
     showChart: Boolean = true,
 ) {
     val block = progress.currentBlock
-    val locale = currentLocale()
     val plan = progress.plan
     Panel(modifier.testTag("block_panel")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -213,13 +212,13 @@ private fun BlockPanel(
                     Column {
                         Text(stringResource(R.string.block_time_left), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            Format.duration(progress.blockRemainingSeconds, locale),
+                            Format.duration(progress.blockRemainingSeconds),
                             Modifier.testTag("block_remaining"),
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
                         )
                         progress.blockRemainingMeters?.let {
-                            Text(stringResource(R.string.block_distance_left, Format.distanceKm(it, locale)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.block_distance_left, Format.distanceKm(it)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -231,7 +230,7 @@ private fun BlockPanel(
                         )
                         progress.nextBlock?.let { next ->
                             Text(
-                                stringResource(R.string.block_next, next.phase.label(), blockTargetText(next), blockLengthText(next, locale)),
+                                stringResource(R.string.block_next, next.phase.label(), blockTargetText(next), blockLengthText(next)),
                                 Modifier.testTag("block_next"),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -290,13 +289,12 @@ private fun BlockHeader(progress: ProgramProgress, block: ResolvedBlock, blockCo
 
 @Composable
 private fun TotalsPanel(progress: ProgramProgress, big: Boolean) {
-    val locale = currentLocale()
     Panel(Modifier.fillMaxWidth().testTag("run_totals")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Total(stringResource(R.string.run_elapsed), Format.duration(progress.totalElapsedSeconds, locale), "run_elapsed", big)
-            Total(stringResource(R.string.run_remaining), Format.duration(progress.totalRemainingSeconds, locale), "run_remaining", big)
-            Total(stringResource(R.string.metric_distance), Format.distanceKm(progress.totalElapsedMeters, locale), "run_distance", big)
-            Total(stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm, locale), "run_heart_rate", big)
+            Total(stringResource(R.string.run_elapsed), Format.duration(progress.totalElapsedSeconds), "run_elapsed", big)
+            Total(stringResource(R.string.run_remaining), Format.duration(progress.totalRemainingSeconds), "run_remaining", big)
+            Total(stringResource(R.string.metric_distance), Format.distanceKm(progress.totalElapsedMeters), "run_distance", big)
+            Total(stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm), "run_heart_rate", big)
         }
     }
 }
@@ -359,7 +357,6 @@ private fun ProgramFinished(
     actions: RunActions,
     modifier: Modifier,
 ) {
-    val locale = currentLocale()
     val blockCount = progress.plan?.blocks?.size ?: 0
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Panel(Modifier.weight(1f).fillMaxWidth().testTag("program_summary")) {
@@ -371,8 +368,8 @@ private fun ProgramFinished(
                     color = if (progress.outcome == com.treadz.console.programs.engine.RunOutcome.Completed) MaterialTheme.extra.ok else MaterialTheme.colorScheme.onSurface,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    SummaryFigure(stringResource(R.string.stat_duration), Format.duration(progress.totalElapsedSeconds, locale), "summary_duration")
-                    SummaryFigure(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(progress.totalElapsedMeters, locale)), "summary_distance")
+                    SummaryFigure(stringResource(R.string.stat_duration), Format.duration(progress.totalElapsedSeconds), "summary_duration")
+                    SummaryFigure(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(progress.totalElapsedMeters)), "summary_distance")
                     SummaryFigure(stringResource(R.string.summary_blocks), stringResource(R.string.summary_blocks_value, (progress.currentBlockIndex + 1).coerceAtMost(blockCount), blockCount), "summary_blocks")
                 }
                 PlanChart(

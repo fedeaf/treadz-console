@@ -125,7 +125,6 @@ private fun phaseColor(phase: FitnessTestPhase) = when (phase) {
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun InstructionPanel(test: FitnessTestProgress, modifier: Modifier) {
-    val locale = currentLocale()
     Panel(modifier.testTag("instruction_panel")) {
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
             Text(
@@ -142,12 +141,12 @@ private fun InstructionPanel(test: FitnessTestProgress, modifier: Modifier) {
                 if (remaining != null) {
                     Column {
                         Text(stringResource(R.string.test_time_left), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(Format.duration(remaining, locale), Modifier.testTag("test_remaining"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                        Text(Format.duration(remaining), Modifier.testTag("test_remaining"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     }
                 }
                 Column {
                     Text(stringResource(R.string.run_elapsed), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(Format.duration(test.elapsedSeconds, locale), Modifier.testTag("test_elapsed"), style = if (remaining != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    Text(Format.duration(test.elapsedSeconds), Modifier.testTag("test_elapsed"), style = if (remaining != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 }
                 test.stageNumber?.let { stage ->
                     Column {
@@ -241,7 +240,6 @@ private fun HeartRateFigure(test: FitnessTestProgress, sizes: LiveSizes, modifie
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
-    val locale = currentLocale()
     val rows = mutableListOf<Pair<String, String>>()
     @Composable fun add(label: Int, value: String) { rows += stringResource(label) to value }
     if (test.testType == FitnessTestType.EbbelingWalk) {
@@ -249,12 +247,12 @@ private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
             add(R.string.test_speed_state, stringResource(if (test.speedLocked) R.string.test_speed_fixed else R.string.test_speed_adjustable))
         }
         test.steadyState?.let { add(R.string.test_steady_state, it.label()) }
-        test.steadyStateVariationBpm?.let { add(R.string.test_steady_variation, stringResource(R.string.test_variation_value, Format.speed(it, locale))) }
+        test.steadyStateVariationBpm?.let { add(R.string.test_steady_variation, stringResource(R.string.test_variation_value, Format.speed(it))) }
         if (test.stage2Extensions > 0) add(R.string.test_extensions, test.stage2Extensions.toString())
     } else {
-        test.stageRemainingSeconds?.let { add(R.string.test_next_step_in, Format.duration(it, locale)) }
-        test.nextStageSpeedKmh?.let { add(R.string.test_next_speed, stringResource(R.string.value_kmh, Format.speed(it, locale))) }
-        test.masIfExhaustedNowKmh?.let { add(R.string.test_mas_now, stringResource(R.string.value_kmh, Format.speed(it, locale))) }
+        test.stageRemainingSeconds?.let { add(R.string.test_next_step_in, Format.duration(it)) }
+        test.nextStageSpeedKmh?.let { add(R.string.test_next_speed, stringResource(R.string.value_kmh, Format.speed(it))) }
+        test.masIfExhaustedNowKmh?.let { add(R.string.test_mas_now, stringResource(R.string.value_kmh, Format.speed(it))) }
     }
     if (rows.isEmpty() && !test.capReached) return
     Panel(Modifier.fillMaxWidth().testTag("test_info")) {

@@ -108,7 +108,7 @@ class FitnessTestRunner(
      * Returns when the belt is confirmed running and the test clock has started.
      */
     suspend fun startEbbeling(parameters: EbbelingParameters): FitnessActionResult = scope.async {
-        startBody(requireHeartRate = true) { id, limits ->
+        startBody(requireHeartRate = true, parameters.resultId) { id, limits ->
             if ((limits.maxInclinePercent ?: Double.MAX_VALUE) < config.stage2GradePercent - 1e-9 ||
                 (limits.maxSpeedKmh ?: Double.MAX_VALUE) < config.ebbelingMinSpeedKmh - 1e-9
             ) {
@@ -123,7 +123,7 @@ class FitnessTestRunner(
 
     /** Starts the maximal incremental test (no heart rate needed). */
     suspend fun startMaxTest(parameters: MaxTestParameters): FitnessActionResult = scope.async {
-        startBody(requireHeartRate = false) { id, limits ->
+        startBody(requireHeartRate = false, parameters.resultId) { id, limits ->
             val cap = clampSpeed(Double.MAX_VALUE)
             if (cap < config.maxTestMinStartSpeedKmh - 1e-9) return@startBody null
             MaxIncrementalProtocol(
@@ -135,6 +135,7 @@ class FitnessTestRunner(
 
     private suspend fun startBody(
         requireHeartRate: Boolean,
+        resultId: String?,
         create: (String, SafetyLimits) -> FitnessProtocol?,
     ): FitnessActionResult {
         val beltAction: BeltAction
@@ -158,7 +159,7 @@ class FitnessTestRunner(
             if (requireHeartRate && readHeartRate() == null) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.NoHeartRate, "No current heart rate: put the chest strap on")
             }
-            val p = create(idFactory(), controller.limits.value)
+            val p = create(resultId ?: idFactory(), controller.limits.value)
                 ?: return FitnessActionResult.NotAllowed(FitnessRefusal.LimitsTooLow, "The safety limits do not allow this test")
             if (!validSubject(p.subject)) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.InvalidSubject, "Age, weight or maximum heart rate out of range")

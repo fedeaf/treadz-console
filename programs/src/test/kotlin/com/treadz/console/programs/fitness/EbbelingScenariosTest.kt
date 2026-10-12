@@ -422,6 +422,10 @@ class EbbelingScenariosTest {
         assertEquals(FitnessRefusal.InvalidSubject, (rig.runner.startEbbeling(EbbelingParameters(SUBJECT.copy(ageYears = 5))) as FitnessActionResult.NotAllowed).refusal)
         assertEquals(0, rig.count(START))
 
+        assertEquals(FitnessActionResult.Success, rig.runner.startEbbeling(EbbelingParameters(SUBJECT, resultId = "given-id")))
+        rig.runner.stop()
+        assertEquals("given-id", rig.runner.progress.value.result?.id, "the caller's id is the result's id")
+        delay(15_000)
         assertEquals(FitnessActionResult.Success, rig.runner.startEbbeling(EbbelingParameters(SUBJECT)))
         assertEquals(FitnessRefusal.AlreadyActive, (rig.runner.startMaxTest(MaxTestParameters(SUBJECT)) as FitnessActionResult.NotAllowed).refusal)
         assertEquals(FitnessRefusal.WrongState, (rig.runner.exhausted() as FitnessActionResult.NotAllowed).refusal)

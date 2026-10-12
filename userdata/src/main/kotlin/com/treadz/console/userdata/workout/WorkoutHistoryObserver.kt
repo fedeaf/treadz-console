@@ -364,6 +364,7 @@ class WorkoutHistoryObserver(
         private var hrSum = 0L
         private var hrCount = 0
         private var maxHr = 0
+        private var lastHeartRate: Int? = null
         private var maxIncline = 0.0
 
         val hasMoved: Boolean get() = maxSpeed > 0.0
@@ -376,7 +377,8 @@ class WorkoutHistoryObserver(
 
         /**
          * @param terminal the packet that reports the belt stopped: always recorded (it is the end of the workout,
-         *   whatever the spacing), keeping the distance, time and calories reached, which the treadmill has just reset.
+         *   whatever the spacing), keeping the distance, time and calories reached, which the treadmill has just reset,
+         *   and the last heart rate before it (the console reports a sudden drop of ~20 bpm in that packet).
          */
         fun add(state: TreadmillState, at: Long, config: WorkoutObserverConfig, terminal: Boolean = false) {
             if (state.status != BeltStatus.Idle) {
@@ -405,7 +407,7 @@ class WorkoutHistoryObserver(
                 inclinePercent = state.inclinePercent,
                 distanceMeters = if (terminal) maxOf(state.distanceMeters, distance) else state.distanceMeters,
                 calories = if (terminal) maxOf(state.calories, calories) else state.calories,
-                heartRateBpm = state.heartRateBpm,
+                heartRateBpm = if (terminal) lastHeartRate ?: state.heartRateBpm else state.heartRateBpm,
                 beltStatus = state.status,
                 isStale = state.isStale,
             )
@@ -413,6 +415,7 @@ class WorkoutHistoryObserver(
             duration = maxOf(duration, sample.elapsedSeconds)
             distance = maxOf(distance, sample.distanceMeters)
             calories = maxOf(calories, sample.calories)
+            if (!terminal) lastHeartRate = state.heartRateBpm
             if (!state.isStale && !terminal) {
                 maxSpeed = maxOf(maxSpeed, state.speedKmh)
                 if (state.speedKmh > 0.0) {

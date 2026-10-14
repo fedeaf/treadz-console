@@ -31,6 +31,7 @@ data class SettingsActions(
     val onBack: () -> Unit = {},
     val sync: SyncSettingsActions = SyncSettingsActions(),
     val onOpenUsers: () -> Unit = {},
+    val onOpenDevices: () -> Unit = {},
     val onForgetTreadmill: () -> Unit = {},
     val onDarkTheme: (Boolean) -> Unit = {},
     val onLanguage: (AppLanguage) -> Unit = {},
@@ -85,6 +86,7 @@ fun SettingsScreen(
 @Composable
 private fun OtherSections(state: SettingsUiState, permissions: PermissionsUi, versionName: String, actions: SettingsActions) {
     UsersSection(actions)
+    DevicesSection(actions)
     TreadmillSection(state, actions)
     AppearanceSection(state, actions)
     LanguageSection(state, actions)
@@ -111,6 +113,18 @@ private fun UsersSection(actions: SettingsActions) {
             stringResource(R.string.settings_users_button),
             actions.onOpenUsers,
             Modifier.fillMaxWidth().testTag("settings_manage_users"),
+        )
+    }
+}
+
+@Composable
+private fun DevicesSection(actions: SettingsActions) {
+    SettingsSection(stringResource(R.string.settings_devices_title), Modifier.testTag("settings_devices")) {
+        Text(stringResource(R.string.settings_devices_body), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BigOutlinedButton(
+            stringResource(R.string.settings_devices_button),
+            actions.onOpenDevices,
+            Modifier.fillMaxWidth().testTag("settings_open_devices"),
         )
     }
 }

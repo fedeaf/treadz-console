@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.treadz.console.MainUiState
 import com.treadz.console.R
+import com.treadz.console.programs.engine.HeartRateControlState
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.RunState
 import com.treadz.console.programs.model.BlockEnd
@@ -58,6 +59,8 @@ data class RunActions(
     val onDiscard: () -> Unit = {},
     val onUseMeasuredHeartRateMax: () -> Unit = {},
     val onKeepManualHeartRateMax: () -> Unit = {},
+    /** Switches the heart-rate control of the current block on again after a manual change turned it off. */
+    val onResumeHeartRateControl: () -> Unit = {},
     /** Opens the stored result of a fitness test. */
     val onOpenTest: (String) -> Unit = {},
 )
@@ -129,6 +132,7 @@ private fun ProgramWide(
                 SpeedPanel(ui, controls, sizes, Modifier.weight(1f).fillMaxSize())
                 InclinePanel(ui, controls, sizes, Modifier.weight(1f).fillMaxSize())
             }
+            HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
             BlockPanel(progress, segments, Modifier.weight(2f).fillMaxWidth(), chartFills = true)
         }
         Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -154,6 +158,7 @@ private fun ProgramCompact(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
             BlockPanel(progress, segments, Modifier.fillMaxWidth(), chartFills = false, showChart = false)
+            HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
             SpeedPanel(ui, controls, sizes, Modifier.fillMaxWidth())
             InclinePanel(ui, controls, sizes, Modifier.fillMaxWidth())
             controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
@@ -300,17 +305,125 @@ private fun TotalsPanel(progress: ProgramProgress, big: Boolean) {
             Total(stringResource(R.string.run_elapsed), Format.duration(progress.totalElapsedSeconds), "run_elapsed", big)
             Total(stringResource(R.string.run_remaining), Format.duration(progress.totalRemainingSeconds), "run_remaining", big)
             Total(stringResource(R.string.metric_distance), Format.distanceKm(progress.totalElapsedMeters), "run_distance", big)
-            Total(stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm), "run_heart_rate", big)
+            Total(stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm), "run_heart_rate", big, badge = progress.heartRateSource.takeIf { progress.heartRateBpm != null })
         }
     }
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.Total(label: String, value: String, tag: String, big: Boolean) {
+private fun androidx.compose.foundation.layout.RowScope.Total(
+    label: String,
+    value: String,
+    tag: String,
+    big: Boolean,
+    badge: com.treadz.console.programs.fitness.HeartRateSourceKind? = null,
+) {
     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, Modifier.testTag(tag), fontSize = if (big) 28.sp else 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
+        }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Heart-rate guided block
+
+/**
+ * Shown while the current block is guided by heart rate: its zone in bpm, the heart rate now (coloured against the zone),
+ * and what the control is doing, in a short text. After a manual change of speed or incline the control is off until the
+ * next block: "Resume heart-rate control" switches it on again (through the runner, never the treadmill directly).
+ */
+@Composable
+private fun HeartRateBlockPanel(progress: ProgramProgress, actions: RunActions, modifier: Modifier) {
+    val control = progress.heartRateControl ?: return
+    val bpm = progress.heartRateBpm
+    val low = control.zoneLowBpm
+    val high = control.zoneHighBpm
+    val ceiling = control.ceilingBpm
+    val color = when {
+        bpm == null || low == null || high == null -> MaterialTheme.colorScheme.onSurfaceVariant
+        ceiling != null && bpm >= ceiling -> MaterialTheme.colorScheme.error
+        bpm > high -> MaterialTheme.extra.warning
+        bpm < low -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.extra.ok
+    }
+    val stateColor = when (control.state) {
+        HeartRateControlState.Active -> MaterialTheme.extra.ok
+        HeartRateControlState.Ceiling -> MaterialTheme.colorScheme.error
+        HeartRateControlState.Unavailable -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.extra.warning
+    }
+    Panel(modifier.testTag("hr_block_panel"), borderColor = stateColor) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(R.string.hr_block_title),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Tag(control.state.shortLabel(), stateColor, Modifier.testTag("hr_control_state").semantics { liveRegion = LiveRegionMode.Polite })
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.hr_block_zone), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (low != null && high != null) stringResource(R.string.hr_block_zone_value, low, high) else Format.NO_VALUE,
+                        Modifier.testTag("hr_zone"),
+                        style = if (LocalLayout.current.compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(R.string.hr_block_now), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        progress.heartRateSource?.takeIf { bpm != null }?.let { HeartRateSourceIcon(it, size = 14.dp) }
+                    }
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(Format.heartRate(bpm), Modifier.testTag("hr_now"), style = if (LocalLayout.current.compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = color)
+                        if (bpm != null) Text(stringResource(R.string.unit_heart_rate), Modifier.padding(bottom = 3.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            // On a phone the controls need the room: while all is well the state tag says enough.
+            if (!LocalLayout.current.compact || control.state != HeartRateControlState.Active) {
+                Text(control.state.explanation(control.adjust), Modifier.testTag("hr_control_text"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (control.state == HeartRateControlState.OffByManualChange) {
+                BigButton(stringResource(R.string.hr_block_resume), actions.onResumeHeartRateControl, Modifier.fillMaxWidth().testTag("hr_resume_button"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeartRateControlState.shortLabel(): String = stringResource(
+    when (this) {
+        HeartRateControlState.Active -> R.string.hr_state_active
+        HeartRateControlState.Waiting -> R.string.hr_state_waiting
+        HeartRateControlState.HoldingNoHeartRate -> R.string.hr_state_no_heart_rate
+        HeartRateControlState.OffByManualChange -> R.string.hr_state_off
+        HeartRateControlState.Ceiling -> R.string.hr_state_ceiling
+        HeartRateControlState.Unavailable -> R.string.hr_state_unavailable
+    },
+)
+
+@Composable
+private fun HeartRateControlState.explanation(adjust: com.treadz.console.programs.model.HeartRateAdjust): String {
+    val what = stringResource(if (adjust == com.treadz.console.programs.model.HeartRateAdjust.Speed) R.string.hr_adjust_speed else R.string.hr_adjust_incline)
+    return stringResource(
+        when (this) {
+            HeartRateControlState.Active -> R.string.hr_text_active
+            HeartRateControlState.Waiting -> R.string.hr_text_waiting
+            HeartRateControlState.HoldingNoHeartRate -> R.string.hr_text_no_heart_rate
+            HeartRateControlState.OffByManualChange -> R.string.hr_text_off
+            HeartRateControlState.Ceiling -> R.string.hr_text_ceiling
+            HeartRateControlState.Unavailable -> R.string.hr_text_unavailable
+        },
+        what,
+    )
 }
 
 /** Previous / next block, like a media player. */

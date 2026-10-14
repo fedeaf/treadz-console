@@ -106,6 +106,11 @@ class RunViewModel(
         }
     }
 
+    /** Switches the heart-rate control of the current block on again (after a manual change turned it off). */
+    fun resumeHeartRateControl() {
+        training.resumeHeartRateControl()
+    }
+
     /** Gives up an interrupted program, leaving the belt as it is. */
     fun abandon() {
         local.update { Local() }

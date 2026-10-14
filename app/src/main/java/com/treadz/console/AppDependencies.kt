@@ -3,6 +3,15 @@ package com.treadz.console
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.treadz.console.devices.StrapController
+import com.treadz.console.heartrate.PeakOfferController
+import com.treadz.console.hrm.HeartRateMonitor
+import com.treadz.console.hrm.android.TreadZHeartRate
+import com.treadz.console.hrm.resting.RestingHeartRateSession
+import com.treadz.console.programs.heartrate.AutomaticHeartRateSource
+import com.treadz.console.programs.heartrate.ControllerHeartRateSource
+import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.heartrate.restingHeartRateSession
 import com.treadz.console.settings.AndroidLanguageSettings
 import com.treadz.console.settings.LanguageSettings
 import com.treadz.console.settings.SettingsStore
@@ -50,6 +59,21 @@ interface AppDependencies {
      */
     val training: TrainingCoordinator
 
+    /** The heart rate in use everywhere: the strap connected to the app, else the treadmill console, else none. */
+    val heartRate: HeartRateSource
+
+    /** The active user's strap: kept connected, paired and scanned for; the live heart rate. */
+    val strap: StrapController
+
+    /** The "your heart rate reached X, use it as your maximum?" offers. */
+    val peakOffers: PeakOfferController
+
+    /** A resting heart-rate measurement fed by [heartRate] (it runs in [scope] and starts with `start()`). */
+    fun restingSession(scope: CoroutineScope): RestingHeartRateSession
+
+    /** The current time in epoch milliseconds. Injectable so tests and screenshots are deterministic. */
+    fun nowMillis(): Long = System.currentTimeMillis()
+
     /** Writes workouts to CSV or TCX files in the Downloads folder. */
     val exporter: WorkoutExporter
     fun shareIntent(recording: RecordingInfo): Intent
@@ -67,16 +91,28 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
     override val sync: SyncService by lazy { TreadZSync.get(context) }
     override val language: LanguageSettings by lazy { AndroidLanguageSettings(context) }
 
+    /** The strap connected to the app (one per process, also used by the debug recording). */
+    private val strapMonitor: HeartRateMonitor by lazy { TreadZHeartRate.monitor(context) }
+
+    override val heartRate: AutomaticHeartRateSource by lazy {
+        AutomaticHeartRateSource(strapMonitor, ControllerHeartRateSource(controller), scope, trace = TreadZTreadmill.recordingSink(context))
+    }
+    override val strap: StrapController by lazy {
+        StrapController(strapMonitor, heartRate, controller.state, userData.profiles, settings, scope)
+    }
+    override val peakOffers: PeakOfferController by lazy { PeakOfferController(userData, settings) }
+    override fun restingSession(scope: CoroutineScope): RestingHeartRateSession = restingHeartRateSession(heartRate, scope)
+
     /** Records every treadmill session into the workout history. Started once by the application. */
     val workoutObserver: WorkoutHistoryObserver by lazy {
-        userData.workoutObserver(controller, onError = { Log.e("TreadZ", "Workout history error", it) })
+        userData.workoutObserver(controller, heartRateSource = heartRate, onError = { Log.e("TreadZ", "Workout history error", it) })
     }
 
     override val training: TrainingCoordinator by lazy {
         TrainingCoordinator(
             controller = controller,
-            programRunner = ProgramRunner(controller, scope),
-            fitnessRunner = FitnessTestRunner(controller, scope),
+            programRunner = ProgramRunner(controller, scope, heartRate = heartRate),
+            fitnessRunner = FitnessTestRunner(controller, scope, heartRate = heartRate),
             links = ObserverSessionLinks(workoutObserver),
             userData = userData,
             scope = scope,

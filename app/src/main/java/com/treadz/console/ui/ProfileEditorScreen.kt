@@ -56,6 +56,12 @@ data class ProfileEditorActions(
     val onCancelDelete: () -> Unit = {},
     val onUseMeasuredHeartRateMax: () -> Unit = {},
     val onKeepManualHeartRateMax: () -> Unit = {},
+    /** Opens the detail of the maximum heart rate (its measurements). */
+    val onOpenHeartRateMax: () -> Unit = {},
+    /** Opens the resting heart rate screen. */
+    val onOpenResting: () -> Unit = {},
+    val onAcceptPeakOffer: () -> Unit = {},
+    val onDeclinePeakOffer: () -> Unit = {},
 )
 
 @Composable
@@ -187,6 +193,8 @@ private fun TrainingFields(state: ProfileEditorUiState, actions: ProfileEditorAc
     val form = state.form
     @Composable fun error(field: InputField): String? = state.errors[field]?.let { code -> validationText(field, code) }
 
+    // Where the value comes from, and what typing a different one does (it is one more measurement of the history).
+    val restingOrigin = state.restingReference?.let { restingOriginText(it) }
     TextField(
         label = stringResource(R.string.field_resting_hr),
         value = form.restingHeartRate,
@@ -194,8 +202,11 @@ private fun TrainingFields(state: ProfileEditorUiState, actions: ProfileEditorAc
         error = error(InputField.RestingHeartRate),
         tag = "field_resting_hr",
         keyboardType = KeyboardType.Number,
+        supporting = listOfNotNull(restingOrigin, stringResource(R.string.hint_resting_manual)).joinToString("\n"),
+        supportingTag = "resting_hr_origin",
     )
     val estimated = state.estimatedMaxHeartRate
+    val decision = state.fitness?.heartRateMax
     TextField(
         label = stringResource(R.string.field_max_hr),
         value = form.maxHeartRate,
@@ -204,15 +215,20 @@ private fun TrainingFields(state: ProfileEditorUiState, actions: ProfileEditorAc
         tag = "field_max_hr",
         keyboardType = KeyboardType.Number,
         supporting = when {
-            form.maxHeartRate.isNotBlank() -> null
-            state.fitness?.heartRateMax?.origin == HeartRateMaxOrigin.Measured ->
-                stringResource(R.string.hint_max_hr_measured, state.fitness.heartRateMax.bpm)
+            form.maxHeartRate.isNotBlank() -> stringResource(R.string.hrmax_origin_line_manual)
+            decision != null && decision.origin == HeartRateMaxOrigin.Measured ->
+                stringResource(R.string.hint_max_hr_measured_origin, hrMaxOriginText(decision), decision.bpm)
             estimated != null -> stringResource(R.string.hint_max_hr_estimated, estimated)
             else -> stringResource(R.string.hint_max_hr_needs_birth)
         },
         supportingTag = "max_hr_estimate",
     )
     if (state.mode == EditorMode.Edit) {
+        state.peakOffer?.let { PeakOfferCard(it, actions.onAcceptPeakOffer, actions.onDeclinePeakOffer) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            RowButton(stringResource(R.string.profile_open_hrmax), actions.onOpenHeartRateMax, Modifier.testTag("open_hrmax"))
+            RowButton(stringResource(R.string.profile_open_resting), actions.onOpenResting, Modifier.testTag("open_resting"))
+        }
         state.fitness?.let { fitness ->
             HeartRateMaxQuestion(fitness.heartRateMax, actions.onUseMeasuredHeartRateMax, actions.onKeepManualHeartRateMax)
             FitnessSummaryPanel(fitness.profile, fitness.heartRateMax, Modifier.testTag("profile_fitness"))

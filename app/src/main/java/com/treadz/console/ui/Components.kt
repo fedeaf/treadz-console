@@ -45,6 +45,8 @@ fun MetricCard(
     unitSize: TextUnit = 24.sp,
     dimmed: Boolean = false,
     unitInline: Boolean = true,
+    /** Small content at the right of the label (the heart-rate source icon). */
+    labelTrailing: (@Composable () -> Unit)? = null,
 ) {
     val valueColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
     Surface(
@@ -67,9 +69,12 @@ fun MetricCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                // With the unit on the label line (phone) there is no room for the icon there: it goes next to the value.
+                if (unitInline) labelTrailing?.invoke()
                 if (!unitInline && unit != null) {
                     Text(
                         text = unit,
+                        modifier = Modifier.padding(start = 8.dp),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -93,6 +98,10 @@ fun MetricCard(
                             stepSize = 2.sp,
                         ),
                     )
+                    if (!unitInline && labelTrailing != null) {
+                        Spacer(Modifier.width(10.dp))
+                        Box(Modifier.padding(bottom = 8.dp)) { labelTrailing() }
+                    }
                     if (unitInline && unit != null) {
                         Spacer(Modifier.width(8.dp))
                         Text(

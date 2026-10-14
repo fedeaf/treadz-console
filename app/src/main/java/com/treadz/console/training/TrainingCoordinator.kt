@@ -8,6 +8,7 @@ import com.treadz.console.controls.TreadmillCommands
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.ProgramRunner
 import com.treadz.console.programs.engine.Refusal
+import com.treadz.console.programs.engine.RunOptions
 import com.treadz.console.programs.engine.RunState
 import com.treadz.console.programs.engine.RunnerResult
 import com.treadz.console.programs.fitness.EbbelingParameters
@@ -18,6 +19,7 @@ import com.treadz.console.programs.fitness.FitnessTestProgress
 import com.treadz.console.programs.fitness.FitnessTestRunner
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.MaxTestParameters
+import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.programs.plan.StartParameters
 import com.treadz.console.treadmill.BeltStatus
@@ -36,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -257,7 +260,7 @@ class TrainingCoordinator(
     private suspend fun startProgramBody(userId: Long, plan: ResolvedPlan, parameters: StartParameters): StartOutcome {
         if (programRunner.progress.value.state.isActive() || fitnessRunner.progress.value.phase.isActive()) return StartOutcome.Busy
         links.link(WorkoutLink(plan = plan))
-        return when (val result = programRunner.start(plan)) {
+        return when (val result = programRunner.start(plan, RunOptions(heartRateProfile = heartRateProfile(userId)))) {
             RunnerResult.Success -> {
                 userData.startParameters.save(userId, plan.source.programId, parameters)
                 StartOutcome.Started
@@ -272,6 +275,19 @@ class TrainingCoordinator(
             }
         }
     }
+
+    /**
+     * The user's heart-rate references for heart-rate-guided blocks: the effective maximum (`HeartRateMaxPolicy`: manual,
+     * else measured, else estimated) and the resting reference of the history. `null` when the maximum is unknown.
+     */
+    private suspend fun heartRateProfile(userId: Long): HeartRateProfile? {
+        val max = userData.fitnessTests.heartRateMax(userId).first()?.bpm ?: return null
+        val resting = userData.restingHeartRates.reference(userId).first()?.bpm
+        return HeartRateProfile(max, resting)
+    }
+
+    /** "Resume heart-rate control" after a manual change switched it off: the runner decides whether it applies. */
+    fun resumeHeartRateControl(): RunnerResult = programRunner.resumeHeartRateControl()
 
     suspend fun startEbbeling(userId: Long, parameters: EbbelingParameters): StartOutcome =
         startTest(userId) { id -> fitnessRunner.startEbbeling(parameters.copy(resultId = id)) }

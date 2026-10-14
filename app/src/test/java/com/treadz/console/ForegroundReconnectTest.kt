@@ -120,13 +120,15 @@ class ForegroundReconnectTest {
         assertEquals(3, controller.connectCalls.size)
     }
 
-    @Test fun doesNotReconnectWhenTheTreadmillWasNeverConnected() {
+    @Test fun aNewWindowStartsOnEveryReturnEvenIfTheLastOneFoundNothing() {
         controller.connectResult = CommandResult.Rejected(FailureCode.ConnectionFailed, "raw")
         app.viewModel.onPermissionsGranted()
         assertEquals(1, controller.connectCalls.size)
         goToBackground()
+        assertFalse(ui.autoConnecting) // nothing is attempted in the background
         comeBack()
-        assertEquals(1, controller.connectCalls.size)
+        assertEquals(2, controller.connectCalls.size)
+        assertNull(ui.problem)
     }
 
     @Test fun waitsForBluetoothWhenItIsOffOnReturn() {
@@ -159,7 +161,8 @@ class ForegroundReconnectTest {
 
         app.viewModel.onPermissionsGranted()
 
-        assertEquals(1, controller.connectCalls.size)
+        // Nothing is even attempted while the app is away.
+        assertEquals(0, controller.connectCalls.size)
         assertNull(ui.problem)
         assertEquals(0, controller.scanCalls) // no "treadmill not found" scan either
         assertFalse(ui.scanning)
@@ -167,7 +170,7 @@ class ForegroundReconnectTest {
         controller.connectResult = CommandResult.Success
         comeBack()
 
-        assertEquals(2, controller.connectCalls.size)
+        assertEquals(1, controller.connectCalls.size)
         assertTrue(ui.isConnected)
     }
 

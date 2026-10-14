@@ -102,7 +102,7 @@ class TrainingFlowsUiTest {
         rule.onNodeWithTag("program_summary").assertIsDisplayed()
         rule.onNodeWithTag("program_outcome").assertTextContains("stopped", substring = true)
         click("done_button")
-        assertTrue(exists("start_button") || exists("connection_chip"))
+        assertTrue(exists("start_button") || exists("home_screen"))
     }
 
     @Test fun theStepButtonsDuringAProgramMarkAManualChange() {

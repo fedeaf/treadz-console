@@ -61,7 +61,7 @@ class UiBehaviorTest {
         app.settings.lastTreadmill = com.treadz.console.settings.RememberedTreadmill(FakeTreadmillController.TREADMILL_ADDRESS, "REEBOK 0517")
         app.controller.showConnected(name = null)
         show()
-        rule.onNodeWithText("Connected: REEBOK 0517").assertIsDisplayed()
+        rule.onNodeWithTag("treadmill_chip_status", useUnmergedTree = true).assertTextEquals("REEBOK 0517")
     }
 
     @Test fun clickingStartCallsController() {

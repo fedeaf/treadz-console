@@ -152,14 +152,16 @@ class ConnectionFlowsTest {
         assertTrue(app.viewModel.uiState.value.isConnected)
     }
 
-    @Test fun withNoRememberedTreadmillTheScanStartsWhenBluetoothComesOn() {
+    @Test fun withNoRememberedTreadmillNothingIsAttemptedWhenBluetoothComesOn() {
+        // No automatic scan list: the search is something the user asks for in Devices.
         val app = appWith(null)
         app.controller.showBluetoothOff()
         app.viewModel.onPermissionsGranted()
-        assertEquals(0, app.controller.scanCalls)
         app.controller.bluetoothEnabled.value = true
-        assertEquals(1, app.controller.scanCalls)
-        assertTrue(app.viewModel.uiState.value.scanning)
+        assertEquals(0, app.controller.scanCalls)
+        assertTrue(app.controller.connectCalls.isEmpty())
+        assertFalse(app.viewModel.uiState.value.scanning)
+        assertEquals(TreadmillIndicator.NotSetUp, app.viewModel.uiState.value.treadmillIndicator)
     }
 
     @Test fun theAutomaticConnectionRunsOnlyOnce() {
@@ -242,14 +244,17 @@ class ConnectionFlowsTest {
         assertNull(app.viewModel.uiState.value.problem)
     }
 
-    @Test fun aFailedAutomaticReconnectionKeepsItsProblemWhileItScans() {
+    @Test fun aFailedAutomaticAttemptRaisesNoProblemAndNeverScans() {
         val app = appWith(RememberedTreadmill(address, "REEBOK 0517"))
         app.controller.connectResult = CommandResult.Rejected(FailureCode.ConnectionFailed, "x", ConnectionProblem.DeviceNotFound)
         app.controller.scanResults = FakeTreadmillController.SAMPLE_DEVICES
         app.viewModel.onPermissionsGranted()
         val ui = app.viewModel.uiState.value
-        assertEquals(ConnectionProblem.DeviceNotFound, ui.problem)
-        assertTrue(ui.scanning)
+        // Problems belong to what the user asked for (Devices), not to the quiet automatic connection.
+        assertNull(ui.problem)
+        assertFalse(ui.scanning)
+        assertEquals(0, app.controller.scanCalls)
+        assertTrue(ui.autoConnecting)
     }
 
     @Test fun permissionProblemIsKeptSoTheUiCanAskAgain() {

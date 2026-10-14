@@ -6,6 +6,12 @@ import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.programs.engine.ProgramRunner
 import com.treadz.console.programs.fitness.FitnessTestRunner
+import com.treadz.console.devices.StrapController
+import com.treadz.console.heartrate.PeakOfferController
+import com.treadz.console.hrm.resting.RestingHeartRateSession
+import com.treadz.console.programs.heartrate.AutomaticHeartRateSource
+import com.treadz.console.programs.heartrate.ControllerHeartRateSource
+import com.treadz.console.programs.heartrate.restingHeartRateSession
 import com.treadz.console.sync.service.FakeSyncService
 import com.treadz.console.training.SessionLinks
 import com.treadz.console.training.TrainingCoordinator
@@ -42,7 +48,31 @@ class FakeApp(
     /** Where the program and fitness test runners run. Tests with virtual time pass their own scope and clock. */
     private val trainingScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val trainingClock: Clock = Clock.System,
+    /** Where the strap controller and the automatic heart-rate source run: inline, so tests need no waiting. */
+    private val strapScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+    /** Time of the automatic connection window of the main ViewModel. */
+    private val mainClock: Clock = Clock.System,
+    /** How long the start-up scan for the strap pairing question lasts (screenshots do not wait the real six seconds). */
+    private val strapPairingScanMillis: Long = StrapController.PAIRING_SCAN_MILLIS,
 ) : AppDependencies {
+
+    /** The strap connected to the app (none paired until a test says so). */
+    val strapMonitor = FakeHeartRateMonitor()
+
+    override val heartRate: AutomaticHeartRateSource by lazy { AutomaticHeartRateSource(strapMonitor, ControllerHeartRateSource(controller), strapScope) }
+
+    override val strap: StrapController by lazy {
+        StrapController(strapMonitor, heartRate, controller.state, userData.profiles, settings, strapScope, pairingScanMillis = strapPairingScanMillis).also { it.start() }
+    }
+
+    override val peakOffers: PeakOfferController by lazy { PeakOfferController(userData, settings, ::nowMillis) }
+
+    override fun restingSession(scope: CoroutineScope): RestingHeartRateSession = restingHeartRateSession(heartRate, scope)
+
+    override fun nowMillis(): Long = date.atTime(12, 0).atZone(zoneId).toInstant().toEpochMilli()
+
+    private val zoneId = zone
+
 
     /** The links the training coordinator asked for, in order. */
     val links = RecordingSessionLinks()
@@ -63,7 +93,7 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
-    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training) }
+    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, mainClock) }
 
     /** A new navigation state, as when the app opens (create it after setting up the profiles). */
     fun newNavigation(): NavigationViewModel = NavigationViewModel(userData.profiles)

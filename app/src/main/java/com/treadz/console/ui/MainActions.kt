@@ -51,6 +51,16 @@ data class MainActions(
     val onOpenWeight: () -> Unit = {},
     val onOpenHistory: () -> Unit = {},
     val onOpenPrograms: () -> Unit = {},
+    /** Opens the Devices screen (the treadmill and the heart-rate strap). */
+    val onOpenDevices: () -> Unit = {},
+    /** Opens the resting heart rate screen. */
+    val onOpenResting: () -> Unit = {},
+    /** "Use this strap?": yes / no. */
+    val onAcceptStrapOffer: () -> Unit = {},
+    val onDeclineStrapOffer: () -> Unit = {},
+    /** "Use the observed peak as your maximum heart rate?": yes / no. */
+    val onAcceptPeakOffer: () -> Unit = {},
+    val onDeclinePeakOffer: () -> Unit = {},
     /** Opens the editor to personalise the generic profile. */
     val onPersonalize: () -> Unit = {},
     val controls: ControlActions = ControlActions(),

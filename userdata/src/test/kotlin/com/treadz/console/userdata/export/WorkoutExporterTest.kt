@@ -69,10 +69,10 @@ class WorkoutExporterTest {
         assertTrue("ends with a line break", text.endsWith("\n"))
         val lines = text.trimEnd('\n').split('\n')
         assertEquals(
-            "seq,timestamp,elapsed_s,speed_kmh,target_speed_kmh,incline_pct,distance_m,kcal,hr_bpm,belt_status,stale,elevation_gain_m",
+            "seq,timestamp,elapsed_s,speed_kmh,target_speed_kmh,incline_pct,distance_m,kcal,hr_bpm,belt_status,stale,elevation_gain_m,hr_source,rr_ms",
             lines[0],
         )
-        assertTrue(lines.drop(1).all { it.split(',').size == 12 })
+        assertTrue(lines.drop(1).all { it.split(',').size == 14 })
         val seqs = lines.drop(1).map { it.substringBefore(',').toInt() }
         assertEquals(seqs.sorted(), seqs)
     }

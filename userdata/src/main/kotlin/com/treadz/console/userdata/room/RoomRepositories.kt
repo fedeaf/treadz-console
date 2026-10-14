@@ -3,9 +3,23 @@ package com.treadz.console.userdata.room
 import androidx.room.withTransaction
 import com.treadz.console.userdata.sync.UploadHold
 import com.treadz.console.programs.json.PlanJson
+import com.treadz.console.programs.personalised.GeneratedSessionJson
+import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.GenericProfile
+import com.treadz.console.userdata.HeartRatePeakRecord
+import com.treadz.console.userdata.RestingHeartRateAssessment
+import com.treadz.console.userdata.RestingHeartRateInput
+import com.treadz.console.userdata.RestingHeartRateMeasurement
+import com.treadz.console.userdata.RestingHeartRateReference
+import com.treadz.console.userdata.RestingHeartRateRepository
+import com.treadz.console.userdata.RestingHeartRateSource
+import com.treadz.console.userdata.RestingHeartRates
+import com.treadz.console.userdata.RestingPoint
+import com.treadz.console.userdata.StoredSessionRecord
+import com.treadz.console.userdata.StrapRules
+import com.treadz.console.userdata.StrapSaveResult
 import com.treadz.console.userdata.InputField
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.ProfileRepository
@@ -24,6 +38,7 @@ import com.treadz.console.userdata.WorkoutStats
 import com.treadz.console.userdata.WorkoutSummary
 import com.treadz.console.userdata.workout.WorkoutSessionStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -39,6 +54,8 @@ import java.time.ZoneId
  */
 internal class Stamper(private val clock: Clock, val deviceId: String, private val uuidSource: () -> String) {
     fun at(previousMillis: Long = 0): Long = maxOf(clock.nowMillis(), previousMillis + 1)
+
+    fun nowMillis(): Long = clock.nowMillis()
 
     private var lastCreationMillis = Long.MIN_VALUE
 
@@ -64,6 +81,7 @@ internal class RoomProfileRepository(
 ) : ProfileRepository {
     private val dao = db.users()
     private val weightDao = db.weights()
+    private val restingDao = db.restingHeartRates()
 
     // A fresh database gets the generic profile before anything reads or writes. After that the "at least one
     // profile" invariant (see delete) means the database is never empty again.
@@ -79,18 +97,46 @@ internal class RoomProfileRepository(
         }
     }
 
+    // The resting heart rate of a profile is the reference of the user's history, evaluated when the data changes.
+    private fun referenceBpm(rows: List<RestingHeartRateEntity>?): Int? =
+        if (rows.isNullOrEmpty()) null else RestingHeartRates.reference(rows.map { RestingPoint(it.measuredAtMillis, it.bpm) }, clock.nowMillis())?.bpm
+
     override val profiles: Flow<List<UserProfile>> = flow {
         ensureSeeded()
-        emitAll(dao.observeAll().map { list -> list.map { it.toProfile() } })
+        emitAll(
+            combine(dao.observeAll(), restingDao.observeAllLive()) { users, rows ->
+                val byUser = rows.groupBy { it.userId }
+                users.map { it.toProfile(referenceBpm(byUser[it.id])) }
+            },
+        )
     }
     override val activeUser: Flow<UserProfile?> = flow {
         ensureSeeded()
-        emitAll(dao.observeActive().map { it?.toProfile() })
+        emitAll(
+            combine(dao.observeActive(), restingDao.observeAllLive()) { user, rows ->
+                user?.toProfile(referenceBpm(rows.filter { it.userId == user.id }))
+            },
+        )
     }
 
     override fun profile(id: Long): Flow<UserProfile?> = flow {
         ensureSeeded()
-        emitAll(dao.observe(id).map { it?.toProfile() })
+        emitAll(combine(dao.observe(id), restingDao.observeByUser(id)) { user, rows -> user?.toProfile(referenceBpm(rows)) })
+    }
+
+    /** The profile as it is now, with its resting heart rate. Must run inside a transaction. */
+    private suspend fun profileOf(id: Long): UserProfile = dao.get(id)!!.toProfile(referenceBpm(restingDao.liveForUser(id)))
+
+    /** Stores the resting heart rate typed in a profile form as a manual measurement when it differs from the reference. */
+    private suspend fun recordTypedResting(userId: Long, bpm: Int?) {
+        if (bpm == null) return
+        if (referenceBpm(restingDao.liveForUser(userId)) == bpm) return
+        restingDao.insert(
+            newMeasurement(
+                stamper, userId,
+                RestingHeartRateInput(clock.nowMillis(), bpm, RestingHeartRateSource.Manual),
+            ),
+        )
     }
 
     override suspend fun activeUserId(): Long? {
@@ -120,7 +166,8 @@ internal class RoomProfileRepository(
                     ).fresh(),
                 )
                 if (first) dao.setActive(ActiveUserEntity(userId = id))
-                DataResult.Success(dao.get(id)!!.toProfile())
+                recordTypedResting(id, input.restingHeartRateBpm)
+                DataResult.Success(profileOf(id))
             }
         }
     }
@@ -163,13 +210,18 @@ internal class RoomProfileRepository(
             input.maxHeartRateBpm != current.maxHeartRateBpm -> clock.nowMillis()
             else -> current.maxHeartRateSetAtMillis
         }
+        // The legacy resting heart rate column is left as it is (it is no longer read); the strap is not part of the form.
         val edited = input.toEntity(id, current.targetWeightKg, current.createdAtMillis, isGeneric = stillGeneric, maxHeartRateSetAtMillis = setAt)
-            .copy(uuid = current.uuid, updatedAtMillis = current.updatedAtMillis, updatedBy = current.updatedBy, dirty = current.dirty)
+            .copy(
+                uuid = current.uuid, updatedAtMillis = current.updatedAtMillis, updatedBy = current.updatedBy, dirty = current.dirty,
+                restingHeartRateBpm = current.restingHeartRateBpm, strapAddress = current.strapAddress, strapName = current.strapName,
+            )
         // An edit that changes nothing is not a change: it must not be uploaded.
         if (edited != current) {
             dao.update(edited.copy(updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true))
         }
-        return DataResult.Success(dao.get(id)!!.toProfile())
+        recordTypedResting(id, input.restingHeartRateBpm)
+        return DataResult.Success(profileOf(id))
     }
 
     override suspend fun delete(id: Long): DataResult<Unit> {
@@ -195,6 +247,49 @@ internal class RoomProfileRepository(
         }
     }
 
+    override suspend fun setStrap(id: Long, address: String, name: String?): StrapSaveResult {
+        ensureSeeded()
+        val normalised = StrapRules.normalizeAddress(address) ?: return StrapSaveResult.InvalidAddress
+        val strapName = StrapRules.normalizeName(name)
+        if (strapName != null && strapName.length > StrapRules.NAME_MAX_LENGTH) return StrapSaveResult.NameTooLong
+        return try {
+            db.withTransaction {
+                val current = dao.get(id) ?: return@withTransaction StrapSaveResult.NotFound
+                if (current.strapAddress != normalised || current.strapName != strapName) {
+                    dao.update(
+                        current.copy(
+                            strapAddress = normalised, strapName = strapName,
+                            updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true,
+                        ),
+                    )
+                }
+                StrapSaveResult.Saved(profileOf(id))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            StrapSaveResult.StorageError(e.message ?: e::class.java.simpleName)
+        }
+    }
+
+    override suspend fun clearStrap(id: Long): DataResult<Unit> {
+        ensureSeeded()
+        return guarded {
+            db.withTransaction {
+                val current = dao.get(id) ?: return@withTransaction DataResult.NotFound
+                if (current.strapAddress != null || current.strapName != null) {
+                    dao.update(
+                        current.copy(
+                            strapAddress = null, strapName = null,
+                            updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true,
+                        ),
+                    )
+                }
+                DataResult.Success(Unit)
+            }
+        }
+    }
+
     /** Identity and version of a record that is created now. */
     private fun UserEntity.fresh() = copy(uuid = stamper.newUuid(), updatedAtMillis = stamper.at(), updatedBy = stamper.deviceId, dirty = true)
 
@@ -211,7 +306,7 @@ internal class RoomProfileRepository(
         sex = sex.name,
         heightCm = heightCm,
         birthEpochDay = birthDate.toEpochDay(),
-        restingHeartRateBpm = restingHeartRateBpm,
+        restingHeartRateBpm = null, // legacy column, see UserEntity
         maxHeartRateBpm = maxHeartRateBpm,
         fitnessLevel = fitnessLevel?.name,
         goal = goal?.name,
@@ -318,7 +413,41 @@ internal class RoomWorkoutRepository(
 
     override suspend fun detail(workoutId: Long): WorkoutDetail? = db.withTransaction {
         val workout = dao.get(workoutId) ?: return@withTransaction null
-        WorkoutDetail(workout.toSummary(), dao.samples(workoutId).map { it.toSample() }, readPlan(workout.planJson))
+        WorkoutDetail(
+            workout.toSummary(),
+            dao.samples(workoutId).map { it.toSample() },
+            readPlan(workout.planJson),
+            readSessionRecord(workout.sessionRecordJson),
+        )
+    }
+
+    override suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit> = guarded {
+        val json = GeneratedSessionJson.encode(record)
+        db.withTransaction {
+            val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
+            val generatorId = current.generatorId ?: record.generatorId
+            if (current.sessionRecordJson != json || current.generatorId != generatorId) {
+                dao.setSessionRecord(workoutId, json, generatorId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            }
+            DataResult.Success(Unit)
+        }
+    }
+
+    override fun sessionRecords(userId: Long, generatorId: String): Flow<List<StoredSessionRecord>> =
+        dao.observeSessionRecords(userId, generatorId).map { rows ->
+            rows.mapNotNull { row ->
+                readSessionRecord(row.sessionRecordJson)?.takeIf { it.generatorId == generatorId }
+                    ?.let { StoredSessionRecord(row.id, row.startedAtMillis, it) }
+            }
+        }
+
+    override fun highestHeartRatePeak(userId: Long, withinDays: Int): Flow<HeartRatePeakRecord?> = flow {
+        val since = stamper.nowMillis() - withinDays * 86_400_000L
+        emitAll(
+            dao.observeHighestPeak(userId, since).map { row ->
+                row?.toSummary()?.stats?.peakHeartRate?.let { HeartRatePeakRecord(row.id, it) }
+            },
+        )
     }
 
     override suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit> = guarded {
@@ -335,12 +464,13 @@ internal class RoomWorkoutRepository(
         val programId = link.plan?.source?.programId ?: current.programId
         val programName = link.plan?.source?.programName ?: current.programName
         val fitnessTestId = link.fitnessTestId ?: current.fitnessTestId
+        val generatorId = link.plan?.source?.origin?.generatorId ?: current.generatorId
         if (planJson == current.planJson && programId == current.programId && programName == current.programName &&
-            fitnessTestId == current.fitnessTestId
+            fitnessTestId == current.fitnessTestId && generatorId == current.generatorId
         ) {
             return
         }
-        dao.setLink(current.id, planJson, programId, programName, fitnessTestId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+        dao.setLink(current.id, planJson, programId, programName, fitnessTestId, generatorId, stamper.at(current.updatedAtMillis), stamper.deviceId)
     }
 
     /** Soft delete: the workout becomes a tombstone (so the deletion can be synchronised) and its samples are dropped. */
@@ -416,6 +546,7 @@ internal class RoomWorkoutRepository(
             programId = link?.plan?.source?.programId,
             programName = link?.plan?.source?.programName,
             fitnessTestId = link?.fitnessTestId,
+            generatorId = link?.plan?.source?.origin?.generatorId,
         ),
     )
 
@@ -452,6 +583,9 @@ internal class RoomWorkoutRepository(
             averageHeartRateBpm = stats.averageHeartRateBpm,
             maxHeartRateBpm = stats.maxHeartRateBpm,
             maxInclinePercent = stats.maxInclinePercent,
+            peakHeartRateBpm = stats.peakHeartRate?.bpm,
+            peakHeartRateSource = stats.peakHeartRate?.source?.name,
+            peakHeartRateAtMillis = stats.peakHeartRate?.atMillis,
         )
         if (updated == 0) return false
         if (samples.isNotEmpty()) dao.insertSamples(samples.map { it.toEntity(workoutId) })
@@ -522,7 +656,7 @@ internal suspend fun insertGenericProfile(
 }
 
 /**
- * Deletes a profile as a tombstone, together with its weights, workouts, programs and fitness test results (also
+ * Deletes a profile as a tombstone, together with its weights, resting heart rate measurements, workouts, programs and fitness test results (also
  * tombstones: the profile's own tombstone covers them, so they are not uploaded one by one) and its start parameters and clears the active user if it was this one.
  * Must run inside a transaction.
  */
@@ -535,6 +669,81 @@ internal suspend fun softDeleteUser(db: UserDataDatabase, user: UserEntity, stam
     db.workouts().markDeletedForUser(user.id, at, by)
     db.programs().markDeletedForUser(user.id, at, by)
     db.fitnessTests().markDeletedForUser(user.id, at, by)
+    db.restingHeartRates().markDeletedForUser(user.id, at, by)
     db.startParameters().deleteForUser(user.id)
     db.users().clearActiveIf(user.id)
 }
+
+internal class RoomRestingHeartRateRepository(
+    private val db: UserDataDatabase,
+    private val clock: Clock,
+    private val stamper: Stamper,
+) : RestingHeartRateRepository {
+    private val users = db.users()
+    private val dao = db.restingHeartRates()
+
+    override fun measurements(userId: Long): Flow<List<RestingHeartRateMeasurement>> =
+        dao.observeByUser(userId).map { rows -> rows.map { it.toMeasurement() } }
+
+    override fun reference(userId: Long): Flow<RestingHeartRateReference?> =
+        dao.observeByUser(userId).map { rows -> RestingHeartRates.reference(rows.map { RestingPoint(it.measuredAtMillis, it.bpm) }, clock.nowMillis()) }
+
+    override suspend fun add(userId: Long, input: RestingHeartRateInput): DataResult<RestingHeartRateMeasurement> {
+        val issues = RestingHeartRates.validate(input, clock.nowMillis())
+        if (issues.isNotEmpty()) return DataResult.Invalid(issues)
+        return guarded {
+            db.withTransaction {
+                if (users.get(userId) == null) return@withTransaction DataResult.NotFound
+                val id = dao.insert(newMeasurement(stamper, userId, input))
+                DataResult.Success(dao.get(id)!!.toMeasurement())
+            }
+        }
+    }
+
+    override suspend fun update(measurementId: Long, input: RestingHeartRateInput): DataResult<RestingHeartRateMeasurement> {
+        val issues = RestingHeartRates.validate(input, clock.nowMillis())
+        if (issues.isNotEmpty()) return DataResult.Invalid(issues)
+        return guarded {
+            db.withTransaction {
+                val current = dao.get(measurementId) ?: return@withTransaction DataResult.NotFound
+                val edited = current.copy(
+                    measuredAtMillis = input.measuredAtMillis, bpm = input.bpm, source = input.source.name,
+                    lowestMeanBpm = input.lowestMeanBpm, coverage = input.coverage, rmssdMs = input.rmssdMs,
+                )
+                if (edited != current) {
+                    dao.update(edited.copy(updatedAtMillis = stamper.at(current.updatedAtMillis), updatedBy = stamper.deviceId, dirty = true))
+                }
+                DataResult.Success(dao.get(measurementId)!!.toMeasurement())
+            }
+        }
+    }
+
+    override suspend fun delete(measurementId: Long): DataResult<Unit> = guarded {
+        db.withTransaction {
+            val current = dao.get(measurementId) ?: return@withTransaction DataResult.NotFound
+            dao.markDeleted(measurementId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            DataResult.Success(Unit)
+        }
+    }
+
+    override suspend fun assessment(measurementId: Long): RestingHeartRateAssessment? = db.withTransaction {
+        val measurement = dao.get(measurementId)?.toMeasurement() ?: return@withTransaction null
+        RestingHeartRates.assess(measurement, dao.liveForUser(measurement.userId).map { it.toMeasurement() })
+    }
+}
+
+/** A new resting heart rate measurement, with its identity and version. */
+internal fun newMeasurement(stamper: Stamper, userId: Long, input: RestingHeartRateInput) = RestingHeartRateEntity(
+    userId = userId,
+    uuid = stamper.newUuid(),
+    measuredAtMillis = input.measuredAtMillis,
+    bpm = input.bpm,
+    source = input.source.name,
+    lowestMeanBpm = input.lowestMeanBpm,
+    coverage = input.coverage,
+    rmssdMs = input.rmssdMs,
+    updatedAtMillis = stamper.at(),
+    updatedBy = stamper.deviceId,
+    deleted = false,
+    dirty = true,
+)

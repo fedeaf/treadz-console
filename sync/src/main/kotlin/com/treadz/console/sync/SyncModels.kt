@@ -58,6 +58,7 @@ data class UserUpload(
     val workouts: Int,
     val programs: Int,
     val fitnessTests: Int = 0,
+    val restingHeartRates: Int = 0,
 )
 
 /**

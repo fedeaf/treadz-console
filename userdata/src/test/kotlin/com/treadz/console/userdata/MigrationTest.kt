@@ -176,7 +176,9 @@ class MigrationTest {
             assertEquals(31, pending.weights.size)
             assertEquals(listOf(1L, 2L, 3L, 4L), data.sync.pendingWorkoutIds.first().sorted())
             assertEquals(4, pending.workouts.size)
-            assertEquals(2 + 31 + 4, data.sync.pendingCount.first())
+            // (and Ana's resting heart rate, which the migration to version 5 turned into her first measurement)
+            assertEquals(1, pending.restingHeartRates.size)
+            assertEquals(2 + 31 + 4 + 1, data.sync.pendingCount.first())
             assertTrue(pending.profiles.all { it.version.deviceId == "tablet-1" && it.uuid.isNotEmpty() })
             assertNotNull(pending.workouts.firstOrNull { it.endReason == WorkoutEndReason.Interrupted })
 

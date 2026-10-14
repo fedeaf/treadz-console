@@ -163,7 +163,8 @@ internal interface WorkoutDao {
     @Query(
         "UPDATE workouts SET durationSeconds = :durationSeconds, distanceMeters = :distanceMeters, calories = :calories, " +
             "averageSpeedKmh = :averageSpeedKmh, maxSpeedKmh = :maxSpeedKmh, averageHeartRateBpm = :averageHeartRateBpm, " +
-            "maxHeartRateBpm = :maxHeartRateBpm, maxInclinePercent = :maxInclinePercent WHERE id = :id AND deleted = 0",
+            "maxHeartRateBpm = :maxHeartRateBpm, maxInclinePercent = :maxInclinePercent, peakHeartRateBpm = :peakHeartRateBpm, " +
+            "peakHeartRateSource = :peakHeartRateSource, peakHeartRateAtMillis = :peakHeartRateAtMillis WHERE id = :id AND deleted = 0",
     )
     suspend fun updateStats(
         id: Long,
@@ -175,6 +176,9 @@ internal interface WorkoutDao {
         averageHeartRateBpm: Int?,
         maxHeartRateBpm: Int?,
         maxInclinePercent: Double,
+        peakHeartRateBpm: Int?,
+        peakHeartRateSource: String?,
+        peakHeartRateAtMillis: Long?,
     ): Int
 
     @Query(
@@ -188,7 +192,8 @@ internal interface WorkoutDao {
 
     /** Tombstones a workout; its samples are dropped (the tombstone keeps the identity and the summary). */
     @Query(
-        "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0",
+        "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, sessionRecordJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
+            "WHERE id = :id AND deleted = 0",
     )
     suspend fun markDeleted(id: Long, at: Long, by: String): Int
 
@@ -197,7 +202,8 @@ internal interface WorkoutDao {
 
     /** The profile was deleted: its workouts go with it, without being uploaded one by one. */
     @Query(
-        "UPDATE workouts SET deleted = 1, dirty = 0, planJson = NULL, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0",
+        "UPDATE workouts SET deleted = 1, dirty = 0, planJson = NULL, sessionRecordJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
+            "WHERE userId = :userId AND deleted = 0",
     )
     suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
 
@@ -258,9 +264,38 @@ internal interface WorkoutDao {
     /** Attaches the executed plan and/or fitness test. A change of the record: it is uploaded (once the workout has ended). */
     @Query(
         "UPDATE workouts SET planJson = :planJson, programId = :programId, programName = :programName, fitnessTestId = :fitnessTestId, " +
-            "dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0",
+            "generatorId = :generatorId, dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0",
     )
-    suspend fun setLink(id: Long, planJson: String?, programId: String?, programName: String?, fitnessTestId: String?, at: Long, by: String): Int
+    suspend fun setLink(
+        id: Long,
+        planJson: String?,
+        programId: String?,
+        programName: String?,
+        fitnessTestId: String?,
+        generatorId: String?,
+        at: Long,
+        by: String,
+    ): Int
+
+    /** Attaches the record of a generated session. A change of the record: it is uploaded (once the workout has ended). */
+    @Query(
+        "UPDATE workouts SET sessionRecordJson = :json, generatorId = :generatorId, dirty = 1, updatedAtMillis = :at, updatedBy = :by " +
+            "WHERE id = :id AND deleted = 0",
+    )
+    suspend fun setSessionRecord(id: Long, json: String, generatorId: String?, at: Long, by: String): Int
+
+    @Query(
+        "SELECT * FROM workouts WHERE userId = :userId AND generatorId = :generatorId AND sessionRecordJson IS NOT NULL AND deleted = 0 " +
+            "ORDER BY startedAtMillis DESC, id DESC",
+    )
+    fun observeSessionRecords(userId: Long, generatorId: String): Flow<List<WorkoutEntity>>
+
+    /** The finished workout with the highest heart rate peak reached since [since]. */
+    @Query(
+        "SELECT * FROM workouts WHERE userId = :userId AND deleted = 0 AND endReason IS NOT NULL AND peakHeartRateBpm IS NOT NULL " +
+            "AND peakHeartRateAtMillis >= :since ORDER BY peakHeartRateBpm DESC, peakHeartRateAtMillis DESC, id DESC LIMIT 1",
+    )
+    fun observeHighestPeak(userId: Long, since: Long): Flow<WorkoutEntity?>
 }
 
 @Dao
@@ -382,4 +417,57 @@ internal interface StartParametersDao {
     /** A profile was deleted (its rows are tombstones, so the foreign key does not remove these). */
     @Query("DELETE FROM start_parameters WHERE userId = :userId")
     suspend fun deleteForUser(userId: Long): Int
+}
+
+@Dao
+internal interface RestingHeartRateDao {
+    @Query("SELECT * FROM resting_heart_rates WHERE userId = :userId AND deleted = 0 ORDER BY measuredAtMillis, uuid")
+    fun observeByUser(userId: Long): Flow<List<RestingHeartRateEntity>>
+
+    @Query("SELECT * FROM resting_heart_rates WHERE userId = :userId AND deleted = 0 ORDER BY measuredAtMillis, uuid")
+    suspend fun liveForUser(userId: Long): List<RestingHeartRateEntity>
+
+    /** The live measurements of every user, to derive the resting heart rate of the profiles. */
+    @Query("SELECT * FROM resting_heart_rates WHERE deleted = 0")
+    fun observeAllLive(): Flow<List<RestingHeartRateEntity>>
+
+    @Query("SELECT * FROM resting_heart_rates WHERE id = :id AND deleted = 0")
+    suspend fun get(id: Long): RestingHeartRateEntity?
+
+    @Insert
+    suspend fun insert(row: RestingHeartRateEntity): Long
+
+    @Update
+    suspend fun update(row: RestingHeartRateEntity): Int
+
+    @Query("UPDATE resting_heart_rates SET deleted = 1, dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0")
+    suspend fun markDeleted(id: Long, at: Long, by: String): Int
+
+    /** The profile was deleted: its measurements go with it, without being uploaded one by one. */
+    @Query("UPDATE resting_heart_rates SET deleted = 1, dirty = 0, updatedAtMillis = :at, updatedBy = :by WHERE userId = :userId AND deleted = 0")
+    suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
+
+    // ---- synchronisation ----
+
+    @Query("SELECT * FROM resting_heart_rates WHERE uuid = :uuid")
+    suspend fun getByUuid(uuid: String): RestingHeartRateEntity?
+
+    /** Every measurement of the user, tombstones included: the content of its resting heart rate file. */
+    @Query("SELECT * FROM resting_heart_rates WHERE userId = :userId ORDER BY measuredAtMillis, uuid")
+    suspend fun allForSync(userId: Long): List<RestingHeartRateEntity>
+
+    @Query(
+        "SELECT r.* FROM resting_heart_rates r INNER JOIN users u ON u.id = r.userId " +
+            "WHERE r.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0 ORDER BY r.id",
+    )
+    suspend fun pending(): List<RestingHeartRateEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM resting_heart_rates r INNER JOIN users u ON u.id = r.userId " +
+            "WHERE r.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0",
+    )
+    fun observePendingCount(): Flow<Int>
+
+    @Query("UPDATE resting_heart_rates SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
+    suspend fun markSynced(uuid: String, at: Long, by: String): Int
 }

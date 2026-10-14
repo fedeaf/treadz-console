@@ -7,7 +7,8 @@ import com.treadz.console.userdata.WorkoutStats
 
 /**
  * Write side of the workout history, used by [WorkoutHistoryObserver]. Every call is atomic: after a crash a
- * workout has either all the samples of a flush with its totals, or none of them.
+ * workout has either all the samples of a flush with its totals (the heart rate peak included, see
+ * `WorkoutStats.peakHeartRate`), or none of them.
  */
 interface WorkoutSessionStore {
 

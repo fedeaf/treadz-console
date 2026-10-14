@@ -568,10 +568,10 @@ fun failureMessage(failure: ControlFailure): String {
 
 /** The four secondary figures of the phone in one line, so the speed and the incline keep the room. */
 @Composable
-fun MetricStrip(items: List<Triple<String, String, String?>>, dimmed: Boolean, modifier: Modifier = Modifier) {
+fun MetricStrip(items: List<StripItem>, dimmed: Boolean, modifier: Modifier = Modifier) {
     Panel(modifier) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            for ((label, value, unit) in items) {
+            for ((label, value, unit, badge) in items) {
                 Column(
                     Modifier.weight(1f).semantics(mergeDescendants = true) {},
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -592,17 +592,23 @@ fun MetricStrip(items: List<Triple<String, String, String?>>, dimmed: Boolean, m
                         color = valueColor,
                         maxLines = 1,
                     )
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
+                    }
                 }
             }
         }
     }
 }
+
+/** One figure of the [MetricStrip]; [badge] is the heart-rate source, shown as a small icon next to the label. */
+data class StripItem(val label: String, val value: String, val unit: String?, val badge: com.treadz.console.programs.fitness.HeartRateSourceKind? = null)
 
 // ---------------------------------------------------------------------------------------------------------------
 // STOP bar for the other screens

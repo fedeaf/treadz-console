@@ -42,4 +42,13 @@ sealed interface Screen {
 
     /** A stored fitness test result. */
     data class FitnessResult(val testId: String) : Screen
+
+    /** The treadmill and the active user's heart-rate strap: state, connect, search, pair, forget. */
+    data object Devices : Screen
+
+    /** Measure the resting heart rate (no treadmill needed), its reference and history. */
+    data object RestingHeartRate : Screen
+
+    /** The maximum heart rate of a profile: the value in use, where it comes from and every measurement. */
+    data class HeartRateMax(val profileId: Long) : Screen
 }

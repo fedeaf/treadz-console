@@ -28,14 +28,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.treadz.console.MainUiState
+import com.treadz.console.home.HomeUiState
 import com.treadz.console.R
-import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.userdata.UserProfile
 
-/** Main screen: top bar (user, weight, history, connection), then the connection pane or the live data. */
+/**
+ * Main screen: top bar (user, weight, history, the treadmill and strap indicators), then today's live data (the
+ * treadmill is connected, or the belt may be moving) or the home with its shortcuts.
+ */
 @Composable
-fun MainScreen(ui: MainUiState, permissions: PermissionsUi, actions: MainActions) {
+fun MainScreen(ui: MainUiState, home: HomeUiState, permissions: PermissionsUi, actions: MainActions) {
     val layout = LocalLayout.current
     val compact = layout.compact
     val wide = layout.wide
@@ -48,11 +51,13 @@ fun MainScreen(ui: MainUiState, permissions: PermissionsUi, actions: MainActions
         } else {
             if (permissions.notificationsDenied) NotificationsDeniedBanner()
             if (ui.activeUser?.isGeneric == true && ui.canSwitchUser) GenericUserBanner(actions)
+            // Never during a workout: the controls and the alerts have the room then.
+            if (!ui.beltActive) ui.strap.pairingOffer?.let { StrapOfferCard(it, actions.onAcceptStrapOffer, actions.onDeclineStrapOffer) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (ui.showsLiveData) {
                     LiveData(ui, actions, wide = wide, sizes = sizes)
                 } else {
-                    ConnectionPane(ui, actions)
+                    HomeScreen(ui, home, actions)
                 }
             }
         }
@@ -75,8 +80,8 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
                 UserChip(ui.activeUser, ui.canSwitchUser, actions.onOpenUsers, Modifier.weight(1f))
                 NavButtons(ui, actions)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName, ui.waitingForBluetooth)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DeviceChips(ui, actions.onOpenDevices, Modifier.weight(1f))
                 if (recording) RecordingIndicator()
             }
         }
@@ -85,7 +90,7 @@ private fun TopBar(ui: MainUiState, actions: MainActions, compact: Boolean) {
             AppTitle()
             UserChip(ui.activeUser, ui.canSwitchUser, actions.onOpenUsers)
             NavButtons(ui, actions)
-            ConnectionChip(ui.connection, Modifier.weight(1f), ui.connectedName, ui.waitingForBluetooth)
+            DeviceChips(ui, actions.onOpenDevices, Modifier.weight(1f))
             if (recording) RecordingIndicator()
             SettingsButton(ui.canOpenSettings, ui.syncError != null, actions.onOpenSettingsScreen)
         }
@@ -185,36 +190,5 @@ private fun GenericUserBanner(actions: MainActions) {
             }
             RowButton(stringResource(R.string.generic_banner_action), actions.onPersonalize, Modifier.testTag("personalize_button"))
         }
-    }
-}
-
-/** Connection state, always visible. */
-@Composable
-fun ConnectionChip(
-    connection: ConnectionState,
-    modifier: Modifier = Modifier,
-    name: String? = (connection as? ConnectionState.Connected)?.name,
-    /** Reconnecting with Bluetooth off: "Waiting for Bluetooth" instead of the attempt counter. */
-    waitingForBluetooth: Boolean = false,
-) {
-    val unnamed = stringResource(R.string.treadmill_unnamed)
-    val (text, color) = when (connection) {
-        ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected) to MaterialTheme.colorScheme.error
-        is ConnectionState.Connecting -> stringResource(R.string.conn_connecting) to MaterialTheme.extra.warning
-        is ConnectionState.Connected ->
-            stringResource(R.string.conn_connected, name ?: unnamed) to MaterialTheme.extra.ok
-        is ConnectionState.Reconnecting ->
-            (if (waitingForBluetooth) stringResource(R.string.conn_waiting_bluetooth) else stringResource(R.string.conn_reconnecting, connection.attempt)) to
-                MaterialTheme.extra.warning
-    }
-    Row(modifier.testTag("connection_chip"), verticalAlignment = Alignment.CenterVertically) {
-        StatusDot(color, size = 14.dp)
-        Text(
-            text,
-            modifier = Modifier.padding(start = 10.dp),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
     }
 }

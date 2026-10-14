@@ -164,19 +164,22 @@ class MainViewModelTest {
         assertEquals(1, app.controller.connectCalls.size)
     }
 
-    @Test fun failedAutoReconnectFallsBackToScan() {
+    @Test fun aFailedAutomaticAttemptDoesNotScanOrRaiseAProblem() {
         val app = FakeApp(settings = InMemorySettingsStore(RememberedTreadmill("AA:BB", "REEBOK 0517")))
         app.controller.connectResult = CommandResult.NotConnected
         app.controller.scanResults = FakeTreadmillController.SAMPLE_DEVICES
         app.viewModel.onPermissionsGranted()
-        assertEquals(ConnectionProblem.Other, app.viewModel.uiState.value.problem)
-        assertTrue(app.viewModel.uiState.value.scanning)
-        assertEquals(3, app.viewModel.uiState.value.devices.size)
+        assertNull(app.viewModel.uiState.value.problem)
+        assertFalse(app.viewModel.uiState.value.scanning)
+        assertEquals(0, app.controller.scanCalls)
     }
 
-    @Test fun scansWhenNoRememberedTreadmill() {
+    @Test fun doesNothingWithoutARememberedTreadmillUntilTheUserSearches() {
         controller.scanResults = FakeTreadmillController.SAMPLE_DEVICES
         vm.onPermissionsGranted()
+        assertFalse(ui.scanning)
+        assertTrue(controller.connectCalls.isEmpty())
+        vm.startScan()
         assertTrue(ui.scanning)
         // Sorted by signal, strongest first.
         assertEquals(listOf(-48, -71, -86), ui.devices.map { it.rssi })

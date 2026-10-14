@@ -364,7 +364,7 @@ class SettingsUiTest {
         app.controller.showRunning()
         rule.waitForIdle()
         rule.onNodeWithTag("forget_treadmill").assertIsNotEnabled()
-        rule.onNodeWithTag("settings_belt_locked").assertIsDisplayed()
+        rule.onNodeWithTag("settings_belt_locked").performScrollTo().assertIsDisplayed()
         rule.onNodeWithTag("settings_belt_locked_language").performScrollTo().assertIsDisplayed()
     }
 

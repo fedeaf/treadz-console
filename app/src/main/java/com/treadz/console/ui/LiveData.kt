@@ -169,15 +169,16 @@ private fun ActiveCompact(ui: MainUiState, actions: MainActions, sizes: LiveSize
 private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifier) {
     val t = ui.treadmill
     val stale = t.isStale || ui.connection is ConnectionState.Reconnecting
-    val noHr = t.heartRateBpm == null
+    val hr = ui.strap.heartRate
+    val noHr = hr.bpm == null
     if (!sizes.wide) {
         // One line on the phone: the speed and the incline keep the room.
         MetricStrip(
             items = listOf(
-                Triple(stringResource(R.string.metric_distance), Format.distanceKm(t.distanceMeters), stringResource(R.string.unit_distance)),
-                Triple(stringResource(R.string.metric_time), Format.duration(t.elapsedSeconds), null),
-                Triple(stringResource(R.string.metric_calories), Format.calories(t.calories), stringResource(R.string.unit_calories)),
-                Triple(stringResource(R.string.metric_heart_rate), Format.heartRate(t.heartRateBpm), if (noHr) null else stringResource(R.string.unit_heart_rate)),
+                StripItem(stringResource(R.string.metric_distance), Format.distanceKm(t.distanceMeters), stringResource(R.string.unit_distance)),
+                StripItem(stringResource(R.string.metric_time), Format.duration(t.elapsedSeconds), null),
+                StripItem(stringResource(R.string.metric_calories), Format.calories(t.calories), stringResource(R.string.unit_calories)),
+                StripItem(stringResource(R.string.metric_heart_rate), Format.heartRate(hr.bpm), if (noHr) null else stringResource(R.string.unit_heart_rate), badge = hr.source),
             ),
             dimmed = stale,
             modifier = modifier,
@@ -185,7 +186,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
         return
     }
     @Composable
-    fun RowScope.metric(labelRes: Int, value: String, unitRes: Int?, note: String? = null) = MetricCard(
+    fun RowScope.metric(labelRes: Int, value: String, unitRes: Int?, note: String? = null, labelTrailing: (@Composable () -> Unit)? = null) = MetricCard(
         label = stringResource(labelRes),
         value = value,
         unit = unitRes?.let { stringResource(it) },
@@ -195,6 +196,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
         unitSize = 24.sp,
         unitInline = true,
         dimmed = stale,
+        labelTrailing = labelTrailing,
     )
     Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -205,9 +207,10 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
             metric(R.string.metric_calories, Format.calories(t.calories), R.string.unit_calories)
             metric(
                 R.string.metric_heart_rate,
-                Format.heartRate(t.heartRateBpm),
+                Format.heartRate(hr.bpm),
                 if (noHr) null else R.string.unit_heart_rate,
-                note = if (noHr) stringResource(R.string.heart_rate_none) else null,
+                note = if (noHr) noHeartRateText(hr.source) else null,
+                labelTrailing = hr.source?.let { source -> { HeartRateSourceBadge(source) } },
             )
         }
     }
@@ -240,7 +243,8 @@ private fun BeltStateLabel(status: BeltStatus, modifier: Modifier = Modifier) {
 private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = Modifier) {
     val t = ui.treadmill
     val stale = t.isStale || ui.connection is ConnectionState.Reconnecting
-    val noHr = t.heartRateBpm == null
+    val hr = ui.strap.heartRate
+    val noHr = hr.bpm == null
     @Composable
     fun card(
         labelRes: Int,
@@ -249,6 +253,7 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
         mod: Modifier,
         note: String? = null,
         dimmed: Boolean = false,
+        labelTrailing: (@Composable () -> Unit)? = null,
     ) = MetricCard(
         label = stringResource(labelRes),
         value = value,
@@ -259,6 +264,7 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
         unitSize = sizes.unit,
         unitInline = sizes.unitInline,
         dimmed = dimmed || stale,
+        labelTrailing = labelTrailing,
     )
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -274,10 +280,11 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
             card(R.string.metric_calories, Format.calories(t.calories), R.string.unit_calories, Modifier.weight(1f).fillMaxSize())
             card(
                 R.string.metric_heart_rate,
-                Format.heartRate(t.heartRateBpm),
+                Format.heartRate(hr.bpm),
                 if (noHr) null else R.string.unit_heart_rate,
                 Modifier.weight(1f).fillMaxSize(),
-                note = if (noHr) stringResource(R.string.heart_rate_none) else null,
+                note = if (noHr) noHeartRateText(hr.source) else null,
+                labelTrailing = hr.source?.let { source -> { HeartRateSourceBadge(source, withName = sizes.unitInline) } },
             )
         }
     }
@@ -422,4 +429,18 @@ private fun startFailureMessage(result: CommandResult): String = when (result) {
     CommandResult.Success -> ""
     CommandResult.NotConnected -> stringResource(R.string.start_failed_not_connected)
     is CommandResult.Failure -> stringResource(R.string.start_failed, failureText(result.code))
+}
+
+/** The note under a heart rate figure that has no value: no monitor at all, or a strap that gives no reading. */
+@Composable
+private fun noHeartRateText(source: com.treadz.console.programs.fitness.HeartRateSourceKind?): String =
+    stringResource(if (source == com.treadz.console.programs.fitness.HeartRateSourceKind.DirectStrap) R.string.heart_rate_strap_no_reading else R.string.heart_rate_none)
+
+/** The source of the heart rate shown: its small icon and, where there is room, its name. */
+@Composable
+fun HeartRateSourceBadge(source: com.treadz.console.programs.fitness.HeartRateSourceKind, withName: Boolean = true) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("hr_source_badge")) {
+        HeartRateSourceIcon(source)
+        if (withName) Text(source.label(), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
 }

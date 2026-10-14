@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import com.treadz.console.fakes.FakeApp
 import com.treadz.console.fakes.createProfile
@@ -153,10 +154,12 @@ class UserFlowsUiTest {
     @Test fun deletingAUserAsksForConfirmationAndExplainsTheConsequences() {
         val ana = data.createProfile("Ana")
         show(Screen.ProfileEditor(ana.id, 1))
+        rule.onNodeWithTag("delete_button").performScrollTo()
         click("delete_button")
         rule.onNodeWithText("This also deletes all the weights and workouts of this user. It cannot be undone.").assertIsDisplayed()
         click("cancel_button")
         assertEquals(2, runBlocking { data.profiles.profiles.first().size })
+        rule.onNodeWithTag("delete_button").performScrollTo()
         click("delete_button")
         click("confirm_button")
         assertEquals(1, runBlocking { data.profiles.profiles.first().size })

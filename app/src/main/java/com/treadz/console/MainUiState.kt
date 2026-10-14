@@ -3,6 +3,7 @@ package com.treadz.console
 import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionControls
+import com.treadz.console.devices.StrapUiState
 import com.treadz.console.sync.SyncError
 import com.treadz.console.training.FinishedWorkout
 import com.treadz.console.treadmill.BeltStatus
@@ -55,6 +56,12 @@ data class MainUiState(
     val session: SessionControls = SessionControls(),
     /** The workout that has just ended, waiting to be kept or discarded. */
     val finishedWorkout: FinishedWorkout? = null,
+    /** The app is trying to connect to the remembered treadmill on its own (it gives up after two minutes). */
+    val autoConnecting: Boolean = false,
+    /** The last automatic attempt ended without finding the treadmill. */
+    val autoConnectGaveUp: Boolean = false,
+    /** The active user's heart-rate strap and the heart rate in use. */
+    val strap: StrapUiState = StrapUiState(),
 ) {
     val isConnected: Boolean get() = connection is ConnectionState.Connected
 
@@ -72,9 +79,26 @@ data class MainUiState(
             bluetoothEnabled && (reconnectProblem == ConnectionProblem.DeviceNotFound || c.attempt >= STUCK_RECONNECT_ATTEMPTS)
         } ?: false
 
-    /** Live data visible: connected, or reconnecting (the last known values are shown). */
+    /**
+     * The main screen shows today's live data: connected, reconnecting (the last known values are shown) or, whatever the
+     * connection, while the belt may be moving (safety first: STOP and the reconnection banners stay). Otherwise it is the
+     * home with its shortcuts.
+     */
     val showsLiveData: Boolean
-        get() = connection is ConnectionState.Connected || connection is ConnectionState.Reconnecting
+        get() = connection is ConnectionState.Connected || connection is ConnectionState.Reconnecting || beltActive
+
+    /** The state of the treadmill as the small indicator in the top bar and the Devices screen say it. */
+    val treadmillIndicator: TreadmillIndicator
+        get() = when {
+            connection is ConnectionState.Connected -> TreadmillIndicator.Connected
+            connection is ConnectionState.Reconnecting -> if (waitingForBluetooth) TreadmillIndicator.WaitingForBluetooth else TreadmillIndicator.Reconnecting
+            connection is ConnectionState.Connecting -> TreadmillIndicator.Connecting
+            !bluetoothEnabled -> TreadmillIndicator.BluetoothOff
+            autoConnecting -> TreadmillIndicator.Searching
+            autoConnectGaveUp || problem == ConnectionProblem.DeviceNotFound -> TreadmillIndicator.NotFound
+            rememberedAddress == null -> TreadmillIndicator.NotSetUp
+            else -> TreadmillIndicator.NotConnected
+        }
 
     /**
      * Name to show for the connected treadmill. Android gives no name when it reconnects by itself, so the remembered one
@@ -149,4 +173,19 @@ data class MainUiState(
         /** From this reconnection attempt on, the treadmill is assumed to be off or out of range. */
         const val STUCK_RECONNECT_ATTEMPTS = 4
     }
+}
+
+/** The treadmill's state in one word, for the indicator in the top bar. */
+enum class TreadmillIndicator {
+    Connected, Connecting, Reconnecting, WaitingForBluetooth, BluetoothOff,
+
+    /** The app is looking for the remembered treadmill on its own. */
+    Searching,
+
+    /** The automatic search ended without finding it (or the last manual attempt did). */
+    NotFound,
+
+    /** No treadmill remembered: it has to be searched for in Devices. */
+    NotSetUp,
+    NotConnected,
 }

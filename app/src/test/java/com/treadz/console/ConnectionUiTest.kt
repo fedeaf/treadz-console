@@ -16,6 +16,7 @@ import com.treadz.console.fakes.FakeTreadmillController
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.treadmill.ConnectionProblem
 import com.treadz.console.treadmill.ConnectionState
+import com.treadz.console.nav.Screen
 import com.treadz.console.ui.MainActions
 import com.treadz.console.ui.PermissionsUi
 import com.treadz.console.ui.TreadZRoot
@@ -28,7 +29,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** Connection screen and reconnection banner on the real UI: Bluetooth off, problems, no addresses, the way out. */
+/** Devices screen (the treadmill section) and reconnection banner on the real UI: Bluetooth off, problems, no addresses, the way out. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "en-w1280dp-h800dp-land-hdpi")
@@ -41,7 +42,8 @@ class ConnectionUiTest {
     private var bluetoothRequests = 0
     private var permissionRequests = 0
 
-    private fun show() {
+    /** Opens the app; the connection controls live in Devices, which is opened unless [devices] is false. */
+    private fun show(devices: Boolean = true) {
         app.viewModel
         rule.setContent {
             TreadZRoot(
@@ -53,6 +55,10 @@ class ConnectionUiTest {
             )
         }
         rule.waitForIdle()
+        if (devices) {
+            app.navigation.push(Screen.Devices)
+            rule.waitForIdle()
+        }
     }
 
     private fun assertNoText(text: String) {
@@ -163,7 +169,7 @@ class ConnectionUiTest {
     @Test fun reconnectingOffersToStopAndThatLeadsBackToScanning() {
         controller.scanResults = FakeTreadmillController.SAMPLE_DEVICES
         controller.showConnected()
-        show()
+        show(devices = false)
         controller.showReconnecting(attempt = 2)
         rule.waitForIdle()
         rule.onNodeWithTag("reconnecting_banner").assertIsDisplayed()
@@ -176,21 +182,22 @@ class ConnectionUiTest {
 
         assertEquals(1, controller.disconnectCalls)
         assertEquals(ConnectionState.Disconnected, app.viewModel.uiState.value.connection)
-        rule.onNodeWithText("Connect to your treadmill").assertIsDisplayed()
+        // Giving up leads to the search, whose list lives in Devices.
+        rule.onNodeWithTag("devices_screen").assertIsDisplayed()
         rule.onNodeWithTag("scanning_label").assertIsDisplayed()
         rule.onNodeWithText("REEBOK 0517").assertIsDisplayed()
     }
 
     @Test fun afterSeveralAttemptsTheExplanationAndTheActionAreMoreProminent() {
         controller.showReconnecting(attempt = MainUiState.STUCK_RECONNECT_ATTEMPTS)
-        show()
+        show(devices = false)
         rule.onNodeWithText("Treadmill not found").assertIsDisplayed()
         rule.onNodeWithTag("stop_reconnecting_button").assertTextEquals("Stop reconnecting and search")
     }
 
     @Test fun whenTheTreadmillIsNotFoundItIsProminentAtOnce() {
         controller.showReconnectingNotFound(attempt = 1)
-        show()
+        show(devices = false)
         rule.onNodeWithText("Treadmill not found").assertIsDisplayed()
         assertTrue(rule.onAllNodesWithText("off or out of range", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
@@ -198,9 +205,9 @@ class ConnectionUiTest {
     @Test fun reconnectingWithBluetoothOffSaysWaitingForBluetooth() {
         controller.showReconnecting(attempt = 12)
         controller.showBluetoothOff()
-        show()
-        rule.onNodeWithTag("connection_chip").assertIsDisplayed()
-        rule.onNode(hasText("Waiting for Bluetooth…")).assertIsDisplayed()
+        show(devices = false)
+        rule.onNodeWithTag("treadmill_chip").assertIsDisplayed()
+        rule.onNode(hasText("Waiting for Bluetooth…"), useUnmergedTree = true).assertIsDisplayed()
         assertNoText("attempt")
         rule.onNodeWithTag("bluetooth_enable_button").performClick()
         assertEquals(1, bluetoothRequests)
@@ -212,20 +219,21 @@ class ConnectionUiTest {
         controller.showConnected()
         controller.showRunning()
         controller.showReconnectingNotFound()
-        show()
+        show(devices = false)
         rule.onNodeWithTag("stop_unreachable").assertIsDisplayed()
         rule.onNodeWithText("Use the console's STOP or pull the safety key.").assertIsDisplayed()
         rule.onNodeWithTag("stop_reconnecting_button").assertIsDisplayed()
     }
 
-    @Test fun afterGivingUpWithTheBeltPossiblyMovingTheInstructionIsStillOnTheConnectionScreen() {
+    @Test fun afterGivingUpWithTheBeltPossiblyMovingTheInstructionIsStillInView() {
         controller.showConnected()
         controller.showRunning()
         controller.showReconnecting()
-        show()
+        show(devices = false)
         rule.onNodeWithTag("stop_reconnecting_button").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Connect to your treadmill").assertIsDisplayed()
-        rule.onNodeWithTag("stop_unreachable").assertIsDisplayed()
+        rule.onNodeWithTag("devices_screen").assertIsDisplayed()
+        // The session bar of Devices keeps the instruction while the belt may be moving.
+        rule.onNodeWithTag("session_unreachable").assertIsDisplayed()
     }
 }

@@ -46,6 +46,7 @@ kotlin {
 
 dependencies {
     implementation(project(":treadmill-android"))
+    implementation(project(":hrm-android"))
     implementation(project(":programs"))
     implementation(project(":userdata"))
     implementation(project(":sync"))

@@ -48,11 +48,17 @@ abstract class ScreenshotScenarios(private val prefix: String) {
     private fun capture(
         name: String,
         permissions: PermissionsUi = PermissionsUi(),
+        devices: Boolean = false,
     ) {
         rule.setContent {
             TreadZRoot(dependencies = app, viewModel = app.viewModel, permissions = permissions, actions = MainActions(), navigation = app.navigation)
         }
         rule.waitForIdle()
+        // The scan list and the connection errors live in Devices.
+        if (devices) {
+            app.navigation.push(com.treadz.console.nav.Screen.Devices)
+            rule.waitForIdle()
+        }
         rule.onRoot().captureRoboImage("build/outputs/roborazzi/${prefix}_$name.png")
     }
 
@@ -61,14 +67,14 @@ abstract class ScreenshotScenarios(private val prefix: String) {
     @Test fun s02_scanning() {
         controller.scanResults = SAMPLE_DEVICES
         app.viewModel.startScan()
-        capture("02_scanning")
+        capture("02_scanning", devices = true)
     }
 
     @Test fun s03_connecting() {
         controller.scanResults = SAMPLE_DEVICES
         controller.connectGate = CompletableDeferred()
         app.viewModel.connect(FakeTreadmillController.TREADMILL_ADDRESS, FakeTreadmillController.TREADMILL_NAME)
-        capture("03_connecting")
+        capture("03_connecting", devices = true)
     }
 
     @Test fun s04_connected_idle() {
@@ -155,7 +161,8 @@ abstract class ScreenshotScenarios(private val prefix: String) {
         app.settings.lastTreadmill = RememberedTreadmill(FakeTreadmillController.TREADMILL_ADDRESS, FakeTreadmillController.TREADMILL_NAME)
         controller.connectResult = CommandResult.NotConnected
         app.viewModel.onPermissionsGranted()
-        capture("16_remembered_failed")
+        app.viewModel.reconnectToRemembered()
+        capture("16_remembered_failed", devices = true)
     }
 
     @Test fun s17_permission_needed() = capture("17_permission_needed", PermissionsUi(BluetoothPermission.NeedsRequest))
@@ -172,13 +179,13 @@ abstract class ScreenshotScenarios(private val prefix: String) {
         app.viewModel.setDarkTheme(false)
         controller.scanResults = SAMPLE_DEVICES
         app.viewModel.startScan()
-        capture("20_light_scanning")
+        capture("20_light_scanning", devices = true)
     }
 
     @Test fun s21_scan_finished_empty() {
         controller.scanNeverEnds = false
         app.viewModel.startScan()
-        capture("21_scan_empty")
+        capture("21_scan_empty", devices = true)
     }
 
     @Test fun s22_long_session() {

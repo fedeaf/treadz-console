@@ -22,7 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +41,9 @@ import com.treadz.console.MainViewModel
 import com.treadz.console.R
 import com.treadz.console.controls.ControlAxis
 import com.treadz.console.controls.SessionKind
+import com.treadz.console.home.HeartRateMaxViewModel
+import com.treadz.console.home.HomeViewModel
+import com.treadz.console.resting.RestingViewModel
 import com.treadz.console.history.HistoryViewModel
 import com.treadz.console.history.WorkoutDetailViewModel
 import com.treadz.console.lifecycle.ExitPrompt
@@ -79,8 +84,15 @@ fun TreadZRoot(
     exit: ExitViewModel = viewModel(
         factory = viewModelFactory { initializer { ExitViewModel(dependencies.appLifecycle, dependencies.controller) } },
     ),
+    home: HomeViewModel = viewModel(
+        factory = viewModelFactory { initializer { HomeViewModel(dependencies.userData, dependencies.peakOffers) } },
+    ),
 ) {
     val ui by viewModel.uiState.collectAsStateWithLifecycle()
+    val homeState by home.uiState.collectAsStateWithLifecycle()
+    val strap = dependencies.strap
+    // The resting heart rate measurement keeps the screen on while it runs, belt or no belt.
+    var measuringResting by remember { mutableStateOf(false) }
     val stack by navigation.stack.collectAsStateWithLifecycle()
     val screen = stack?.lastOrNull()
 
@@ -111,7 +123,7 @@ fun TreadZRoot(
 
     TreadZFrame(
         darkTheme = ui.darkTheme,
-        keepScreenOn = ui.keepScreenOn,
+        keepScreenOn = ui.keepScreenOn || measuringResting,
         alert = ui.alert,
         onDismissAlert = viewModel::dismissAlert,
         onStop = controls::stop.takeIf { ui.showStop },
@@ -129,6 +141,7 @@ fun TreadZRoot(
                         if (visible == SessionKind.None) {
                             MainScreen(
                                 ui = ui,
+                                home = homeState,
                                 permissions = permissions,
                                 actions = actions.copy(
                                     onStart = viewModel::start,
@@ -136,7 +149,11 @@ fun TreadZRoot(
                                     onStopScan = viewModel::stopScan,
                                     onConnect = { viewModel.connect(it.address, it.name) },
                                     onReconnectRemembered = viewModel::reconnectToRemembered,
-                                    onStopReconnecting = viewModel::stopReconnecting,
+                                    // Giving up leads to the search: its list lives in Devices.
+                                    onStopReconnecting = {
+                                        viewModel.stopReconnecting()
+                                        navigation.push(Screen.Devices)
+                                    },
                                     onDismissAlert = viewModel::dismissAlert,
                                     onDismissRecordingNotice = viewModel::dismissRecordingNotice,
                                     onKeepWorkout = viewModel::keepFinishedWorkout,
@@ -147,6 +164,12 @@ fun TreadZRoot(
                                     onOpenWeight = { navigation.push(Screen.Weight) },
                                     onOpenHistory = { navigation.push(Screen.History) },
                                     onOpenPrograms = { navigation.push(Screen.Programs) },
+                                    onOpenDevices = { navigation.push(Screen.Devices) },
+                                    onOpenResting = { navigation.push(Screen.RestingHeartRate) },
+                                    onAcceptStrapOffer = strap::acceptPairingOffer,
+                                    onDeclineStrapOffer = strap::declinePairingOffer,
+                                    onAcceptPeakOffer = home::acceptPeakOffer,
+                                    onDeclinePeakOffer = home::declinePeakOffer,
                                     onPersonalize = { ui.activeUser?.let { navigation.openEditor(it.id) } },
                                 ),
                             )
@@ -167,6 +190,7 @@ fun TreadZRoot(
                                 onDiscard = runVm::discard,
                                 onUseMeasuredHeartRateMax = runVm::useMeasuredHeartRateMax,
                                 onKeepManualHeartRateMax = runVm::keepManualHeartRateMax,
+                                onResumeHeartRateControl = runVm::resumeHeartRateControl,
                             )
                             if (visible == SessionKind.Program) ProgramRunScreen(ui, run, controlActions, runActions)
                             else FitnessRunScreen(ui, run, controlActions, runActions)
@@ -227,6 +251,7 @@ fun TreadZRoot(
                                     onCancelUnlink = vm::cancelUnlink,
                                 ),
                                 onOpenUsers = { navigation.push(Screen.UserSelection) },
+                                onOpenDevices = { navigation.push(Screen.Devices) },
                                 onForgetTreadmill = viewModel::forgetTreadmill,
                                 onDarkTheme = viewModel::setDarkTheme,
                                 onLanguage = vm::setLanguage,
@@ -246,6 +271,8 @@ fun TreadZRoot(
                                         screen.profileId, dependencies.userData.profiles, dependencies.controller, dependencies::today,
                                         syncLinked = dependencies.sync.status.map { it.setup == SyncSetup.Linked },
                                         fitnessTests = dependencies.userData.fitnessTests,
+                                        restingHeartRates = dependencies.userData.restingHeartRates,
+                                        peakOffers = dependencies.peakOffers,
                                     )
                                 }
                             },
@@ -271,7 +298,81 @@ fun TreadZRoot(
                                 onCancelDelete = vm::cancelDelete,
                                 onUseMeasuredHeartRateMax = vm::useMeasuredHeartRateMax,
                                 onKeepManualHeartRateMax = vm::keepManualHeartRateMax,
+                                onOpenHeartRateMax = { screen.profileId?.let { navigation.push(Screen.HeartRateMax(it)) } },
+                                onOpenResting = { navigation.push(Screen.RestingHeartRate) },
+                                onAcceptPeakOffer = vm::acceptPeakOffer,
+                                onDeclinePeakOffer = vm::declinePeakOffer,
                             ),
+                        )
+                    }
+
+                    Screen.Devices -> {
+                        DevicesScreen(
+                            ui = ui,
+                            actions = DevicesActions(
+                                onBack = navigation::pop,
+                                onScan = viewModel::startScan,
+                                onStopScan = viewModel::stopScan,
+                                onConnect = { viewModel.connect(it.address, it.name) },
+                                onReconnectRemembered = viewModel::reconnectToRemembered,
+                                onForgetTreadmill = viewModel::forgetTreadmill,
+                                onEnableBluetooth = actions.onEnableBluetooth,
+                                onRequestPermissions = actions.onRequestPermissions,
+                                onStrapScan = strap::scan,
+                                onStrapStopScan = strap::stopScan,
+                                onPairStrap = strap::pair,
+                                onForgetStrap = strap::forget,
+                                onOpenResting = { navigation.push(Screen.RestingHeartRate) },
+                            ),
+                        )
+                    }
+
+                    Screen.RestingHeartRate -> {
+                        val vm = viewModel<RestingViewModel>(
+                            key = "resting",
+                            factory = viewModelFactory {
+                                initializer { RestingViewModel(dependencies.userData, strap.heartRate, dependencies::restingSession, dependencies::nowMillis) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        LaunchedEffect(state.measuring) { measuringResting = state.measuring }
+                        // Leaving the screen drops a running measurement and starts afresh next time.
+                        DisposableEffect(vm) {
+                            onDispose {
+                                measuringResting = false
+                                vm.leave()
+                            }
+                        }
+                        RestingHeartRateScreen(
+                            state = state,
+                            actions = RestingActions(
+                                onBack = navigation::pop,
+                                onStart = vm::start,
+                                onCancel = vm::cancel,
+                                onReset = vm::reset,
+                                onOpenDevices = { navigation.push(Screen.Devices) },
+                                onAddManual = vm::openManual,
+                                onManualText = vm::setManualText,
+                                onSaveManual = vm::saveManual,
+                                onDismissManual = vm::dismissManual,
+                                onDelete = vm::requestDelete,
+                                onConfirmDelete = vm::confirmDelete,
+                                onCancelDelete = vm::cancelDelete,
+                            ),
+                        )
+                    }
+
+                    is Screen.HeartRateMax -> {
+                        val vm = viewModel<HeartRateMaxViewModel>(
+                            key = "hrmax-${screen.profileId}",
+                            factory = viewModelFactory {
+                                initializer { HeartRateMaxViewModel(screen.profileId, dependencies.userData, dependencies.peakOffers, dependencies::today) }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        HeartRateMaxScreen(
+                            state = state,
+                            actions = HeartRateMaxActions(onBack = navigation::pop, onAcceptOffer = vm::acceptOffer, onDeclineOffer = vm::declineOffer),
                         )
                     }
 

@@ -16,6 +16,8 @@ class TreadZApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The user's heart-rate strap comes first: the app looks for it before the treadmill console can take it.
+        dependencies.strap.start()
         // Records every treadmill session into the workout history, whatever screen is open. It only observes the
         // controller and is never stopped on disconnect.
         dependencies.workoutObserver.start(processScope)

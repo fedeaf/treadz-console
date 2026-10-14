@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.treadz.console.Decimals
 import com.treadz.console.beltBusy
+import com.treadz.console.heartrate.PeakOfferController
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
+import com.treadz.console.programs.fitness.ObservedPeakOffer
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.FitnessLevel
@@ -15,6 +17,8 @@ import com.treadz.console.userdata.HeartRateEstimates
 import com.treadz.console.userdata.InputField
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.ProfileRepository
+import com.treadz.console.userdata.RestingHeartRateReference
+import com.treadz.console.userdata.RestingHeartRateRepository
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.Validation
@@ -77,6 +81,10 @@ data class ProfileEditorUiState(
     val syncLinked: Boolean = false,
     /** Fitness figures of an existing profile; `null` while loading or when the fitness data is not available. */
     val fitness: FitnessSummary? = null,
+    /** The resting heart rate the profile's field shows (the reference of the history) and where it comes from. */
+    val restingReference: RestingHeartRateReference? = null,
+    /** "Your heart rate reached X, use it as your maximum?" for this profile, `null` when there is none. */
+    val peakOffer: ObservedPeakOffer? = null,
 )
 
 /** The user's VO2max, MAS and maximum heart rate, with where the maximum comes from (read only here). */
@@ -95,6 +103,10 @@ class ProfileEditorViewModel(
     syncLinked: Flow<Boolean> = flowOf(false),
     /** Fitness test results and the maximum heart rate decision; `null` hides the fitness block. */
     private val fitnessTests: FitnessTestRepository? = null,
+    /** The resting heart rate history (its reference explains the field); `null` hides the origin line. */
+    private val restingHeartRates: RestingHeartRateRepository? = null,
+    /** The observed-peak offers; `null` hides the offer. */
+    private val peakOffers: PeakOfferController? = null,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(
@@ -113,6 +125,16 @@ class ProfileEditorViewModel(
             viewModelScope.launch {
                 combine(fitnessTests.liveFitnessProfile(profileId), fitnessTests.heartRateMax(profileId)) { profile, hrMax -> FitnessSummary(profile, hrMax) }
                     .collect { summary -> state.update { it.copy(fitness = summary) } }
+            }
+        }
+        if (profileId != null && restingHeartRates != null) {
+            viewModelScope.launch {
+                restingHeartRates.reference(profileId).collect { reference -> state.update { it.copy(restingReference = reference) } }
+            }
+        }
+        if (profileId != null && peakOffers != null) {
+            viewModelScope.launch {
+                peakOffers.offer(profileId).collect { offer -> state.update { it.copy(peakOffer = offer) } }
             }
         }
         if (profileId != null) {
@@ -163,6 +185,23 @@ class ProfileEditorViewModel(
                 state.update { it.copy(form = it.form.copy(maxHeartRate = ""), errors = it.errors - InputField.MaxHeartRate) }
             }
         }
+    }
+
+    /** "Yes" to the observed peak: it becomes the manual maximum (also in the field, so saving keeps it). */
+    fun acceptPeakOffer() {
+        val id = profileId ?: return
+        val offer = state.value.peakOffer ?: return
+        viewModelScope.launch {
+            if (peakOffers?.accept(id, offer) == true) {
+                state.update { it.copy(form = it.form.copy(maxHeartRate = offer.peakBpm.toString()), errors = it.errors - InputField.MaxHeartRate) }
+            }
+        }
+    }
+
+    /** "No" to the observed peak: it is not offered again. */
+    fun declinePeakOffer() {
+        val id = profileId ?: return
+        peakOffers?.decline(id)
     }
 
     /** "Keep mine": the manual value stays and the question is not asked again until a newer test measures something different. */

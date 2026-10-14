@@ -10,6 +10,15 @@ import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.SteadyStateStatus
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.programs.heartrate.HeartRateValidity
+import com.treadz.console.programs.model.Block
+import com.treadz.console.programs.model.BlockEnd
+import com.treadz.console.programs.model.BlockPhase
+import com.treadz.console.programs.model.BlockTarget
+import com.treadz.console.programs.model.HeartRateAdjust
+import com.treadz.console.programs.model.HeartRateBasis
+import com.treadz.console.programs.model.HeartRateZone
+import com.treadz.console.programs.model.Program
+import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.userdata.WorkoutSample
@@ -62,6 +71,26 @@ object TrainingFixtures {
     )
 
     /** The result of an Ebbeling test that was thrown out: the strap did not respond and the user changed the speed. */
+    /** A free program with a heart-rate guided block (zone 2: 60-70 % of the maximum) between a warm-up and a cool-down. */
+    fun heartRateProgram(adjust: HeartRateAdjust = HeartRateAdjust.Speed) = Program(
+        id = "3b6e1c1e-5d7e-4a53-9a41-0f1d2c3b4a5d", name = "Zone 2 base", kind = ProgramKind.Free,
+        steps = listOf(
+            Block(BlockPhase.WarmUp, BlockEnd.Duration(120), BlockTarget.Absolute(4.5, 0.0), name = "Warm-up"),
+            Block(
+                BlockPhase.Work, BlockEnd.Duration(1200),
+                BlockTarget.HeartRate(
+                    zone = HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70),
+                    adjust = adjust,
+                    minimum = if (adjust == HeartRateAdjust.Speed) 5.0 else 0.0,
+                    maximum = if (adjust == HeartRateAdjust.Speed) 9.0 else 10.0,
+                    start = if (adjust == HeartRateAdjust.Speed) BlockTarget.Absolute(6.0, 1.0) else BlockTarget.Absolute(5.0, 3.0),
+                ),
+                name = "Zone 2",
+            ),
+            Block(BlockPhase.CoolDown, BlockEnd.Duration(180), BlockTarget.Absolute(4.0, 0.0), name = "Cool-down"),
+        ),
+    )
+
     fun invalidEbbeling(base: FitnessTestResult): FitnessTestResult = base.copy(
         validity = Validity.Invalid,
         flags = listOf(FitnessTestFlag.SpeedAdjustedByUser, FitnessTestFlag.HeartRateNotResponsive, FitnessTestFlag.ManualChange),

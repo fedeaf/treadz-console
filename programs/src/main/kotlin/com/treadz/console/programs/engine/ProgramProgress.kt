@@ -1,6 +1,9 @@
 package com.treadz.console.programs.engine
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.heartrate.HeartRateValidity
+import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.plan.ResolvedBlock
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.CommandResult
@@ -52,7 +55,15 @@ enum class EndAction {
     HandOverToManual,
 }
 
-data class RunOptions(val endAction: EndAction = EndAction.StopBelt)
+data class RunOptions(
+    val endAction: EndAction = EndAction.StopBelt,
+    /**
+     * The user's heart-rate references (effective maximum, resting heart rate). Needed by heart-rate-guided blocks:
+     * without it (or with an unusable maximum) they run at their start values and their control is
+     * [HeartRateControlState.Unavailable].
+     */
+    val heartRateProfile: HeartRateProfile? = null,
+)
 
 enum class InterruptionReason {
     /** The safety key was pulled. */
@@ -126,6 +137,12 @@ data class ProgramProgress(
     val actualInclinePercent: Double = 0.0,
     val heartRateBpm: Int? = null,
     val heartRateValidity: HeartRateValidity = HeartRateValidity.Invalid,
+    /** Where the heart rate comes from (strap connected to the app, console), `null` without heart rate. */
+    val heartRateSource: HeartRateSourceKind? = null,
+    /** Heart-rate control of the current block; `null` when the block is not heart-rate guided. */
+    val heartRateControl: HeartRateControlStatus? = null,
+    /** Summaries of the heart-rate blocks finished so far, in order (see [HeartRateBlockSummary.settledValue]). */
+    val heartRateSummaries: List<HeartRateBlockSummary> = emptyList(),
 )
 
 /** Events of a run, in order, for the recorder and the history. [atMillis] is the injected clock's epoch time. */
@@ -189,6 +206,59 @@ sealed interface ProgramEvent {
         val endAction: EndAction?,
         /** Result of the final stop command, `null` if none was sent. */
         val stopResult: CommandResult?,
+        /** One summary per heart-rate block that ran (also when the program did not complete). */
+        val heartRateSummaries: List<HeartRateBlockSummary> = emptyList(),
+    ) : ProgramEvent
+
+    /** The heart-rate control changed the adjusted quantity of the block ([adjust]) from [fromValue] to [toValue]. */
+    data class HeartRateAdjusted(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val blockIndex: Int,
+        val adjust: HeartRateAdjust,
+        val fromValue: Double,
+        val toValue: Double,
+        val reason: HeartRateAdjustReason,
+        /** The 10-s mean the decision was based on. */
+        val heartRateBpm: Double?,
+    ) : ProgramEvent
+
+    /**
+     * Safety alert: more than 10 s above the ceiling (zone top + 8 bpm). [reduced] says whether the adjusted quantity
+     * was lowered (it may already be at the block's minimum, or the control may be off after a manual change).
+     */
+    data class HeartRateCeilingExceeded(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val blockIndex: Int,
+        val heartRateBpm: Int,
+        val ceilingBpm: Int,
+        val reduced: Boolean,
+    ) : ProgramEvent
+
+    /** Safety alert: the heart rate reached the effective maximum; the block went to its recovery value ([reduced]). */
+    data class HeartRateMaxReached(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val blockIndex: Int,
+        val heartRateBpm: Int,
+        val maxBpm: Int,
+        val reduced: Boolean,
+    ) : ProgramEvent
+
+    /** The state of the block's heart-rate control changed. */
+    data class HeartRateControlChanged(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val blockIndex: Int,
+        val state: HeartRateControlState,
+    ) : ProgramEvent
+
+    /** A heart-rate block ended (or the program ended inside it). */
+    data class HeartRateBlockFinished(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val summary: HeartRateBlockSummary,
     ) : ProgramEvent
 }
 

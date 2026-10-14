@@ -13,4 +13,6 @@ data class RunnerConfig(
      * button of a media player); earlier than that it goes back to the previous block.
      */
     val previousRestartsBlockAfterMs: Long = 5_000,
+    /** Rules of the heart-rate-guided blocks. */
+    val heartRate: HeartRateControlConfig = HeartRateControlConfig(),
 )

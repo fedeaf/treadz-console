@@ -10,6 +10,7 @@ kotlin {
 
 dependencies {
     api(project(":treadmill"))
+    api(project(":hrm"))
     api(libs.kotlinx.coroutines.core)
 
     testImplementation(platform(libs.junit.bom))

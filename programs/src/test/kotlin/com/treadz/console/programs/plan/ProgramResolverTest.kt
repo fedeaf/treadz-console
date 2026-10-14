@@ -281,7 +281,7 @@ class ProgramResolverTest {
     // ------------------------------------------------------------------ heart-rate blocks
 
     @Test
-    fun `heart-rate blocks run at their starting values and the plan says so`() {
+    fun `heart-rate blocks start at their starting values and carry their guidance`() {
         val plan = resolve(heartRateProgram(), StartParameters())
         val hr = plan.blocks[1]
         assertEquals(8.0, hr.speedKmh)
@@ -291,7 +291,8 @@ class ProgramResolverTest {
         assertEquals(6.0, g.minimum)
         assertEquals(10.0, g.maximum)
         assertNull(plan.blocks[0].heartRate)
-        assertEquals(listOf(1), plan.warningCodes(WarningCode.HeartRateControlUnavailable).map { it.blockIndex })
+        // Heart-rate control exists since 5f: the plan no longer warns that it is unavailable.
+        assertEquals(emptyList<Int>(), plan.warningCodes(WarningCode.HeartRateControlUnavailable).map { it.blockIndex })
     }
 
     @Test

@@ -243,6 +243,7 @@ fun FitnessTestType.label(): String = stringResource(
     when (this) {
         FitnessTestType.EbbelingWalk -> R.string.fitness_test_ebbeling
         FitnessTestType.MaxIncrementalRun -> R.string.fitness_test_max
+        FitnessTestType.MaxHeartRateWalk -> R.string.fitness_test_max_hr
     },
 )
 
@@ -252,6 +253,7 @@ fun FitnessTestType.summary(): String = stringResource(
     when (this) {
         FitnessTestType.EbbelingWalk -> R.string.fitness_test_ebbeling_summary
         FitnessTestType.MaxIncrementalRun -> R.string.fitness_test_max_summary
+        FitnessTestType.MaxHeartRateWalk -> R.string.fitness_test_max_hr_summary
     },
 )
 
@@ -283,6 +285,7 @@ fun FitnessInstruction.text(): String = stringResource(
         FitnessInstruction.WarmUpWalk -> R.string.instruction_warm_up_walk
         FitnessInstruction.WarmUpJog -> R.string.instruction_warm_up_jog
         FitnessInstruction.RunUntilExhausted -> R.string.instruction_run_until_exhausted
+        FitnessInstruction.WalkUphillUntilExhausted -> R.string.instruction_walk_uphill_until_exhausted
         FitnessInstruction.HoldTopSpeed -> R.string.instruction_hold_top_speed
         FitnessInstruction.CoolDownWalk -> R.string.instruction_cool_down_walk
         FitnessInstruction.Stopping -> R.string.instruction_stopping

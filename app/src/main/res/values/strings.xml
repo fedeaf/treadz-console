@@ -615,6 +615,8 @@
     <string name="fitness_test_ebbeling">Ebbeling walking test</string>
     <string name="fitness_test_ebbeling_summary">A gentle test: about 8 to 10 minutes of walking, first on the flat and then uphill, while the app measures your heart rate. It estimates your VO2max. Needs the chest strap.</string>
     <string name="fitness_test_max">Maximal running test</string>
+    <string name="fitness_test_max_hr">Maximum heart rate test</string>
+    <string name="fitness_test_max_hr_summary">A hard walking test: the incline rises every minute until you cannot keep up. It measures your maximum heart rate (it does not give a VO2max).</string>
     <string name="fitness_test_max_summary">A hard test: you run at a speed that rises every minute until you cannot keep up. It gives your maximal aerobic speed (MAS), your VO2max and your maximum heart rate.</string>
     <string name="fitness_test_choose">Choose this test</string>
     <string name="fitness_summary_title">Your fitness</string>
@@ -669,6 +671,7 @@
     <string name="instruction_walk_uphill_extended">Keep walking: your heart rate is not steady yet.</string>
     <string name="instruction_warm_up_walk">Warm up with a brisk walk.</string>
     <string name="instruction_warm_up_jog">Warm up with an easy jog.</string>
+    <string name="instruction_walk_uphill_until_exhausted">Keep walking. The incline rises every minute: do not hold the handrails. Press EXHAUSTED when you cannot keep up.</string>
     <string name="instruction_run_until_exhausted">Keep running. The speed rises every minute. Press EXHAUSTED when you cannot keep up.</string>
     <string name="instruction_hold_top_speed">Top speed reached. Hold it as long as you can and press EXHAUSTED.</string>
     <string name="instruction_cool_down_walk">Walk easily to cool down. The belt stops by itself.</string>

@@ -85,10 +85,14 @@ internal object CommitMessages {
         parts += when (result.testType) {
             FitnessTestType.EbbelingWalk -> "Ebbeling walk"
             FitnessTestType.MaxIncrementalRun -> "max incremental run"
+            FitnessTestType.MaxHeartRateWalk -> "max heart rate walk"
         }
         val outputs = result.outputs
-        if (result.validity != Validity.Valid || outputs == null) {
+        if (result.validity != Validity.Valid) {
             parts += "invalid"
+        } else if (outputs == null) {
+            // The maximal heart-rate walk gives no VO2max: only the maximum heart rate.
+            parts += result.measuredHrMaxCandidateBpm?.let { "HRmax $it" } ?: "invalid"
         } else {
             parts += "VO2max %.1f".format(Locale.ROOT, outputs.vo2maxMlKgMin)
             outputs.masKmh?.let { parts += "MAS %.1f km/h".format(Locale.ROOT, it) }

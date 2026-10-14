@@ -78,6 +78,14 @@ sealed interface TraceRecord {
 
     /** Free-form controller note (decisions, clamping, discarded data…). */
     data class Note(override val atMillis: Long, val text: String) : TraceRecord
+
+    /**
+     * A record from outside the controller that belongs in the same session recording, e.g. the heart-rate strap
+     * connected to the app (raw packets, readings, connection) or the heart-rate source in use. It is written as a line
+     * of [type] with [fields] (JSON values: strings, numbers, booleans, null, lists and maps). [type] must not be one
+     * of the controller's own line types; the convention is a prefix per origin (`hrm_…`, `hr_…`).
+     */
+    data class External(override val atMillis: Long, val type: String, val fields: Map<String, Any?>) : TraceRecord
 }
 
 fun interface ControllerObserver {

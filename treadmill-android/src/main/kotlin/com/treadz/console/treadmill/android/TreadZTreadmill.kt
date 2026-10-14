@@ -5,6 +5,7 @@ import android.content.Intent
 import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
+import com.treadz.console.treadmill.control.ControllerObserver
 import com.treadz.console.treadmill.lifecycle.AppLifecycle
 
 /**
@@ -26,6 +27,13 @@ object TreadZTreadmill {
     fun controller(context: Context): TreadmillController = backend(context).controller
 
     fun recorder(context: Context): WorkoutRecorder = backend(context).recorder
+
+    /**
+     * Where other parts of the app add records to the session recording (`TraceRecord.External`), e.g. the heart-rate
+     * source in use: `AutomaticHeartRateSource(..., trace = TreadZTreadmill.recordingSink(context))`. Thread-safe. The
+     * strap connected to the app (`TreadZHeartRate`) is recorded automatically.
+     */
+    fun recordingSink(context: Context): ControllerObserver = backend(context).recorder
 
     /**
      * App visibility and exit: the UI reports [AppLifecycle.setAppInForeground] (from `ProcessLifecycleOwner`) and

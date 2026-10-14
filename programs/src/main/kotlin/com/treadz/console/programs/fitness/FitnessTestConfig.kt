@@ -93,4 +93,25 @@ data class FitnessTestConfig(
     val minMaxTestHeartRateRiseBpm: Double = 10.0,
     val maxTestCoolDownSeconds: Int = 300,
     val maxTestCoolDownSpeedKmh: Double = 5.0,
+
+    // ---------------------------------------------------------------- maximal heart-rate walking test (modified Balke)
+    // It reuses the stage length, the 3-min / 5-min incremental thresholds, the peak window and mean, the effort margin,
+    // the plateau rule and the heart-rate coverage rules of the maximal incremental test above.
+    /** Ramp start: fixed values, not individualised; the user may change them before starting or during the warm-up. */
+    val walkTestDefaultSpeedKmh: Double = 5.5,
+    val walkTestDefaultInclinePercent: Double = 5.0,
+    /** Walking speeds the ramp may start at. */
+    val walkTestMinStartSpeedKmh: Double = 3.0,
+    val walkTestMaxStartSpeedKmh: Double = 7.5,
+    val walkTestMaxStartInclinePercent: Double = 15.0,
+    /** Warm-up: 1 min at 75 % of the ramp speed and 0 %, then 1 min at 80 % and 1 %. */
+    val walkTestWarmUpStepSeconds: Int = 60,
+    val walkTestWarmUpFraction1: Double = 0.75,
+    val walkTestWarmUpFraction2: Double = 0.80,
+    val walkTestWarmUpIncline2Percent: Double = 1.0,
+    /** +1 % per minute up to this (or the user's incline limit); then the speed rises by the equivalent of +1 %. */
+    val walkTestInclineIncrementPercent: Double = 1.0,
+    val walkTestMaxInclinePercent: Double = 18.0,
+    val walkTestCoolDownSeconds: Int = 180,
+    val walkTestCoolDownSpeedKmh: Double = 5.0,
 )

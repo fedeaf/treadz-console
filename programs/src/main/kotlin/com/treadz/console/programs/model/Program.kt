@@ -94,8 +94,8 @@ sealed interface BlockTarget {
     /**
      * Keep the heart rate inside [zone] by adjusting [adjust] between [minimum] and [maximum], starting from [start].
      * The bounds are in the same scale as [start] (km/h or % for an absolute start; % of the range for a relative one)
-     * and apply to the adjusted quantity. Heart-rate control is not available yet: such a block runs at its starting
-     * values and the resolved plan says so.
+     * and apply to the adjusted quantity. The program runner does the control (see `ProgramRunner` and
+     * `HeartRateBlockControl` for the rules).
      */
     data class HeartRate(
         val zone: HeartRateZone,

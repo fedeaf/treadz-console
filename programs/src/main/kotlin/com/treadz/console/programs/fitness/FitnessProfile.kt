@@ -82,7 +82,9 @@ data class FitnessProfile(
 /**
  * Builds the [FitnessProfile] from test results (a pure function).
  *
- * Only [Validity.Valid] results with outputs, taken at most [FitnessProfileRules.maxAgeDays] before `now`, are used.
+ * Only [Validity.Valid] results taken at most [FitnessProfileRules.maxAgeDays] before `now` are used; VO2max and MAS
+ * only come from results with outputs (Ebbeling and the maximal running test). The maximal heart-rate walking test
+ * contributes only to the measured maximum heart rate.
  * The 90-day half-life, the 365-day maximum age and the SEE of 4.0 for the maximal test were approved by the user
  * (2026-10-08); the SEE is an assumption, not a published figure.
  *
@@ -95,8 +97,9 @@ data class FitnessProfile(
  *
  * **MAS**: the latest valid maximal test; without one, VO2max / 3.5 marked as estimated.
  *
- * **Measured maximum heart rate**: the highest peak heart rate among valid maximal tests whose effort was
- * [EffortAssessment.Maximal] (a peak from a submaximal effort is not a maximum). A maximal effort is either a peak
+ * **Measured maximum heart rate**: the highest peak heart rate among valid maximal tests (the running test and the
+ * walking heart-rate test) whose effort was [EffortAssessment.Maximal] (a peak from a submaximal effort is not a
+ * maximum). A maximal effort is either a peak
  * close to the maximum used by the test or a confirmed exhaustion with a heart-rate plateau (see
  * [MaxIncrementalProtocol]), so the measured value may be below the estimate. How it competes with the manual value
  * and the estimate: [HeartRateMaxPolicy]. A peak more than [FitnessFormulas.HR_MAX_FLOOR_BELOW_ESTIMATE_BPM] below the
@@ -166,12 +169,13 @@ object FitnessProfileCalculator {
             else -> null
         }
 
-        // -- measured maximum heart rate
-        val hrMax = maxTests
-            .filter { it.outputs?.effort == EffortAssessment.Maximal && it.outputs.hrMaxCandidateBpm != null }
-            .filter { isAdoptableHrMax(checkNotNull(it.outputs?.hrMaxCandidateBpm), it.inputs.ageYears) }
-            .maxWithOrNull(compareBy<FitnessTestResult> { it.outputs?.hrMaxCandidateBpm }.thenBy { it.startedAtMillis })
-            ?.let { HrMaxEstimate(checkNotNull(it.outputs?.hrMaxCandidateBpm), it.id, it.startedAtMillis) }
+        // -- measured maximum heart rate: both maximal tests (the walking one has no outputs, only measurements)
+        val hrMax = results
+            .filter { it.validity == Validity.Valid && ageDays(it, nowMillis) <= rules.maxAgeDays }
+            .filter { it.effortAssessment == EffortAssessment.Maximal && it.measuredHrMaxCandidateBpm != null }
+            .filter { isAdoptableHrMax(checkNotNull(it.measuredHrMaxCandidateBpm), it.inputs.ageYears) }
+            .maxWithOrNull(compareBy<FitnessTestResult> { it.measuredHrMaxCandidateBpm }.thenBy { it.startedAtMillis })
+            ?.let { HrMaxEstimate(checkNotNull(it.measuredHrMaxCandidateBpm), it.id, it.startedAtMillis) }
 
         return FitnessProfile(nowMillis, vo2, mas, hrMax, rules)
     }

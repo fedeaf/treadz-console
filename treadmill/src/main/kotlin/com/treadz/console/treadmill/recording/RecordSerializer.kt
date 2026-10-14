@@ -95,6 +95,10 @@ internal object RecordSerializer {
             is TraceRecord.Note -> {
                 m["type"] = "note"; m["text"] = r.text
             }
+            is TraceRecord.External -> {
+                m["type"] = r.type
+                for ((k, v) in r.fields) if (k != "t" && k != "type") m[k] = v
+            }
         }
         return m
     }

@@ -32,7 +32,7 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Runs the fitness tests ([EbbelingProtocol], [MaxIncrementalProtocol]) on the treadmill.
+ * Runs the fitness tests ([EbbelingProtocol], [MaxIncrementalProtocol], [MaxHeartRateWalkProtocol]) on the treadmill.
  *
  * A dedicated runner rather than [com.treadz.console.programs.engine.ProgramRunner]: the tests are adaptive (the
  * Ebbeling speed follows the heart rate, stage 2 is extended until the heart rate is steady, the maximal test ends when
@@ -53,8 +53,11 @@ import kotlin.math.max
  *    `setSpeed`/`setIncline`) break both protocols (see each protocol), except in the maximal test's warm-up, in
  *    the cool-down, and speed changes in the first part of Ebbeling stage 1, where they are respected. The app's own
  *    way to change the Ebbeling stage 1 speed is [adjustSpeed].
- *  - [stop] in the maximal test after at least 3 min of the incremental phase (or the belt stopped from the console)
- *    counts as exhaustion: the result is valid and there is no cool-down. Everywhere else a STOP makes the test invalid.
+ *  - [stop] in a maximal test (running or walking) after at least 3 min of the incremental phase (or the belt stopped
+ *    from the console) counts as exhaustion: the result is valid and there is no cool-down. Everywhere else a STOP
+ *    makes the test invalid.
+ *  - The heart rate comes from [heartRate] (normally an `AutomaticHeartRateSource`); the result records the source of
+ *    most valid readings ([FitnessTestInputs.heartRateSource]), else [heartRateSourceKind].
  *  - At the end of the cool-down the belt is stopped.
  *
  * Thread safety: all state lives behind one lock and is only changed in short non-suspending sections; controller calls
@@ -129,6 +132,23 @@ class FitnessTestRunner(
             MaxIncrementalProtocol(
                 id, parameters.subject, config, parameters.startSpeedKmh, limits.maxSpeedKmh, limits.maxInclinePercent,
                 heartRateSourceKind, ::clampSpeed, cap,
+            )
+        }
+    }.await()
+
+    /**
+     * Starts the maximal heart-rate walking test (modified Balke): needs a current, non-zero heart rate (its only purpose
+     * is the maximum heart rate) and a speed cap of at least 3 km/h.
+     */
+    suspend fun startMaxHeartRateWalk(parameters: MaxHeartRateWalkParameters): FitnessActionResult = scope.async {
+        startBody(requireHeartRate = true, parameters.resultId) { id, limits ->
+            val speedCap = clampSpeed(Double.MAX_VALUE)
+            if (speedCap < config.walkTestMinStartSpeedKmh - 1e-9) return@startBody null
+            val inclineCap = clampIncline(config.walkTestMaxInclinePercent)
+            MaxHeartRateWalkProtocol(
+                id, parameters.subject, config, parameters.startSpeedKmh, parameters.startInclinePercent,
+                limits.maxSpeedKmh, limits.maxInclinePercent, heartRateSourceKind, ::clampSpeed, ::clampIncline,
+                speedCap, inclineCap,
             )
         }
     }.await()
@@ -211,12 +231,12 @@ class FitnessTestRunner(
 
     private enum class BeltAction { None, Resume, Start }
 
-    /** Maximal test: the user cannot keep up any more. Ends the effort; the cool-down follows. */
+    /** Maximal tests (running or walking): the user cannot keep up any more. Ends the effort; the cool-down follows. */
     fun exhausted(): FitnessActionResult {
         synchronized(lock) {
             val p = protocol
             if (p == null || !running) return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
-            if (p.testType != FitnessTestType.MaxIncrementalRun || !p.exhausted(testTime())) {
+            if (!p.exhausted(testTime())) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "Exhaustion does not apply now")
             }
             drainEvents(p)
@@ -239,6 +259,27 @@ class FitnessTestRunner(
             if (p == null || !running || stopping) return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
             if (!speedKmh.isFinite() || p.adjustSpeedByApp(testTime(), speedKmh) == null) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "The speed cannot be changed now")
+            }
+            drainEvents(p)
+            publish()
+        }
+        wake()
+        return FitnessActionResult.Success
+    }
+
+    /**
+     * Walking heart-rate test, during the warm-up: changes the ramp start speed and/or incline (`null` keeps a value).
+     * Clamped to 3-7.5 km/h, 0-15 % and the caps; the warm-up speeds follow (unless changed by hand in the current
+     * warm-up minute). Refused ([FitnessRefusal.WrongState]) in any other phase or test.
+     */
+    fun adjustRampStart(speedKmh: Double?, inclinePercent: Double?): FitnessActionResult {
+        synchronized(lock) {
+            val p = protocol
+            if (p == null || !running || stopping) return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
+            if ((speedKmh != null && !speedKmh.isFinite()) || (inclinePercent != null && !inclinePercent.isFinite()) ||
+                p !is MaxHeartRateWalkProtocol || !p.adjustRampStart(speedKmh, inclinePercent)
+            ) {
+                return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "The ramp start cannot be changed now")
             }
             drainEvents(p)
             publish()
@@ -487,7 +528,9 @@ class FitnessTestRunner(
 
     private fun observation(): Observation {
         val s = controller.state.value
-        return Observation(s.speedKmh, s.inclinePercent, readHeartRate())
+        val reading = heartRate.latest()
+        val bpm = readHeartRate(reading)
+        return Observation(s.speedKmh, s.inclinePercent, bpm, if (bpm != null) reading.source else null)
     }
 
     private fun clampSpeed(kmh: Double): Double =
@@ -505,7 +548,7 @@ class FitnessTestRunner(
         weightKg = p.subject.weightKg,
         hrMaxBpm = p.subject.hrMaxBpm,
         agePredictedHrMaxBpm = FitnessFormulas.agePredictedHrMax(p.subject.ageYears),
-        heartRateSource = if (readHeartRate() != null) heartRateSourceKind else null,
+        heartRateSource = heartRate.latest().let { r -> if (readHeartRate(r) != null) r.source ?: heartRateSourceKind else null },
         requestedStartSpeedKmh = p.requestedStartSpeedKmh,
         startSpeedKmh = p.startSpeedKmh,
         maxSpeedLimitKmh = p.maxSpeedLimitKmh,

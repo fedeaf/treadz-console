@@ -49,6 +49,12 @@ import java.time.format.DateTimeParseException
  * A maximal test has `"maxTest": {...}` instead of `"ebbeling"`, and its outputs add `masKmh`, `masIsLowerBound`,
  * `hrMaxCandidateBpm` and `effort`. `maxTest` also carries `heartRatePlateau` and `plateauRiseBpm`. Each entry of the
  * Ebbeling `speedAdjustments` has an `origin` (`automatic`, `app` or `console`; absent = `automatic`).
+ *
+ * The maximal heart-rate walking test (`"testType": "maxHeartRateWalk"`) has no `outputs` (no VO2max) and carries
+ * `"maxHeartRateWalk": {"warmUpSeconds", "rampSeconds", "startSpeedKmh", "startInclinePercent",
+ * "inclineIncrementPercent", "inclineCapPercent", "speedIncrementKmh", "speedCapKmh", "stageSeconds", "capReached",
+ * "peakHeartRateBpm", "heartRateCoverage", "heartRatePlateau", "plateauRiseBpm", "hrMaxCandidateBpm", "effort",
+ * "stages": [...]}`. `inputs.heartRateSource` is `treadmillConsole` or `directStrap` (the source of most readings).
  */
 object FitnessTestJson {
 
@@ -91,6 +97,7 @@ object FitnessTestJson {
             when (val m = r.measurements) {
                 is EbbelingMeasurements -> "ebbeling" to ebbelingTree(m)
                 is MaxTestMeasurements -> "maxTest" to maxTree(m)
+                is MaxHeartRateWalkMeasurements -> "maxHeartRateWalk" to walkTree(m)
             },
             "minutes" to r.minutes.map { minuteTree(it) },
         ),
@@ -170,6 +177,39 @@ object FitnessTestJson {
         ),
     )
 
+    private fun stageTree(it: StageRecord): Map<String, Any?> = compact(
+        linkedMapOf(
+            "number" to it.number,
+            "speedKmh" to it.speedKmh,
+            "inclinePercent" to it.inclinePercent,
+            "durationSeconds" to it.durationSeconds,
+            "completed" to it.completed,
+            "heartRateEndBpm" to it.heartRateEndBpm,
+        ),
+    )
+
+    private fun walkTree(m: MaxHeartRateWalkMeasurements): Map<String, Any?> = compact(
+        linkedMapOf(
+            "warmUpSeconds" to m.warmUpSeconds,
+            "rampSeconds" to m.rampSeconds,
+            "startSpeedKmh" to m.startSpeedKmh,
+            "startInclinePercent" to m.startInclinePercent,
+            "inclineIncrementPercent" to m.inclineIncrementPercent,
+            "inclineCapPercent" to m.inclineCapPercent,
+            "speedIncrementKmh" to m.speedIncrementKmh,
+            "speedCapKmh" to m.speedCapKmh,
+            "stageSeconds" to m.stageSeconds,
+            "capReached" to m.capReached,
+            "peakHeartRateBpm" to m.peakHeartRateBpm,
+            "heartRateCoverage" to m.heartRateCoverage,
+            "heartRatePlateau" to m.heartRatePlateau,
+            "plateauRiseBpm" to m.plateauRiseBpm,
+            "hrMaxCandidateBpm" to m.hrMaxCandidateBpm,
+            "effort" to m.effort,
+            "stages" to m.stages.map { stageTree(it) },
+        ),
+    )
+
     private fun minuteTree(m: MinuteRecord): Map<String, Any?> = compact(
         linkedMapOf(
             "phase" to m.phase,
@@ -188,6 +228,7 @@ object FitnessTestJson {
         val measurements: FitnessTestMeasurements = when (type) {
             FitnessTestType.EbbelingWalk -> ebbelingFrom(o.obj("ebbeling"))
             FitnessTestType.MaxIncrementalRun -> maxFrom(o.obj("maxTest"))
+            FitnessTestType.MaxHeartRateWalk -> walkFrom(o.obj("maxHeartRateWalk"))
         }
         val i = o.obj("inputs")
         return FitnessTestResult(
@@ -289,6 +330,35 @@ object FitnessTestJson {
         heartRateCoverage = o.optDouble("heartRateCoverage"),
         heartRatePlateau = o.boolean("heartRatePlateau", false),
         plateauRiseBpm = o.optDouble("plateauRiseBpm"),
+    )
+
+    private fun stageFrom(it: JsonObject) = StageRecord(
+        number = it.int("number"),
+        speedKmh = it.double("speedKmh"),
+        inclinePercent = it.double("inclinePercent"),
+        durationSeconds = it.int("durationSeconds"),
+        completed = it.boolean("completed", false),
+        heartRateEndBpm = it.optDouble("heartRateEndBpm"),
+    )
+
+    private fun walkFrom(o: JsonObject) = MaxHeartRateWalkMeasurements(
+        warmUpSeconds = o.int("warmUpSeconds"),
+        rampSeconds = o.int("rampSeconds"),
+        startSpeedKmh = o.double("startSpeedKmh"),
+        startInclinePercent = o.double("startInclinePercent"),
+        inclineIncrementPercent = o.double("inclineIncrementPercent"),
+        inclineCapPercent = o.double("inclineCapPercent"),
+        speedIncrementKmh = o.double("speedIncrementKmh"),
+        speedCapKmh = o.double("speedCapKmh"),
+        stageSeconds = o.int("stageSeconds"),
+        capReached = o.boolean("capReached", false),
+        stages = o.objects("stages", optional = true).map { stageFrom(it) },
+        peakHeartRateBpm = o.optDouble("peakHeartRateBpm"),
+        heartRateCoverage = o.optDouble("heartRateCoverage"),
+        heartRatePlateau = o.boolean("heartRatePlateau", false),
+        plateauRiseBpm = o.optDouble("plateauRiseBpm"),
+        hrMaxCandidateBpm = o.optInt("hrMaxCandidateBpm"),
+        effort = o.optEnum("effort", EffortAssessment.entries.toTypedArray()),
     )
 
     private fun minuteFrom(o: JsonObject) = MinuteRecord(

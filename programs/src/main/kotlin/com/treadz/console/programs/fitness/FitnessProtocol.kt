@@ -14,8 +14,16 @@ internal sealed interface Directive {
     data object Finish : Directive
 }
 
-/** What the treadmill reports, as the protocol sees it. [heartRateBpm] is `null` for an invalid reading. */
-internal data class Observation(val speedKmh: Double, val inclinePercent: Double, val heartRateBpm: Int?)
+/**
+ * What the treadmill reports, as the protocol sees it. [heartRateBpm] is `null` for an invalid reading; [source] is
+ * where a valid one came from (strap connected to the app or console).
+ */
+internal data class Observation(
+    val speedKmh: Double,
+    val inclinePercent: Double,
+    val heartRateBpm: Int?,
+    val source: HeartRateSourceKind? = null,
+)
 
 /**
  * A fitness test protocol as a pure state machine on test time `t` (ms since the belt was running for the test). It
@@ -62,6 +70,9 @@ internal abstract class FitnessProtocol(
     private var outputs: FitnessTestOutputs? = null
 
     val hr = HeartRateLog()
+
+    /** Valid readings per source, to record where the test's heart rate came from. */
+    private val sourceCounts = mutableMapOf<HeartRateSourceKind, Int>()
     private val minutes = mutableListOf<MinuteRecord>()
     private var phaseMinutes = 0
 
@@ -98,9 +109,21 @@ internal abstract class FitnessProtocol(
 
     /** Records a reading (called with every treadmill packet). */
     fun observe(t: Long, obs: Observation) {
-        hr.add(t, obs.heartRateBpm)
+        val bpm = plausibleHeartRate(t, obs.heartRateBpm)
+        hr.add(t, bpm)
+        if (bpm != null) {
+            val source = obs.source ?: heartRateKind
+            sourceCounts[source] = (sourceCounts[source] ?: 0) + 1
+        }
         recordMinutes(t)
     }
+
+    /** Hook for protocols that discard impossible readings; the default keeps every valid reading. */
+    protected open fun plausibleHeartRate(t: Long, bpm: Int?): Int? = bpm
+
+    /** The source of most valid readings (the runner's default kind when the readings did not say). */
+    protected val dominantSource: HeartRateSourceKind
+        get() = sourceCounts.maxByOrNull { it.value }?.key ?: heartRateKind
 
     /** Advances the protocol to [t] and says what the treadmill should do. */
     fun update(t: Long, obs: Observation): Directive {
@@ -325,7 +348,7 @@ internal abstract class FitnessProtocol(
                 weightKg = subject.weightKg,
                 hrMaxBpm = subject.hrMaxBpm,
                 agePredictedHrMaxBpm = FitnessFormulas.agePredictedHrMax(subject.ageYears),
-                heartRateSource = if (hr.hasAnyValid) heartRateKind else null,
+                heartRateSource = if (hr.hasAnyValid) dominantSource else null,
                 requestedStartSpeedKmh = requestedStartSpeedKmh,
                 startSpeedKmh = startSpeedKmh,
                 maxSpeedLimitKmh = maxSpeedLimitKmh,

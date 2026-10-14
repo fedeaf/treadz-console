@@ -42,8 +42,9 @@ data class ResolutionEnvironment(
  *  6. Every speed and incline is clamped to the treadmill range and to the [SafetyLimits] and rounded to the
  *     treadmill step (0.1 km/h and 1 % on the Z-Tech, ties rounding up) with [SafetyClamp]. A value that had to move
  *     by more than half a step produces a warning; plain rounding does not.
- *  7. Warnings are added for blocks too short to be useful ([SHORT_BLOCK_SECONDS]) and for heart-rate blocks, which
- *     still run at their starting values.
+ *  7. Warnings are added for blocks too short to be useful ([SHORT_BLOCK_SECONDS]). Heart-rate blocks get no warning
+ *     any more: the runner controls them (with a heart-rate profile; without one they run at their start values and
+ *     the runner reports the control as unavailable).
  */
 object ProgramResolver {
 
@@ -80,12 +81,6 @@ object ProgramResolver {
                 warnings += PlanWarning(
                     WarningCode.ShortBlock, index, estimated.toDouble(), null,
                     "Block ${index + 1} lasts about $estimated s: much of it goes to the speed ramp (~0.5 km/h per second)",
-                )
-            }
-            if (guidance != null) {
-                warnings += PlanWarning(
-                    WarningCode.HeartRateControlUnavailable, index, null, null,
-                    "Block ${index + 1} asks for heart-rate control, which is not available yet: it runs at its starting values",
                 )
             }
             ResolvedBlock(

@@ -36,6 +36,11 @@ Native Android app to control a **Reebok Z-Tech** treadmill over Bluetooth LE us
 |---|---|
 | `:treadmill` | Pure Kotlin: controller contract, FTMS codec, safety layer, treadmill simulator and session recorder. Fully tested on the JVM. |
 | `:treadmill-android` | `BluetoothGatt` transport, foreground service, MediaStore storage and share intent. |
+| `:hrm` | Pure Kotlin: heart-rate strap support (standard Heart Rate service): codec, connection logic, simulated strap and resting heart-rate measurement. |
+| `:hrm-android` | Bluetooth LE transport for the heart-rate strap. |
+| `:programs` | Pure Kotlin: training programs (model, resolver, runner, heart-rate control, standard catalogue) and fitness tests. |
+| `:userdata` | Local data (Room): profiles, weights, workout history, programs, fitness test results, export. |
+| `:sync` | Optional synchronisation with a private GitHub repository. |
 | `:app` | Jetpack Compose UI. |
 
 ## Building

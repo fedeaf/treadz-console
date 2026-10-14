@@ -7,7 +7,7 @@ enum class HeartRateMaxOrigin {
     /** The user entered it in the profile. */
     Manual,
 
-    /** Measured by a maximal fitness test ([FitnessProfile.hrMax]). */
+    /** Measured by a maximal fitness test, running or walking ([FitnessProfile.hrMax]). */
     Measured,
 
     /** Estimated from the age (the profile's formula). */

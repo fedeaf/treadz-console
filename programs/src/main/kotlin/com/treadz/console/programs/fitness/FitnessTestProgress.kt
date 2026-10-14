@@ -20,6 +20,16 @@ data class EbbelingParameters(
     val resultId: String? = null,
 )
 
+/** Start parameters of the maximal heart-rate walking test (modified Balke). */
+data class MaxHeartRateWalkParameters(
+    val subject: FitnessSubject,
+    /** Speed of the ramp (and base of the warm-up speeds). Clamped to 3-7.5 km/h and to the speed cap. */
+    val startSpeedKmh: Double = 5.5,
+    /** Incline of the first ramp stage. Clamped to 0-15 % and to the incline cap. */
+    val startInclinePercent: Double = 5.0,
+    val resultId: String? = null,
+)
+
 /** Start parameters of the maximal incremental test. */
 data class MaxTestParameters(
     val subject: FitnessSubject,
@@ -60,6 +70,12 @@ enum class FitnessInstruction {
 
     /** Maximal test: the speed cap was reached; hold it as long as you can and press "exhausted". */
     HoldTopSpeed,
+
+    /**
+     * Walking heart-rate test ramp: keep walking (do not hold the handrails); the incline (later the speed) rises every
+     * minute. Press "exhausted" when you cannot keep up.
+     */
+    WalkUphillUntilExhausted,
 
     /** Easy walk to cool down; the belt stops by itself. */
     CoolDownWalk,
@@ -102,8 +118,10 @@ data class FitnessTestProgress(
     val stageRemainingSeconds: Int? = null,
     val targetSpeedKmh: Double? = null,
     val targetInclinePercent: Double? = null,
-    /** Maximal test: speed of the next stage (`null` at the cap). */
+    /** Maximal tests: speed of the next stage (`null` at the cap). Walking test warm-up: the ramp start speed. */
     val nextStageSpeedKmh: Double? = null,
+    /** Walking heart-rate test: incline of the next stage (`null` at the cap); during the warm-up the ramp start incline. */
+    val nextStageInclinePercent: Double? = null,
     val actualSpeedKmh: Double = 0.0,
     val actualInclinePercent: Double = 0.0,
     val heartRateBpm: Int? = null,

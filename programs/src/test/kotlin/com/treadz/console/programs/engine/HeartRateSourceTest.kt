@@ -1,5 +1,6 @@
 package com.treadz.console.programs.engine
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.ControllerHeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateValidity
@@ -15,8 +16,11 @@ class HeartRateSourceTest {
     }
 
     @Test
-    fun `a value relayed by the console is plausible but unconfirmed`() {
-        assertEquals(HeartRateReading(75, HeartRateValidity.Unconfirmed, 9), ControllerHeartRateSource.map(TreadmillState(heartRateBpm = 75, updatedAtMillis = 9)))
+    fun `a value relayed by the console is unconfirmed and says it comes from the console`() {
+        assertEquals(
+            HeartRateReading(75, HeartRateValidity.Unconfirmed, 9, HeartRateSourceKind.TreadmillConsole),
+            ControllerHeartRateSource.map(TreadmillState(heartRateBpm = 75, updatedAtMillis = 9)),
+        )
     }
 
     @Test

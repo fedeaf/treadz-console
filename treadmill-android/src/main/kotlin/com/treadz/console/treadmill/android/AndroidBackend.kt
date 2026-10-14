@@ -4,10 +4,13 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.treadz.console.hrm.HrmTraceFields
+import com.treadz.console.hrm.android.TreadZHeartRate
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.control.ControllerConfig
 import com.treadz.console.treadmill.control.FtmsTreadmillController
+import com.treadz.console.treadmill.control.TraceRecord
 import com.treadz.console.treadmill.lifecycle.AppLifecycleManager
 import com.treadz.console.treadmill.recording.JsonlWorkoutRecorder
 import com.treadz.console.treadmill.recording.RecorderConfig
@@ -54,6 +57,9 @@ internal class AndroidBackend(context: Context) {
     /** Visibility, exit and the background policy; its decisions drive the foreground service below. */
     val lifecycle = AppLifecycleManager(controller, inner, scope)
 
+    /** The strap connected to the app (if the app uses one): its traffic goes into the session recording. */
+    private val heartRate = TreadZHeartRate.monitor(appContext)
+
     init {
         // The foreground service (and its notification) exists only while connected to the treadmill, plus the short
         // "connection lost" notice after a loss in the background. It is started while the app is visible, which is
@@ -67,8 +73,18 @@ internal class AndroidBackend(context: Context) {
             }
         }
         // Whoever asked for the exit (Back dialog or notification), the app's task is closed as well: this covers an
-        // activity that is stopped and not collecting `exitRequests`.
-        scope.launch { lifecycle.exitRequests.collect { closeAppTasks() } }
+        // activity that is stopped and not collecting `exitRequests`. The strap is let go too, so the console can take it.
+        scope.launch {
+            lifecycle.exitRequests.collect {
+                closeAppTasks()
+                heartRate.release()
+            }
+        }
+        // Raw packets, readings and connection changes of the strap, in the same session file as the treadmill's.
+        heartRate.addObserver { record ->
+            val (type, fields) = HrmTraceFields.of(record)
+            recorder.onTrace(TraceRecord.External(record.atMillis, type, fields))
+        }
     }
 
     private fun closeAppTasks() {

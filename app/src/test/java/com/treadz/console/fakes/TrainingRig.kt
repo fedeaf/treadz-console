@@ -20,13 +20,17 @@ import com.treadz.console.userdata.memory.InMemoryUserData
  * [advance] and get exactly the progress a run would have at that moment. The fake treadmill is connected and running.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class TrainingRig(userData: InMemoryUserData? = null) {
+class TrainingRig(userData: InMemoryUserData? = null, private val baseMillis: Long = 0) {
     val scheduler = TestCoroutineScheduler()
     val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
+
+    /** The runners' clock (epoch ms): [baseMillis] plus the virtual time. */
+    fun clockMillis(): Long = baseMillis + scheduler.currentTime
+
     val app: FakeApp = if (userData == null) {
-        FakeApp(trainingScope = scope, trainingClock = Clock { scheduler.currentTime })
+        FakeApp(trainingScope = scope, trainingClock = Clock { clockMillis() })
     } else {
-        FakeApp(userData = userData, trainingScope = scope, trainingClock = Clock { scheduler.currentTime })
+        FakeApp(userData = userData, trainingScope = scope, trainingClock = Clock { clockMillis() })
     }
 
     init {

@@ -116,6 +116,7 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
             links = ObserverSessionLinks(workoutObserver),
             userData = userData,
             scope = scope,
+            onError = { Log.e("TreadZ", "Generated session record", it) },
         )
     }
     override val appLifecycle: AppLifecycle by lazy { TreadZTreadmill.lifecycle(context) }

@@ -136,7 +136,7 @@ class ProgramDraftsTest {
         assertEquals(program, back)
     }
 
-    @Test fun onlyAbsoluteTargetsCanBeEdited() {
+    @Test fun onlyAbsoluteAndHeartRateTargetsWithAnAbsoluteStartCanBeEdited() {
         assertTrue(ProgramDrafts.isEditable(DemoPrograms.norwegian4x4()))
         val hr = Program(
             "11111111-1111-4111-8111-111111111111", "HR", ProgramKind.Free,
@@ -147,7 +147,17 @@ class ProgramDraftsTest {
                 ),
             ),
         )
-        assertFalse(ProgramDrafts.isEditable(hr))
+        assertTrue(ProgramDrafts.isEditable(hr))
+        val relativeStart = hr.copy(
+            steps = listOf(
+                Block(
+                    BlockPhase.Work, BlockEnd.Duration(300),
+                    BlockTarget.HeartRate(HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70), HeartRateAdjust.Speed, 40.0, 100.0, BlockTarget.Relative(50.0, 0.0)),
+                ),
+            ),
+        )
+        assertFalse(ProgramDrafts.isEditable(relativeStart))
+        assertFalse(ProgramDrafts.isEditable(hr.copy(kind = ProgramKind.Personalised)))
         val relative = hr.copy(steps = listOf(Repeat(2, listOf(Block(BlockPhase.Work, BlockEnd.Duration(60), BlockTarget.Relative(50.0, 0.0))))))
         assertFalse(ProgramDrafts.isEditable(relative))
     }

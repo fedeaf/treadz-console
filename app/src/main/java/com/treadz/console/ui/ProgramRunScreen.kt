@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,7 +40,9 @@ import com.treadz.console.programs.engine.HeartRateControlState
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.RunState
 import com.treadz.console.programs.model.BlockEnd
+import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.plan.ResolvedBlock
+import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.training.ContinueFailure
 import com.treadz.console.training.RunUiState
 import com.treadz.console.training.positionSeconds
@@ -63,6 +66,9 @@ data class RunActions(
     val onResumeHeartRateControl: () -> Unit = {},
     /** Opens the stored result of a fitness test. */
     val onOpenTest: (String) -> Unit = {},
+    /** Walking heart-rate test, warm-up: one − / + step of the speed the ramp starts at (0.1 km/h) or of its incline (1 %). */
+    val onRampSpeedStep: (Int) -> Unit = {},
+    val onRampInclineStep: (Int) -> Unit = {},
 )
 
 /**
@@ -79,18 +85,31 @@ fun ProgramRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
     val sizes = if (wide) base.copy(stepButton = 84.dp, stepRowHeight = 88.dp, stepValue = 96.sp, presetHeight = 52.dp, stopHeight = 112.dp, stopText = 72.sp, pauseHeight = 72.dp) else base
     val plan = progress.plan
     val segments = remember(plan) { plan?.segments().orEmpty() }
-    val title = plan?.let { programDisplayName(it.source.programId, it.source.programName) }.orEmpty()
+    val title = plan?.let { planTitle(it) }.orEmpty()
 
     Column(modifier.fillMaxSize().testTag("program_run"), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
         RunHeader(title, progress)
         when (progress.state) {
-            RunState.Finished -> ProgramFinished(ui, progress, segments, controls, actions, Modifier.weight(1f))
+            RunState.Finished -> ProgramFinished(ui, run, progress, segments, controls, actions, Modifier.weight(1f))
             else -> {
                 if (progress.state == RunState.Interrupted) InterruptedPanel(progress, run, actions)
                 if (wide) ProgramWide(ui, run, controls, actions, sizes, segments, Modifier.weight(1f))
                 else ProgramCompact(ui, run, controls, actions, sizes, segments, Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** The title of the running program: Couch to 5K names its session, any other program its own name. */
+@Composable
+@ReadOnlyComposable
+private fun planTitle(plan: ResolvedPlan): String {
+    val origin = plan.source.origin
+    val session = origin?.takeIf { it.generatorId == CouchToFiveK.ID }?.inputs?.get("session")?.toIntOrNull()
+    return if (session != null) {
+        stringResource(R.string.couch_run_title, stringResource(generatorNameRes(CouchToFiveK.ID)), session, CouchToFiveK.SESSIONS)
+    } else {
+        programDisplayName(plan.source.programId, plan.source.programName)
     }
 }
 
@@ -470,6 +489,7 @@ private fun StartOutcomeText(failure: ContinueFailure.Command): String =
 @Composable
 private fun ProgramFinished(
     ui: MainUiState,
+    run: RunUiState,
     progress: ProgramProgress,
     segments: List<com.treadz.console.training.PlanSegment>,
     controls: ControlActions,
@@ -490,6 +510,16 @@ private fun ProgramFinished(
                     SummaryFigure(stringResource(R.string.stat_duration), Format.duration(progress.totalElapsedSeconds), "summary_duration")
                     SummaryFigure(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(progress.totalElapsedMeters)), "summary_distance")
                     SummaryFigure(stringResource(R.string.summary_blocks), stringResource(R.string.summary_blocks_value, (progress.currentBlockIndex + 1).coerceAtMost(blockCount), blockCount), "summary_blocks")
+                }
+                run.couchNext?.let { next ->
+                    Column(Modifier.fillMaxWidth().testTag("couch_next_panel"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            stringResource(R.string.couch_next_after, next.session, CouchToFiveK.SESSIONS),
+                            Modifier.testTag("couch_next_session"),
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                        )
+                        Text(next.decision.text(), Modifier.testTag("couch_next_reason"), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
                 PlanChart(
                     segments = segments,

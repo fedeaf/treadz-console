@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
@@ -77,6 +78,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 ) {
                     if (state.owner == null) UnassignedBanner(actions)
                     Summary(detail, state, actions)
+                    detail.sessionRecord?.let { SessionRecordPanel(it) }
                     ExportSection(state, actions)
                     DeleteWorkoutButton(actions)
                 }
@@ -88,6 +90,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
             ) {
                 if (state.owner == null) UnassignedBanner(actions)
                 Summary(detail, state, actions)
+                detail.sessionRecord?.let { SessionRecordPanel(it) }
                 ExportSection(state, actions)
                 Charts(detail, Modifier.fillMaxWidth())
                 DeleteWorkoutButton(actions)
@@ -204,7 +207,11 @@ private fun Summary(detail: WorkoutDetail, state: WorkoutDetailUiState, actions:
         } else {
             summary.endReason?.let { Tag(it.label(), MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        if (summary.programId != null) {
+        val generatorId = summary.generatorId
+        if (generatorId != null) {
+            val session = detail.sessionRecord?.origin?.inputs?.get("session")?.toIntOrNull()
+            Tag(generatorTagText(generatorId, session), MaterialTheme.colorScheme.secondary, Modifier.testTag("detail_generator_tag"))
+        } else if (summary.programId != null) {
             Tag(programDisplayName(summary.programId, summary.programName), MaterialTheme.colorScheme.secondary, Modifier.testTag("detail_program_tag"))
         }
         if (summary.fitnessTestId != null) {
@@ -316,6 +323,36 @@ private fun PlannedVersusActual(plan: com.treadz.console.programs.plan.ResolvedP
                 actualSpeed = ChartMath.downsample(speed, MAX_CHART_POINTS), actualIncline = ChartMath.downsample(incline, MAX_CHART_POINTS),
             )
             PlanLegend(stringResource(R.string.detail_plan_speed), stringResource(R.string.detail_plan_incline), actualLabel = stringResource(R.string.detail_plan_actual))
+        }
+    }
+}
+
+/**
+ * What the record of a generated session says: how it ended, the manual speed reductions, and for each heart-rate block the
+ * heart rate at its end and the value at which it settled in the zone. Short rows: the charts above tell the rest.
+ */
+@Composable
+private fun SessionRecordPanel(record: com.treadz.console.programs.personalised.GeneratedSessionRecord) {
+    Panel(Modifier.fillMaxWidth().testTag("session_record")) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SectionLabel(stringResource(R.string.record_title))
+            FactRow(stringResource(R.string.record_outcome), record.outcome.label(), tag = "record_outcome")
+            FactRow(stringResource(R.string.record_manual_reductions), record.manualSpeedReductions.toString(), tag = "record_reductions")
+            val guided = record.blocks.filter { it.heartRate != null }
+            guided.forEach { block ->
+                val hr = block.heartRate ?: return@forEach
+                val end = block.endHeartRateBpm?.let { stringResource(R.string.record_end_hr, Format.whole(it.toInt())) } ?: stringResource(R.string.record_no_hr)
+                val settled = hr.settledValue?.let { stringResource(R.string.record_settled, adjustedValueText(hr.adjust, it)) } ?: stringResource(R.string.record_not_settled)
+                // A title and, under it, what happened: the values are too long to sit beside the title on a phone.
+                Column(Modifier.fillMaxWidth().testTag("record_block_${block.blockIndex}").semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        stringResource(R.string.record_block, block.blockIndex + 1, block.phase.label()) +
+                            (block.repetition?.let { " · " + stringResource(R.string.block_repetition_short, it) } ?: ""),
+                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text("$end · $settled", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

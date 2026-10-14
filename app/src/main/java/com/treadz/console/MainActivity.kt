@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle, dependencies.sync, dependencies.training) as T
+                MainViewModel(dependencies.controller, dependencies.recorder, dependencies.settings, dependencies.userData, dependencies.appLifecycle, dependencies.sync, dependencies.training, dependencies.strap) as T
         }
     }
 

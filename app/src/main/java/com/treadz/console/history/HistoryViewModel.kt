@@ -2,6 +2,7 @@ package com.treadz.console.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.sync.service.SyncService
 import com.treadz.console.sync.service.SyncSetup
 import com.treadz.console.userdata.DataResult
@@ -39,6 +40,8 @@ data class HistoryUiState(
     val failed: Boolean = false,
     /** Workouts whose latest state is not uploaded yet. Empty unless this device is linked to a GitHub repository. */
     val pendingUploadIds: Set<Long> = emptySet(),
+    /** The Couch to 5K session (1-27) of each of the active user's workouts that was one, by workout id. */
+    val couchSessions: Map<Long, Int> = emptyMap(),
 ) {
     /** The tab to show: the unassigned one only exists while there is something in it. */
     val visibleTab: HistoryTab get() = if (unassigned.isEmpty()) HistoryTab.Mine else tab
@@ -76,14 +79,32 @@ class HistoryViewModel(
             .flatMapLatest { linked -> if (linked) sync.pendingWorkoutIds else flowOf(emptySet()) }
     }
 
+    /** The Couch to 5K session number of each workout of the active user that was one (it lives in the session record). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val couchSessions: Flow<Map<Long, Int>> = userData.profiles.activeUser.flatMapLatest { user ->
+        if (user == null) {
+            flowOf(emptyMap())
+        } else {
+            userData.workouts.sessionRecords(user.id, CouchToFiveK.ID).map { records ->
+                records.mapNotNull { r -> CouchToFiveK.sessionOf(r.record)?.let { r.workoutId to it } }.toMap()
+            }
+        }
+    }
+
     private data class Content(
         val mine: Pair<UserProfile?, List<WorkoutSummary>>,
         val unassigned: List<WorkoutSummary>,
         val users: List<UserProfile>,
         val pendingUploads: Set<Long>,
+        val couchSessions: Map<Long, Int>,
     )
 
-    private val content = combine(mine, userData.workouts.unassignedWorkouts(), userData.profiles.profiles, pendingUploads, ::Content)
+    private val content = combine(
+        combine(mine, userData.workouts.unassignedWorkouts(), userData.profiles.profiles, pendingUploads) { a, b, c, d -> Quad(a, b, c, d) },
+        couchSessions,
+    ) { quad, couch -> Content(quad.a, quad.b, quad.c, quad.d, couch) }
+
+    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
     val uiState: StateFlow<HistoryUiState> = combine(content, local) { content, local ->
         val (user, workouts) = content.mine
@@ -100,6 +121,7 @@ class HistoryViewModel(
             assigningId = local.assigningId,
             failed = local.failed,
             pendingUploadIds = content.pendingUploads,
+            couchSessions = content.couchSessions,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HistoryUiState())
 

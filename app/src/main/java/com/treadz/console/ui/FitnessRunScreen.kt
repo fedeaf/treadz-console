@@ -1,6 +1,7 @@
 package com.treadz.console.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.treadz.console.MainUiState
 import com.treadz.console.R
+import com.treadz.console.programs.fitness.FitnessTestConfig
 import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestProgress
 import com.treadz.console.programs.fitness.FitnessTestType
@@ -55,12 +57,12 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
             // A phone has no room for the title and the phase side by side.
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(type.label(), Modifier.testTag("run_title"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2)
-                Tag(test.phase.label(), phaseColor(test.phase), Modifier.testTag("test_phase"))
+                Tag(phaseLabel(type, test.phase), phaseColor(test.phase), Modifier.testTag("test_phase"))
             }
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(type.label(), Modifier.weight(1f).testTag("run_title"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-                Tag(test.phase.label(), phaseColor(test.phase), Modifier.testTag("test_phase"))
+                Tag(phaseLabel(type, test.phase), phaseColor(test.phase), Modifier.testTag("test_phase"))
             }
         }
         if (test.phase == FitnessTestPhase.Finished && test.result != null) {
@@ -84,8 +86,9 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                     Row(Modifier.weight(1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
                         SpeedFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
                         InclineFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
-                        HeartRateFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
+                        HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
                     }
+                    RampStartPanel(test, actions)
                     TestInfo(test, run)
                 }
                 Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -97,10 +100,12 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
         } else {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
                 InstructionPanel(test, Modifier.fillMaxWidth())
+                // On a phone the ramp start controls come first: they only exist during the warm-up and the figures would push them off screen.
+                RampStartPanel(test, actions)
                 SpeedFigure(ui, test, controls, sizes, Modifier.fillMaxWidth().heightIn(min = 120.dp))
                 Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
                     InclineFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
-                    HeartRateFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
+                    HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
                 }
                 controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
                 TestInfo(test, run)
@@ -113,6 +118,11 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
         }
     }
 }
+
+/** The ramp of the walking heart-rate test is not an "increasing speed" phase: it is its own word. */
+@Composable
+private fun phaseLabel(type: FitnessTestType, phase: FitnessTestPhase): String =
+    if (type == FitnessTestType.MaxHeartRateWalk && phase == FitnessTestPhase.Incremental) stringResource(R.string.test_phase_ramp) else phase.label()
 
 @Composable
 private fun phaseColor(phase: FitnessTestPhase) = when (phase) {
@@ -147,6 +157,12 @@ private fun InstructionPanel(test: FitnessTestProgress, modifier: Modifier) {
                 Column {
                     Text(stringResource(R.string.run_elapsed), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(Format.duration(test.elapsedSeconds), Modifier.testTag("test_elapsed"), style = if (remaining != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                }
+                if (test.testType == FitnessTestType.MaxHeartRateWalk && test.phase == FitnessTestPhase.Incremental) {
+                    Column {
+                        Text(stringResource(R.string.test_ramp_time), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(Format.duration(test.phaseElapsedSeconds), Modifier.testTag("test_ramp_time"), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    }
                 }
                 test.stageNumber?.let { stage ->
                     Column {
@@ -218,7 +234,7 @@ private fun InclineFigure(test: FitnessTestProgress, sizes: LiveSizes, modifier:
 }
 
 @Composable
-private fun HeartRateFigure(test: FitnessTestProgress, sizes: LiveSizes, modifier: Modifier) {
+private fun HeartRateFigure(test: FitnessTestProgress, run: RunUiState, sizes: LiveSizes, modifier: Modifier) {
     val note = when {
         test.heartRateBpm == null -> stringResource(R.string.heart_rate_none)
         test.heartRateBandLowBpm != null && test.heartRateBandHighBpm != null && test.heartRateLimitBpm != null ->
@@ -233,6 +249,7 @@ private fun HeartRateFigure(test: FitnessTestProgress, sizes: LiveSizes, modifie
         modifier = modifier.testTag("heart_rate_figure"),
         note = note,
         maxValueSize = sizes.maxValue, unitSize = sizes.unit, unitInline = sizes.unitInline,
+        labelTrailing = run.heartRateSource?.takeIf { test.heartRateBpm != null }?.let { source -> { HeartRateSourceIcon(source, size = 18.dp) } },
     )
 }
 
@@ -249,6 +266,16 @@ private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
         test.steadyState?.let { add(R.string.test_steady_state, it.label()) }
         test.steadyStateVariationBpm?.let { add(R.string.test_steady_variation, stringResource(R.string.test_variation_value, Format.speed(it))) }
         if (test.stage2Extensions > 0) add(R.string.test_extensions, test.stage2Extensions.toString())
+    } else if (test.testType == FitnessTestType.MaxHeartRateWalk) {
+        // The ramp raises the incline every minute (the speed once the incline is at its top).
+        if (test.phase == FitnessTestPhase.Incremental) {
+            test.stageRemainingSeconds?.let { add(R.string.test_next_step_in, Format.duration(it)) }
+            val speed = test.nextStageSpeedKmh
+            val incline = test.nextStageInclinePercent
+            if (speed != null) {
+                add(R.string.test_walk_next_stage, stringResource(R.string.block_target, Format.speed(speed), Format.incline(incline ?: test.actualInclinePercent)))
+            }
+        }
     } else {
         test.stageRemainingSeconds?.let { add(R.string.test_next_step_in, Format.duration(it)) }
         test.nextStageSpeedKmh?.let { add(R.string.test_next_speed, stringResource(R.string.value_kmh, Format.speed(it))) }
@@ -268,24 +295,79 @@ private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
 /** "I'm exhausted" (maximal test) and "End test" (invalidates it), when they apply. */
 @Composable
 private fun TestButtons(test: FitnessTestProgress, actions: RunActions, sizes: LiveSizes) {
+    val walk = test.testType == FitnessTestType.MaxHeartRateWalk
+    // The walking test counts exhaustion only after 3 minutes of ramp; earlier it would make the test invalid.
+    val minRamp = FitnessTestConfig().minIncrementalSeconds
+    val exhaustedReady = !walk || test.phaseElapsedSeconds >= minRamp
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (test.canReportExhaustion) {
             Button(
                 onClick = actions.onExhausted,
+                enabled = exhaustedReady,
                 modifier = Modifier.fillMaxWidth().height(sizes.pauseHeight).testTag("exhausted_button"),
                 shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.extra.warning, contentColor = MaterialTheme.extra.onWarning),
             ) {
                 Text(stringResource(R.string.test_exhausted), fontSize = sizes.pauseText, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             }
-            if (!LocalLayout.current.compact) {
+            if (walk && !exhaustedReady) {
+                Text(stringResource(R.string.test_exhausted_after_ramp, minRamp / 60), Modifier.testTag("exhausted_wait_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (!LocalLayout.current.compact) {
                 Text(stringResource(R.string.test_exhausted_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        if (walk && test.phase == FitnessTestPhase.Incremental) {
+            Text(stringResource(R.string.test_walk_manual_note), Modifier.testTag("walk_manual_note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.warning)
         }
         if (test.canEndTest) {
             BigOutlinedButton(stringResource(R.string.test_end), actions.onEndTest, Modifier.fillMaxWidth().testTag("end_test_button"))
             if (!LocalLayout.current.compact) {
                 Text(stringResource(R.string.test_end_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** Width from which the two ramp-start steppers fit side by side. */
+private val RAMP_STEPPERS_ROW_MIN_WIDTH = 560.dp
+
+/**
+ * Walking heart-rate test, warm-up only: the speed and the incline the ramp will start at, with − / +. The changes go to
+ * the test runner (through the coordinator); the warm-up steps follow the ramp speed.
+ */
+@Composable
+private fun RampStartPanel(test: FitnessTestProgress, actions: RunActions) {
+    if (test.testType != FitnessTestType.MaxHeartRateWalk || test.phase != FitnessTestPhase.WarmUp) return
+    val speed = test.nextStageSpeedKmh ?: return
+    val incline = test.nextStageInclinePercent ?: return
+    Panel(Modifier.fillMaxWidth().testTag("ramp_start_panel")) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.test_ramp_start_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            // Side by side only when each stepper keeps room for its value ("5.5 km/h") between its buttons.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val speedStepper = @Composable { modifier: Modifier ->
+                    ValueStepper(
+                        label = stringResource(R.string.test_ramp_speed), value = stringResource(R.string.value_kmh, Format.speed(speed)),
+                        onStep = actions.onRampSpeedStep, tag = "ramp_speed", modifier = modifier,
+                    )
+                }
+                val inclineStepper = @Composable { modifier: Modifier ->
+                    ValueStepper(
+                        label = stringResource(R.string.test_ramp_incline), value = stringResource(R.string.value_percent, Format.incline(incline)),
+                        onStep = actions.onRampInclineStep, tag = "ramp_incline", modifier = modifier,
+                    )
+                }
+                if (maxWidth >= RAMP_STEPPERS_ROW_MIN_WIDTH) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        speedStepper(Modifier.weight(1f))
+                        inclineStepper(Modifier.weight(1f))
+                    }
+                } else {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        speedStepper(Modifier)
+                        inclineStepper(Modifier)
+                    }
+                }
             }
         }
     }

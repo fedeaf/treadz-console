@@ -30,6 +30,7 @@ import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.FlagSeverity
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
+import com.treadz.console.programs.fitness.MaxHeartRateWalkMeasurements
 import com.treadz.console.programs.fitness.MaxTestMeasurements
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.FitnessComparison
@@ -169,11 +170,59 @@ private fun Headline(result: FitnessTestResult) {
                     stringResource(R.string.result_error_margin, Format.weight(outputs.vo2maxSeeMlKgMin)),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            } else if (result.testType == FitnessTestType.MaxHeartRateWalk) {
+                WalkSummary(result, valid)
             } else {
                 Text(stringResource(R.string.result_invalid_explanation), Modifier.testTag("result_invalid_text"), style = MaterialTheme.typography.bodyLarge)
             }
         }
     }
+}
+
+/** The result of the walking heart-rate test: the maximum heart rate it measured and how maximal the effort was (no VO2max). */
+@Composable
+private fun WalkSummary(result: FitnessTestResult, valid: Boolean) {
+    if (!valid) {
+        Text(stringResource(R.string.result_invalid_explanation), Modifier.testTag("result_invalid_text"), style = MaterialTheme.typography.bodyLarge)
+        invalidReason(result)?.let { Text(it, Modifier.testTag("result_invalid_reason"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error) }
+        return
+    }
+    val bpm = result.measuredHrMaxCandidateBpm
+    // Only a maximal effort measures the maximum; a lesser one just shows the highest heart rate it reached.
+    val maximal = result.effortAssessment == EffortAssessment.Maximal
+    Text(stringResource(if (maximal) R.string.hrmax_label else R.string.result_peak_hr), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(Format.heartRate(bpm), Modifier.testTag("result_hrmax"), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+        if (bpm != null) Text(stringResource(R.string.unit_heart_rate), Modifier.padding(bottom = 10.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+    val effort = result.effortAssessment
+    if (effort != null) {
+        val color = when (effort) {
+            EffortAssessment.Maximal -> MaterialTheme.extra.ok
+            EffortAssessment.NotMaximal -> MaterialTheme.extra.warning
+            EffortAssessment.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Tag(effort.label(), color, Modifier.testTag("result_effort_tag"))
+        effortReason(result, effort)?.let { Text(it, Modifier.testTag("result_effort_reason"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+
+/** The text of [this] flag in a result of [testType]: the walking test's ramp raises the incline, not the speed. */
+@Composable
+private fun FitnessTestFlag.text(testType: FitnessTestType): String =
+    if (this == FitnessTestFlag.ShortIncrementalPhase && testType == FitnessTestType.MaxHeartRateWalk) stringResource(R.string.flag_walk_ramp_short) else text()
+
+/** Why a result is not valid, in words: the first thing that invalidated it, else how the test ended. */
+@Composable
+private fun invalidReason(result: FitnessTestResult): String? =
+    result.flags.firstOrNull { it.severity == FlagSeverity.Invalidating }?.text() ?: result.endReason.text()
+
+/** Why the effort was judged as it was (the flag that decided it). */
+@Composable
+private fun effortReason(result: FitnessTestResult, effort: EffortAssessment): String? = when (effort) {
+    EffortAssessment.Maximal -> if (FitnessTestFlag.MaximalByHeartRatePlateau in result.flags) FitnessTestFlag.MaximalByHeartRatePlateau.text() else stringResource(R.string.effort_reason_maximal)
+    EffortAssessment.NotMaximal -> (result.flags.firstOrNull { it == FitnessTestFlag.ShortIncrementalPhase } ?: result.flags.firstOrNull { it == FitnessTestFlag.PeakHeartRateLow })?.text(result.testType)
+    EffortAssessment.Unknown -> (result.flags.firstOrNull { it == FitnessTestFlag.NoValidHeartRate } ?: result.flags.firstOrNull { it == FitnessTestFlag.HeartRateUnreliable })?.text()
 }
 
 @Composable
@@ -216,6 +265,21 @@ private fun Figures(result: FitnessTestResult) {
             )
             outputs?.effort?.let {
                 StatTile(stringResource(R.string.result_effort), it.label(), tile, valueTag = "result_effort")
+            }
+        }
+        (result.measurements as? MaxHeartRateWalkMeasurements)?.let { m ->
+            // The maximum heart rate is the headline; these are the figures of the ramp.
+            val last = m.stages.lastOrNull()
+            StatTile(stringResource(R.string.result_ramp_time), Format.duration(m.rampSeconds), tile, valueTag = "result_ramp_time")
+            StatTile(
+                stringResource(R.string.result_ramp_start), Format.speed(m.startSpeedKmh), tile, unit = stringResource(R.string.unit_speed),
+                note = stringResource(R.string.result_at_incline, Format.incline(m.startInclinePercent)), valueTag = "result_ramp_start",
+            )
+            last?.let {
+                StatTile(
+                    stringResource(R.string.result_ramp_end), Format.speed(it.speedKmh), tile, unit = stringResource(R.string.unit_speed),
+                    note = stringResource(R.string.result_at_incline, Format.incline(it.inclinePercent)), valueTag = "result_ramp_end",
+                )
             }
         }
         ebbeling?.let { m ->
@@ -262,13 +326,13 @@ private fun WhatHappened(result: FitnessTestResult) {
             if (flags.isEmpty()) {
                 Text(stringResource(R.string.result_no_flags), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            flags.forEach { flag -> FlagRow(flag) }
+            flags.forEach { flag -> FlagRow(flag, result.testType) }
         }
     }
 }
 
 @Composable
-private fun FlagRow(flag: FitnessTestFlag) {
+private fun FlagRow(flag: FitnessTestFlag, testType: FitnessTestType) {
     val color = when (flag.severity) {
         FlagSeverity.Info -> MaterialTheme.colorScheme.onSurfaceVariant
         FlagSeverity.Warning -> MaterialTheme.extra.warning
@@ -276,7 +340,7 @@ private fun FlagRow(flag: FitnessTestFlag) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatusDot(color, size = 10.dp, modifier = Modifier.padding(top = 7.dp))
-        Text(flag.text(), Modifier.testTag("flag_${flag.name}"), style = MaterialTheme.typography.bodyMedium, color = if (flag.severity == FlagSeverity.Info) MaterialTheme.colorScheme.onSurface else color)
+        Text(flag.text(testType), Modifier.testTag("flag_${flag.name}"), style = MaterialTheme.typography.bodyMedium, color = if (flag.severity == FlagSeverity.Info) MaterialTheme.colorScheme.onSurface else color)
     }
 }
 

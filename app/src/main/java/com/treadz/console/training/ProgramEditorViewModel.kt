@@ -2,7 +2,12 @@ package com.treadz.console.training
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.programs.engine.HeartRateControlMode
+import com.treadz.console.programs.heartrate.HeartRateProfile
+import com.treadz.console.programs.heartrate.HeartRateZoneBpm
+import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.BlockPhase
+import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.model.InvalidProgramException
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.plan.ProgramResolver
@@ -14,18 +19,25 @@ import com.treadz.console.treadmill.control.SafetyClamp
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.ProgramSaveResult
 import com.treadz.console.userdata.UserData
+import com.treadz.console.training.ProgramDrafts.withAutoBounds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class ProgramEditorUiState(
     val loading: Boolean = true,
     val notFound: Boolean = false,
-    /** The program has targets this editor cannot show yet (heart rate, relative): it is left as it is. */
+    /** The program has targets this editor cannot show (relative ones) or is a generated one: it is left as it is. */
     val unsupported: Boolean = false,
+    /** [unsupported] because the program was generated: it can be duplicated as a free program instead. */
+    val generated: Boolean = false,
     val isNew: Boolean = true,
     val draft: ProgramDraft = ProgramDraft(),
     /** Every problem found in the draft now. Shown next to the fields once the user has tried to save. */
@@ -33,6 +45,16 @@ data class ProgramEditorUiState(
     val showProblems: Boolean = false,
     /** Blocks (step, block inside a repeat) too short to be useful. */
     val shortBlocks: Set<Pair<Int, Int?>> = emptySet(),
+    /** Heart-rate blocks (step, block inside a repeat) shorter than 3 minutes: the heart rate has no time to respond. */
+    val shortHeartRateBlocks: Set<Pair<Int, Int?>> = emptySet(),
+    /** How each heart-rate block is controlled: continuously or between the repetitions of its repeat. */
+    val heartRateModes: Map<Pair<Int, Int?>, HeartRateControlMode> = emptyMap(),
+    /** The active user's maximum heart rate (and resting reference): zones are shown in bpm. `null` without a user. */
+    val heartRateProfile: HeartRateProfile? = null,
+    /** The active user has a resting heart-rate reference: zones can be a % of the heart-rate reserve. */
+    val hasResting: Boolean = false,
+    /** The zone of each heart-rate block in bpm for the active user, as the values stand now. */
+    val zoneBpm: Map<Pair<Int, Int?>, HeartRateZoneBpm> = emptyMap(),
     /** What the program would run, when the draft is valid. */
     val plan: ResolvedPlan? = null,
     val dirty: Boolean = false,
@@ -59,7 +81,24 @@ class ProgramEditorViewModel(
     private var program: com.treadz.console.programs.model.Program? = null
     private var kind = ProgramKind.Free
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val heartRateReferences = userData.profiles.activeUser.flatMapLatest { user ->
+        if (user == null) {
+            flowOf(null)
+        } else {
+            combine(userData.fitnessTests.heartRateMax(user.id), userData.restingHeartRates.reference(user.id)) { max, resting ->
+                max?.let { HeartRateProfile(it.bpm, resting?.bpm) }
+            }
+        }
+    }
+
     init {
+        viewModelScope.launch {
+            heartRateReferences.collect { profile ->
+                state.update { it.copy(heartRateProfile = profile, hasResting = profile?.usableRestingBpm != null) }
+                refresh()
+            }
+        }
         viewModelScope.launch {
             if (programId == null) {
                 ownerId = userData.profiles.activeUser.first()?.id
@@ -76,7 +115,7 @@ class ProgramEditorViewModel(
             program = stored.program
             kind = stored.program.kind
             if (!ProgramDrafts.isEditable(stored.program)) {
-                state.update { it.copy(loading = false, unsupported = true, isNew = false) }
+                state.update { it.copy(loading = false, unsupported = true, generated = stored.program.kind == ProgramKind.Personalised, isNew = false) }
                 return@launch
             }
             state.update { it.copy(loading = false, isNew = false, draft = ProgramDrafts.draftOf(stored.program, ::key)) }
@@ -131,12 +170,61 @@ class ProgramEditorViewModel(
             steps = draft.steps.mapIndexed { i, s ->
                 when {
                     i != step -> s
-                    s is SingleStepDraft && block == null -> s.copy(block = edit(s.block))
-                    s is RepeatStepDraft && block != null -> s.copy(blocks = s.blocks.mapIndexed { j, b -> if (j == block) edit(b) else b })
+                    s is SingleStepDraft && block == null -> s.copy(block = normalised(edit(s.block)))
+                    s is RepeatStepDraft && block != null -> s.copy(blocks = s.blocks.mapIndexed { j, b -> if (j == block) normalised(edit(b)) else b })
                     else -> s
                 }
             },
         )
+    }
+
+    /** A heart-rate block whose bounds have not been typed follows its starting value. */
+    private fun normalised(block: BlockDraft): BlockDraft {
+        val hr = block.heartRate ?: return block
+        val env = environment()
+        return block.copy(heartRate = hr.withAutoBounds(block, env.speedRange.max, env.inclineRange.max))
+    }
+
+    // ---- heart-rate targets
+
+    /** Switches a block between "speed and incline" and "heart rate" (its speed and incline stay as the starting values). */
+    fun setHeartRateTarget(step: Int, block: Int?, enabled: Boolean) = editBlock(step, block) { b ->
+        when {
+            !enabled -> b.copy(heartRate = null)
+            b.heartRate != null -> b
+            else -> {
+                val env = environment()
+                b.copy(heartRate = ProgramDrafts.heartRateDraftFor(b, env.speedRange.max, env.inclineRange.max))
+            }
+        }
+    }
+
+    /** Changes the heart-rate part of a block (zone, custom percentages…). */
+    fun editHeartRate(step: Int, block: Int?, edit: (HeartRateDraft) -> HeartRateDraft) =
+        editBlock(step, block) { b -> b.heartRate?.let { b.copy(heartRate = edit(it)) } ?: b }
+
+    /** Zone 1-5 (`index` 0-4), or `null` for a zone of the user's own (it starts from the zone that was set). */
+    fun setZone(step: Int, block: Int?, index: Int?) = editHeartRate(step, block) { hr ->
+        if (index != null) {
+            hr.copy(standardZone = index.coerceIn(0, HeartRateZones.STANDARD.lastIndex))
+        } else {
+            val current = ProgramDrafts.zoneOf(hr)
+            hr.copy(standardZone = null, customLow = current?.lowPercent?.toString() ?: hr.customLow, customHigh = current?.highPercent?.toString() ?: hr.customHigh)
+        }
+    }
+
+    /** The zone as a % of the heart-rate reserve: only for a user with a resting heart rate. */
+    fun setReserve(step: Int, block: Int?, reserve: Boolean) {
+        if (reserve && !state.value.hasResting) return
+        editHeartRate(step, block) { it.copy(reserve = reserve) }
+    }
+
+    /** Which quantity the control moves: the speed (running) or the incline (walking, the speed stays). */
+    fun setAdjust(step: Int, block: Int?, adjust: HeartRateAdjust) =
+        editHeartRate(step, block) { if (it.adjust == adjust) it else it.copy(adjust = adjust, boundsAuto = true) }
+
+    fun setHeartRateBound(step: Int, block: Int?, maximum: Boolean, text: String) = editHeartRate(step, block) {
+        if (maximum) it.copy(maximum = text, boundsAuto = false) else it.copy(minimum = text, boundsAuto = false)
     }
 
     fun setRepeatCount(step: Int, value: String) = editRepeat(step) { it.copy(count = value) }
@@ -184,9 +272,28 @@ class ProgramEditorViewModel(
             it.copy(
                 problems = parsed.problems,
                 shortBlocks = ProgramDrafts.shortBlocks(draft, ProgramResolver.SHORT_BLOCK_SECONDS),
+                shortHeartRateBlocks = ProgramDrafts.shortHeartRateBlocks(draft),
+                heartRateModes = ProgramDrafts.controlModes(draft),
+                zoneBpm = zonesInBpm(draft, it.heartRateProfile),
                 plan = plan,
             )
         }
+    }
+
+    private fun zonesInBpm(draft: ProgramDraft, profile: HeartRateProfile?): Map<Pair<Int, Int?>, HeartRateZoneBpm> {
+        if (profile == null || !profile.isUsable) return emptyMap()
+        val result = linkedMapOf<Pair<Int, Int?>, HeartRateZoneBpm>()
+        fun add(key: Pair<Int, Int?>, b: BlockDraft) {
+            val zone = b.heartRate?.let(ProgramDrafts::zoneOf) ?: return
+            if (zone.lowPercent in 0..100 && zone.highPercent in 0..100 && zone.lowPercent < zone.highPercent) result[key] = HeartRateZones.toBpm(zone, profile)
+        }
+        draft.steps.forEachIndexed { i, step ->
+            when (step) {
+                is SingleStepDraft -> add(i to null, step.block)
+                is RepeatStepDraft -> step.blocks.forEachIndexed { j, b -> add(i to j, b) }
+            }
+        }
+        return result
     }
 
     /** Saves the program; [onSaved] is called when it is stored. */

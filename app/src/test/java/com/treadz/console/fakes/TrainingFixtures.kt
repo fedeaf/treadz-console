@@ -58,6 +58,30 @@ object TrainingFixtures {
         heartRateLimitBpm = null, canReportExhaustion = true, capReached = capReached, masIfExhaustedNowKmh = 10.0, canEndTest = true,
     )
 
+    /** The walking heart-rate test in its warm-up (second step): the ramp will start at 5.5 km/h and 5 %. */
+    fun walkWarmUp() = FitnessTestProgress(
+        testType = FitnessTestType.MaxHeartRateWalk, phase = FitnessTestPhase.WarmUp, instruction = FitnessInstruction.WarmUpWalk,
+        elapsedSeconds = 78, phaseElapsedSeconds = 78, phaseRemainingSeconds = 42,
+        targetSpeedKmh = 4.4, targetInclinePercent = 1.0, nextStageSpeedKmh = 5.5, nextStageInclinePercent = 5.0,
+        actualSpeedKmh = 4.4, actualInclinePercent = 1.0, heartRateBpm = 104, heartRateValidity = HeartRateValidity.Valid,
+        canEndTest = true,
+    )
+
+    /** The walking heart-rate test [rampSeconds] into the ramp (+1 % of incline every minute from 5 %). */
+    fun walkRamp(rampSeconds: Int, hr: Int = 158, capReached: Boolean = false): FitnessTestProgress {
+        val stage = rampSeconds / 60
+        val incline = (5 + stage).coerceAtMost(18).toDouble()
+        return FitnessTestProgress(
+            testType = FitnessTestType.MaxHeartRateWalk, phase = FitnessTestPhase.Incremental,
+            instruction = if (capReached) FitnessInstruction.HoldTopSpeed else FitnessInstruction.WalkUphillUntilExhausted,
+            elapsedSeconds = 120 + rampSeconds, phaseElapsedSeconds = rampSeconds, phaseRemainingSeconds = null, stageNumber = stage + 1,
+            stageRemainingSeconds = 60 - rampSeconds % 60, targetSpeedKmh = 5.5, targetInclinePercent = incline,
+            nextStageSpeedKmh = 5.5, nextStageInclinePercent = (incline + 1).coerceAtMost(18.0),
+            actualSpeedKmh = 5.5, actualInclinePercent = incline, heartRateBpm = hr, heartRateValidity = HeartRateValidity.Valid,
+            canReportExhaustion = true, capReached = capReached, canEndTest = true,
+        )
+    }
+
     fun coolDown(result: FitnessTestResult) = FitnessTestProgress(
         testType = result.testType, phase = FitnessTestPhase.CoolDown, instruction = FitnessInstruction.CoolDownWalk,
         elapsedSeconds = 1100, phaseElapsedSeconds = 160, phaseRemainingSeconds = 140,

@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.treadz.console.Decimals
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionKind
+import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockTarget
 import com.treadz.console.programs.model.InvalidProgramException
 import com.treadz.console.programs.model.Program
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.model.ProgramLimits
+import com.treadz.console.programs.model.ProgramOrigin
 import com.treadz.console.programs.model.Repeat
 import com.treadz.console.programs.plan.IntensityParameter
 import com.treadz.console.programs.plan.ProgramResolver
@@ -27,11 +29,15 @@ import com.treadz.console.treadmill.control.SafetyClamp
 import com.treadz.console.userdata.ProgramSaveResult
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -94,6 +100,12 @@ data class ProgramStartUiState(
     val saveCopyFailed: Boolean = false,
     /** The form holds the program's default values (the "restore defaults" action has nothing to do). */
     val atDefaults: Boolean = true,
+    /** What generated the program (personalised programs only): it runs exactly as stored, with no adjustments. */
+    val origin: ProgramOrigin? = null,
+    /** When the personalised program was generated (epoch ms). */
+    val generatedAtMillis: Long? = null,
+    /** The active user's heart-rate references: the zones of heart-rate blocks are shown in bpm with them. */
+    val heartRateProfile: HeartRateProfile? = null,
 ) {
     val canStart: Boolean get() = blocker == null && plan != null && !starting
 }
@@ -118,6 +130,7 @@ class ProgramStartViewModel(
         val failure: StartOutcome? = null,
         val savingCopy: Boolean = false,
         val saveCopyFailed: Boolean = false,
+        val createdAtMillis: Long? = null,
     )
 
     private val local = MutableStateFlow(Local())
@@ -138,7 +151,18 @@ class ProgramStartViewModel(
         Context(user, connection is ConnectionState.Connected, state.status, state.speedKmh, session)
     }
 
-    val uiState: StateFlow<ProgramStartUiState> = combine(local, environment, context) { local, env, ctx -> build(local, env, ctx) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val heartRateProfile: Flow<HeartRateProfile?> = userData.profiles.activeUser.flatMapLatest { user ->
+        if (user == null) {
+            flowOf(null)
+        } else {
+            combine(userData.fitnessTests.heartRateMax(user.id), userData.restingHeartRates.reference(user.id)) { max, resting ->
+                max?.let { HeartRateProfile(it.bpm, resting?.bpm) }
+            }
+        }
+    }
+
+    val uiState: StateFlow<ProgramStartUiState> = combine(local, environment, context, heartRateProfile) { local, env, ctx, hr -> build(local, env, ctx, hr) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ProgramStartUiState(programId = programId))
 
     init {
@@ -147,21 +171,27 @@ class ProgramStartViewModel(
 
     private suspend fun load() {
         val standard = StandardPrograms.byId(programId)
-        val program = standard?.program ?: userData.programs.get(programId)?.program
+        val stored = if (standard == null) userData.programs.get(programId) else null
+        val program = standard?.program ?: stored?.program
         if (program == null) {
             local.update { it.copy(loading = false) }
             return
         }
         val userId = userData.profiles.activeUserId()
         val last = userId?.let { userData.startParameters.lastUsed(it, programId).first() }
-        local.update { it.copy(program = program, standard = standard, loading = false, form = initialForm(program, standard, last)) }
+        local.update {
+            it.copy(program = program, standard = standard, loading = false, form = initialForm(program, standard, last), createdAtMillis = stored?.createdAtMillis)
+        }
     }
 
-    private fun build(local: Local, env: ResolutionEnvironment, ctx: Context): ProgramStartUiState {
+    private fun build(local: Local, env: ResolutionEnvironment, ctx: Context, heartRateProfile: HeartRateProfile?): ProgramStartUiState {
         val program = local.program
         if (program == null) return ProgramStartUiState(loading = local.loading, notFound = !local.loading, programId = programId)
         val uses = local.standard?.uses ?: ProgramResolver.requiredParameters(program)
-        val (parameters, problems) = parametersOf(local.form, uses, env, local.standard != null)
+        // A generated program runs as it was generated: the global adjustment does not apply to it.
+        val generated = program.kind == ProgramKind.Personalised
+        val form = if (generated) local.form.copy(adjustmentPercent = 0) else local.form
+        val (parameters, problems) = parametersOf(form, uses, env, local.standard != null)
         val plan = parameters?.let { resolve(program, it, env) }
         val belt = ctx.belt
         val beltReady = when (belt) {
@@ -187,7 +217,7 @@ class ProgramStartViewModel(
             description = program.description,
             uses = uses,
             durationOptions = std?.let { DurationOptions(it.minTotalDurationSeconds, it.maxTotalDurationSeconds, it.durationStepSeconds) },
-            form = local.form,
+            form = form,
             problems = problems,
             plan = plan,
             speedMin = env.speedRange.min,
@@ -198,7 +228,10 @@ class ProgramStartViewModel(
             failure = local.failure,
             savingCopy = local.savingCopy,
             saveCopyFailed = local.saveCopyFailed,
-            atDefaults = local.form == initialForm(program, std, last = null),
+            atDefaults = form == initialForm(program, std, last = null),
+            origin = program.origin,
+            generatedAtMillis = local.createdAtMillis,
+            heartRateProfile = heartRateProfile,
         )
     }
 

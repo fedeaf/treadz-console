@@ -25,6 +25,14 @@ interface SettingsStore {
     fun peakAnsweredAtMillis(userId: Long): Long?
 
     fun setPeakAnsweredAtMillis(userId: Long, atMillis: Long)
+
+    /**
+     * The inputs the user last started a generated session with, for one generator (mode, duration, series, walking
+     * speed, jog adjustment…), as text. Empty when there are none. Per user and generator, local to the device.
+     */
+    fun generatorInputs(userId: Long, generatorId: String): Map<String, String>
+
+    fun setGeneratorInputs(userId: Long, generatorId: String, inputs: Map<String, String>)
 }
 
 class SharedPreferencesSettingsStore(context: Context) : SettingsStore {
@@ -56,7 +64,16 @@ class SharedPreferencesSettingsStore(context: Context) : SettingsStore {
 
     override fun setPeakAnsweredAtMillis(userId: Long, atMillis: Long) = prefs.edit { putLong(KEY_PEAK_ANSWERED + userId, atMillis) }
 
+    override fun generatorInputs(userId: Long, generatorId: String): Map<String, String> =
+        prefs.getString(generatorKey(userId, generatorId), null)?.let(::decodeInputs).orEmpty()
+
+    override fun setGeneratorInputs(userId: Long, generatorId: String, inputs: Map<String, String>) =
+        prefs.edit { putString(generatorKey(userId, generatorId), encodeInputs(inputs)) }
+
+    private fun generatorKey(userId: Long, generatorId: String) = "$KEY_GENERATOR_INPUTS${userId}_$generatorId"
+
     private companion object {
+        const val KEY_GENERATOR_INPUTS = "generator_inputs_"
         const val NONE = Long.MIN_VALUE
         const val KEY_STRAP_ASKED = "strap_question_answered_"
         const val KEY_PEAK_ANSWERED = "peak_answered_at_"
@@ -66,3 +83,13 @@ class SharedPreferencesSettingsStore(context: Context) : SettingsStore {
         const val KEY_DARK = "dark_theme"
     }
 }
+
+/** `key=value;key=value`: the inputs are numbers and words, never containing `;` or `=`. */
+internal fun encodeInputs(inputs: Map<String, String>): String =
+    inputs.entries.filter { ';' !in it.key + it.value && '=' !in it.key + it.value }.joinToString(";") { "${it.key}=${it.value}" }
+
+internal fun decodeInputs(text: String): Map<String, String> =
+    text.split(';').mapNotNull { part ->
+        val i = part.indexOf('=')
+        if (i <= 0) null else part.substring(0, i) to part.substring(i + 1)
+    }.toMap()

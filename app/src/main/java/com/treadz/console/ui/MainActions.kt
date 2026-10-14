@@ -36,6 +36,9 @@ data class MainActions(
     val onEnableBluetooth: () -> Unit = {},
     val onDismissAlert: () -> Unit = {},
     val onDismissRecordingNotice: () -> Unit = {},
+    /** Keeps / discards the workout that has just ended. */
+    val onKeepWorkout: () -> Unit = {},
+    val onDiscardWorkout: () -> Unit = {},
     val onShare: (RecordingInfo) -> Unit = {},
     val onRequestPermissions: () -> Unit = {},
     /** Opens Android's settings of this app (permissions). */

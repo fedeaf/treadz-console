@@ -121,6 +121,21 @@ interface WorkoutHistoryRepository {
 
     suspend fun delete(workoutId: Long): DataResult<Unit>
 
+    /**
+     * Keeps a workout (in progress or finished) out of the uploads until [releaseUpload], while the user decides
+     * whether to keep it. In memory only: after a restart it is uploaded as usual.
+     */
+    fun holdUpload(workoutId: Long) {}
+
+    fun releaseUpload(workoutId: Long) {}
+
+    /**
+     * Discards a finished workout the user did not want, together with its fitness test result. While its upload is
+     * held (it never left this device) the workout, its samples and the result are deleted for good, with no tombstone,
+     * so nothing ever reaches the repository; otherwise it is a normal [delete] of both. The hold is released.
+     */
+    suspend fun discardFinished(workoutId: Long): DataResult<Unit>
+
     /** Gives an unassigned workout (or moves any workout) to a user. */
     suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit>
 

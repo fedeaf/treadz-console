@@ -92,6 +92,8 @@ data class ProgramStartUiState(
     val failure: StartOutcome? = null,
     val savingCopy: Boolean = false,
     val saveCopyFailed: Boolean = false,
+    /** The form holds the program's default values (the "restore defaults" action has nothing to do). */
+    val atDefaults: Boolean = true,
 ) {
     val canStart: Boolean get() = blocker == null && plan != null && !starting
 }
@@ -196,6 +198,7 @@ class ProgramStartViewModel(
             failure = local.failure,
             savingCopy = local.savingCopy,
             saveCopyFailed = local.saveCopyFailed,
+            atDefaults = local.form == initialForm(program, std, last = null),
         )
     }
 
@@ -232,6 +235,12 @@ class ProgramStartViewModel(
     }
 
     fun stepAdjustment(direction: Int) = setAdjustment(local.value.form.adjustmentPercent + direction * ADJUSTMENT_STEP)
+
+    /** Puts back the program's default values, ignoring what was used last time (that only changes on start). */
+    fun restoreDefaults() = local.update { l ->
+        val program = l.program ?: return@update l
+        l.copy(form = initialForm(program, l.standard, last = null), failure = null)
+    }
 
     private fun edit(change: (StartForm) -> StartForm) = local.update { it.copy(form = change(it.form), failure = null) }
 

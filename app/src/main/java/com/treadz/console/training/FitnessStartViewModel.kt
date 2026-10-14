@@ -64,6 +64,8 @@ data class FitnessStartUiState(
     val speedMin: Double = 0.0,
     val speedMax: Double = 0.0,
     val speedInvalid: Boolean = false,
+    /** The start speed is the suggested one (the "restore defaults" action has nothing to do). */
+    val atDefaults: Boolean = true,
     /** Heart rate the treadmill reports now (`null`: none). */
     val heartRateBpm: Int? = null,
     val blocker: TestBlocker? = null,
@@ -89,6 +91,8 @@ class FitnessStartViewModel(
 
     private data class Local(
         val speedText: String = "",
+        /** The start speed suggested from the user's last test (the default); empty until the results are known. */
+        val suggestedText: String = "",
         val suggested: Boolean = false,
         val starting: Boolean = false,
         val failure: StartOutcome? = null,
@@ -142,6 +146,7 @@ class FitnessStartViewModel(
             speedMin = speedRange.start,
             speedMax = speedRange.endInclusive,
             speedInvalid = speedInvalid,
+            atDefaults = !local.suggested || local.speedText == local.suggestedText,
             heartRateBpm = belt.heartRate,
             blocker = blocker,
             starting = local.starting,
@@ -156,13 +161,17 @@ class FitnessStartViewModel(
                 if (!local.value.suggested && p.user != null) {
                     val suggestion = if (ebbeling) FitnessResults.suggestedEbbelingSpeed(p.results, defaultSpeed) else FitnessResults.suggestedMaxStartSpeed(p.results, defaultSpeed)
                     val speed = (suggestion.coerceIn(speedRange.start, speedRange.endInclusive) * 10).roundToInt() / 10.0
-                    local.update { it.copy(speedText = Decimals.format(speed), suggested = true) }
+                    val text = Decimals.format(speed)
+                    local.update { it.copy(speedText = text, suggestedText = text, suggested = true) }
                 }
             }
         }
     }
 
     fun setSpeed(text: String) = local.update { it.copy(speedText = text, failure = null) }
+
+    /** Puts back the suggested start speed. */
+    fun restoreDefaults() = local.update { if (it.suggested) it.copy(speedText = it.suggestedText, failure = null) else it }
 
     fun stepSpeed(direction: Int) {
         val current = Decimals.parse(local.value.speedText) ?: defaultSpeed

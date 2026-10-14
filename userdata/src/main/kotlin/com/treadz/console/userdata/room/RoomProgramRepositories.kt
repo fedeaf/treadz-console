@@ -1,6 +1,7 @@
 package com.treadz.console.userdata.room
 
 import androidx.room.withTransaction
+import com.treadz.console.userdata.sync.UploadHold
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
@@ -159,6 +160,7 @@ internal class RoomFitnessTestRepository(
     private val clock: Clock,
     private val zone: ZoneId,
     private val stamper: Stamper,
+    private val hold: UploadHold = UploadHold(),
 ) : FitnessTestRepository {
     private val users = db.users()
     private val dao = db.fitnessTests()
@@ -202,6 +204,10 @@ internal class RoomFitnessTestRepository(
             DataResult.Success(Unit)
         }
     }
+
+    override fun holdUpload(testId: String) = hold.holdTest(testId)
+
+    override fun releaseUpload(testId: String) = hold.releaseTest(testId)
 
     private fun today(): LocalDate = Instant.ofEpochMilli(clock.nowMillis()).atZone(zone).toLocalDate()
 
@@ -352,14 +358,19 @@ internal class RoomProgramDocuments(private val db: UserDataDatabase) : ProgramD
     }
 }
 
-internal class RoomFitnessTestDocuments(private val db: UserDataDatabase) : FitnessTestDocumentStore {
+internal class RoomFitnessTestDocuments(
+    private val db: UserDataDatabase,
+    private val hold: UploadHold = UploadHold(),
+) : FitnessTestDocumentStore {
     private val users = db.users()
     private val dao = db.fitnessTests()
 
-    override val pendingCount: Flow<Int> = dao.observePendingCount()
+    /** Held results (see [UploadHold]) are not pending. */
+    override val pendingCount: Flow<Int> =
+        combine(dao.observePendingUuids(), hold.testIds) { uuids, held -> uuids.count { it !in held } }
 
     override suspend fun pending(): List<FitnessTestDocument> = db.withTransaction {
-        dao.pending().map { e ->
+        dao.pending().filter { !hold.isTestHeld(it.uuid) }.map { e ->
             FitnessTestDocument(e.uuid, users.getAny(e.userId)!!.uuid, RecordVersion(e.updatedAtMillis, e.updatedBy), e.deleted, e.json)
         }
     }

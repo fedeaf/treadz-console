@@ -15,6 +15,7 @@ import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
 import com.treadz.console.userdata.sync.SyncWorkoutData
 import com.treadz.console.userdata.sync.SyncedRecords
+import com.treadz.console.userdata.sync.UploadHold
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -27,6 +28,7 @@ internal class RoomSyncStore(
     private val clock: Clock,
     private val zone: ZoneId,
     private val stamper: Stamper,
+    private val hold: UploadHold = UploadHold(),
 ) : SyncStore {
     private val users = db.users()
     private val weights = db.weights()
@@ -37,17 +39,23 @@ internal class RoomSyncStore(
 
     override val deviceId: String get() = stamper.deviceId
 
-    override val pendingCount: Flow<Int> =
-        combine(users.observePendingCount(), weights.observePendingCount(), workouts.observePendingCount()) { a, b, c -> a + b + c }
+    /** Held workouts (see [UploadHold]) are not pending. */
+    override val pendingWorkoutIds: Flow<Set<Long>> =
+        combine(workouts.observePendingIds(), hold.workoutIds) { ids, held -> ids.toSet() - held }
 
-    override val pendingWorkoutIds: Flow<Set<Long>> = workouts.observePendingIds().map { it.toSet() }
+    override val pendingCount: Flow<Int> = combine(
+        users.observePendingCount(),
+        weights.observePendingCount(),
+        workouts.observePendingRowIds(),
+        hold.workoutIds,
+    ) { a, b, ids, held -> a + b + ids.count { it !in held } }
 
     override suspend fun profile(uuid: String): SyncProfile? = db.withTransaction { users.getByUuid(uuid)?.toSync() }
 
     override suspend fun pendingChanges(): PendingChanges = db.withTransaction {
         val pendingUsers = users.pending()
         val pendingWeights = weights.pending()
-        val pendingWorkouts = workouts.pending()
+        val pendingWorkouts = workouts.pending().filter { !hold.isWorkoutHeld(it.id) }
         val uuidOfUser = HashMap<Long, UserEntity>()
         suspend fun owner(id: Long): UserEntity = uuidOfUser.getOrPut(id) { users.getAny(id)!! }
         PendingChanges(
@@ -215,7 +223,8 @@ internal class RoomSyncStore(
 
     private suspend fun UserEntity.toSync(): SyncProfile {
         val profile = toProfile()
-        val results = fitnessTests.liveForUser(id).mapNotNull { readFitnessResult(it.json) }
+        // A held result (see [UploadHold]) does not reach the uploaded fitness block either.
+        val results = fitnessTests.liveForUser(id).filter { !hold.isTestHeld(it.uuid) }.mapNotNull { readFitnessResult(it.json) }
         return SyncProfile(
             uuid = uuid,
             version = version(),

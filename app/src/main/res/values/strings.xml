@@ -437,6 +437,11 @@
     <string name="session_bar_program">Program</string>
     <string name="session_bar_test">Test</string>
     <string name="action_done">Done</string>
+    <string name="action_discard">Discard</string>
+    <string name="finished_workout_title">Workout finished</string>
+    <string name="finished_workout_figures">%1$s · %2$s km</string>
+    <string name="discard_workout_title">Discard this workout?</string>
+    <string name="discard_workout_body">It is deleted from this device and never uploaded. It cannot be undone.</string>
     <string name="unit_meters">m</string>
     <string name="unit_vo2max">ml/kg/min</string>
     <string name="value_kg">%1$s kg</string>
@@ -538,6 +543,7 @@
     <string name="start_max_incline_hint">The steepest incline of the program.</string>
     <string name="start_adjustment">Intensity adjustment</string>
     <string name="start_adjustment_hint">Changes the speed of every block by this percentage. The incline stays as it is.</string>
+    <string name="start_restore_defaults">Restore defaults</string>
     <string name="adjustment_plus">+%1$d %%</string>
     <string name="adjustment_minus">−%1$d %%</string>
     <string name="adjustment_none">None</string>

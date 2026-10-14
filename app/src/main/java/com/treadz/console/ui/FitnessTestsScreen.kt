@@ -189,6 +189,7 @@ data class FitnessStartActions(
     val onBack: () -> Unit = {},
     val onSpeed: (String) -> Unit = {},
     val onSpeedStep: (Int) -> Unit = {},
+    val onRestoreDefaults: () -> Unit = {},
     val onStart: () -> Unit = {},
 )
 
@@ -264,6 +265,12 @@ private fun SpeedPanelCard(state: FitnessStartUiState, actions: FitnessStartActi
                     if (state.type == FitnessTestType.EbbelingWalk) R.string.test_start_speed_hint_ebbeling else R.string.test_start_speed_hint_max,
                     Format.speed(state.speedMin), Format.speed(state.speedMax),
                 ),
+            )
+            RowButton(
+                stringResource(R.string.start_restore_defaults),
+                actions.onRestoreDefaults,
+                Modifier.align(Alignment.End).padding(top = 8.dp).testTag("restore_defaults_button"),
+                enabled = !state.atDefaults,
             )
         }
     }

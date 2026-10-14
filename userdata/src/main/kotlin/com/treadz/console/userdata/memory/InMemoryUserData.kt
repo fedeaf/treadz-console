@@ -339,6 +339,20 @@ class InMemoryUserData(
             DataResult.Success(Unit)
         }
 
+        /** Nothing is uploaded here: discarding is deleting the workout and its fitness test result. */
+        override suspend fun discardFinished(workoutId: Long): DataResult<Unit> = synchronized(lock) {
+            val workout = data.value.workouts.firstOrNull { it.id == workoutId } ?: return DataResult.NotFound
+            workoutSamples.remove(workoutId)
+            workoutPlans.remove(workoutId)
+            data.value = data.value.let { d ->
+                d.copy(
+                    workouts = d.workouts.filter { it.id != workoutId },
+                    fitness = d.fitness.filter { workout.fitnessTestId == null || it.id != workout.fitnessTestId },
+                )
+            }
+            DataResult.Success(Unit)
+        }
+
         override suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit> = synchronized(lock) {
             if (applyLink(workoutId, link)) DataResult.Success(Unit) else DataResult.NotFound
         }

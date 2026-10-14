@@ -95,6 +95,7 @@ fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSi
                     verticalArrangement = Arrangement.spacedBy(sizes.gap),
                 ) {
                     BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth())
+                    FinishedWorkoutNotice(ui, actions)
                     RecordingNotice(ui, actions)
                     // On the tablet the button takes all the free height: it is the only thing to press.
                     StartSection(ui, actions, sizes, fillHeight = true, modifier = Modifier.weight(1f))
@@ -104,8 +105,9 @@ fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSi
                 BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth(), compact = true)
                 // While reconnecting the figures are stale zeros and the banner needs the room.
                 if (reconnecting) Spacer(Modifier.weight(1f)) else MetricsGrid(ui, sizes, Modifier.weight(1f).fillMaxWidth())
+                FinishedWorkoutNotice(ui, actions)
                 RecordingNotice(ui, actions)
-                StartSection(ui, actions, sizes, showHint = ui.recordingNotice == null && !reconnecting)
+                StartSection(ui, actions, sizes, showHint = ui.recordingNotice == null && ui.finishedWorkout == null && !reconnecting)
             }
         }
     }

@@ -139,6 +139,8 @@ fun TreadZRoot(
                                     onStopReconnecting = viewModel::stopReconnecting,
                                     onDismissAlert = viewModel::dismissAlert,
                                     onDismissRecordingNotice = viewModel::dismissRecordingNotice,
+                                    onKeepWorkout = viewModel::keepFinishedWorkout,
+                                    onDiscardWorkout = viewModel::discardFinishedWorkout,
                                     controls = controlActions,
                                     onOpenSettingsScreen = { navigation.push(Screen.Settings) },
                                     onOpenUsers = { navigation.push(Screen.UserSelection) },
@@ -162,6 +164,7 @@ fun TreadZRoot(
                                 onExhausted = runVm::exhausted,
                                 onEndTest = runVm::endTest,
                                 onDismiss = runVm::dismiss,
+                                onDiscard = runVm::discard,
                                 onUseMeasuredHeartRateMax = runVm::useMeasuredHeartRateMax,
                                 onKeepManualHeartRateMax = runVm::keepManualHeartRateMax,
                             )
@@ -388,6 +391,7 @@ fun TreadZRoot(
                                 onMaxIncline = vm::setMaxIncline,
                                 onMaxInclineStep = vm::stepMaxIncline,
                                 onAdjustmentStep = vm::stepAdjustment,
+                                onRestoreDefaults = vm::restoreDefaults,
                                 onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
                                 onSaveAsFree = { name -> vm.saveAsFreeProgram(name) { id -> navigation.openProgramEditor(id) } },
                             ),
@@ -463,6 +467,7 @@ fun TreadZRoot(
                                 onBack = navigation::pop,
                                 onSpeed = vm::setSpeed,
                                 onSpeedStep = vm::stepSpeed,
+                                onRestoreDefaults = vm::restoreDefaults,
                                 onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
                             ),
                         )

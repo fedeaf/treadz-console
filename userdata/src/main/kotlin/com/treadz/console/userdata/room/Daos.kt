@@ -204,7 +204,7 @@ internal interface WorkoutDao {
     @Query("DELETE FROM workout_samples WHERE workoutId IN (SELECT id FROM workouts WHERE userId = :userId)")
     suspend fun deleteSamplesForUser(userId: Long): Int
 
-    /** A workout that never produced useful data (belt never moved): it was never visible nor uploaded. */
+    /** A workout that was never uploaded: one that never produced useful data (belt never moved) or a discarded one. */
     @Query("DELETE FROM workouts WHERE id = :id")
     suspend fun hardDelete(id: Long): Int
 
@@ -241,6 +241,13 @@ internal interface WorkoutDao {
             "WHERE w.dirty = 1 AND w.endReason IS NOT NULL AND w.deleted = 0 AND u.isGeneric = 0 AND u.deleted = 0",
     )
     fun observePendingIds(): Flow<List<Long>>
+
+    /** Ids of every row [pending] returns, tombstones included. */
+    @Query(
+        "SELECT w.id FROM workouts w INNER JOIN users u ON u.id = w.userId " +
+            "WHERE w.dirty = 1 AND w.endReason IS NOT NULL AND u.isGeneric = 0 AND u.deleted = 0",
+    )
+    fun observePendingRowIds(): Flow<List<Long>>
 
     @Query("UPDATE workouts SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
     suspend fun markSynced(uuid: String, at: Long, by: String): Int
@@ -342,6 +349,16 @@ internal interface FitnessTestDao {
             "WHERE t.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0",
     )
     fun observePendingCount(): Flow<Int>
+
+    @Query(
+        "SELECT t.uuid FROM fitness_tests t INNER JOIN users u ON u.id = t.userId " +
+            "WHERE t.dirty = 1 AND u.isGeneric = 0 AND u.deleted = 0",
+    )
+    fun observePendingUuids(): Flow<List<String>>
+
+    /** A result discarded before it was ever uploaded: it leaves no tombstone. */
+    @Query("DELETE FROM fitness_tests WHERE uuid = :uuid")
+    suspend fun hardDelete(uuid: String): Int
 
     @Query("UPDATE fitness_tests SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
     suspend fun markSynced(uuid: String, at: Long, by: String): Int

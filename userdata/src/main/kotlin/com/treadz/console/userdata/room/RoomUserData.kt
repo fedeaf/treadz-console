@@ -12,6 +12,7 @@ import com.treadz.console.userdata.WorkoutHistoryRepository
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
+import com.treadz.console.userdata.sync.UploadHold
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
 import java.time.ZoneId
@@ -29,17 +30,18 @@ internal class RoomUserData(
     uuidSource: () -> String = { UUID.randomUUID().toString() },
 ) : SyncableUserData {
     private val stamper = Stamper(clock, deviceId, uuidSource)
-    private val workoutRepository = RoomWorkoutRepository(db, stamper)
+    private val uploadHold = UploadHold()
+    private val workoutRepository = RoomWorkoutRepository(db, stamper, uploadHold)
 
     override val profiles: ProfileRepository = RoomProfileRepository(db, clock, zone, seedGenericProfile, stamper)
     override val weights: WeightRepository = RoomWeightRepository(db, clock, zone, stamper)
     override val workouts: WorkoutHistoryRepository = workoutRepository
     override val programs: ProgramRepository = RoomProgramRepository(db, stamper)
-    override val fitnessTests: FitnessTestRepository = RoomFitnessTestRepository(db, clock, zone, stamper)
+    override val fitnessTests: FitnessTestRepository = RoomFitnessTestRepository(db, clock, zone, stamper, uploadHold)
     override val startParameters: StartParametersRepository = RoomStartParametersRepository(db, stamper)
-    override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper)
+    override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper, uploadHold)
     override val programDocuments: ProgramDocumentStore = RoomProgramDocuments(db)
-    override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db)
+    override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db, uploadHold)
 
     override fun workoutObserver(
         controller: TreadmillController,

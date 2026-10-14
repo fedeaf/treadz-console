@@ -78,6 +78,17 @@ class FitnessStartViewModelTest {
         assertEquals("5.4", viewModel(FitnessTestType.EbbelingWalk).state.speedText)
     }
 
+    @Test fun restoreDefaultsPutsBackTheSuggestedSpeed() {
+        belt()
+        val vm = viewModel(FitnessTestType.EbbelingWalk)
+        assertTrue(vm.state.atDefaults)
+        vm.stepSpeed(+1)
+        assertFalse(vm.state.atDefaults)
+        vm.restoreDefaults()
+        assertEquals("4.8", vm.state.speedText) // Ana's last Ebbeling test
+        assertTrue(vm.state.atDefaults)
+    }
+
     @Test fun theSpeedIsCheckedAgainstTheTestsRange() {
         belt()
         val vm = viewModel(FitnessTestType.EbbelingWalk)

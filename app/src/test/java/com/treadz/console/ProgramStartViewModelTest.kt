@@ -82,6 +82,24 @@ class ProgramStartViewModelTest {
         assertEquals(5, s.plan!!.parameters.intensityAdjustmentPercent)
     }
 
+    @Test fun restoreDefaultsPutsBackTheCataloguesValuesIgnoringTheLastUsed() {
+        restingBelt()
+        val vm = viewModel("standard-hill") // Ana used 40 min, 5-10 km/h, 8 %, +5 % last time
+        assertFalse(vm.state.atDefaults)
+        vm.stepMaxSpeed(+1)
+        vm.stepAdjustment(+1)
+        vm.restoreDefaults()
+        rig.advance(10)
+        val s = vm.state
+        val defaults = ProgramStartViewModel.initialForm(StandardPrograms.byId("standard-hill")!!.program, StandardPrograms.byId("standard-hill"), last = null)
+        assertEquals(defaults, s.form)
+        assertEquals(0, s.form.adjustmentPercent)
+        assertTrue(s.atDefaults)
+        vm.stepMaxIncline(+1)
+        rig.advance(10)
+        assertFalse(vm.state.atDefaults)
+    }
+
     @Test fun anOldDurationIsBroughtIntoTheCataloguesRangeAndStep() {
         val std = checkNotNull(StandardPrograms.byId("standard-hill"))
         fun duration(last: Int) = ProgramStartViewModel.initialForm(std.program, std, StartParameters(totalDurationSeconds = last)).durationSeconds

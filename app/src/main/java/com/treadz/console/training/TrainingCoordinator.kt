@@ -27,6 +27,7 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.WorkoutLink
+import com.treadz.console.userdata.WorkoutSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /** How a start (of a program or of a fitness test) ended. */
 sealed interface StartOutcome {
@@ -54,6 +56,15 @@ sealed interface StartOutcome {
     /** The runner sent a command to the treadmill and it was not carried out. */
     data class CommandFailed(val result: CommandResult) : StartOutcome
 }
+
+/** A workout that has just ended and waits for the user to keep it (the default) or discard it. */
+data class FinishedWorkout(
+    val workoutId: Long,
+    val durationSeconds: Int,
+    val distanceMeters: Int,
+    /** The fitness test result run in it, discarded with it. */
+    val fitnessTestId: String? = null,
+)
 
 /** Tells the workout history which plan / test the next treadmill session is for (see `WorkoutHistoryObserver`). */
 interface SessionLinks {
@@ -94,6 +105,26 @@ class TrainingCoordinator(
     /** Storing the fitness test result failed (the result is still shown). */
     val saveFailed: StateFlow<Boolean> = _saveFailed
 
+    private val _finishedWorkout = MutableStateFlow<FinishedWorkout?>(null)
+
+    /**
+     * The workout that has just ended, until the user keeps it ([keepFinishedWorkout], also "Done" on a result) or
+     * discards it ([discardFinishedWorkout]). Every session's upload is held from its start until that decision, so a
+     * discarded workout never leaves the device. A new session, or a restart, keeps it.
+     */
+    val finishedWorkout: StateFlow<FinishedWorkout?> = _finishedWorkout
+
+    /** The workout being recorded now. */
+    @Volatile
+    private var inProgressId: Long? = null
+
+    /** The workout in progress was kept with "Done" before it ended (the belt was still slowing down). */
+    @Volatile
+    private var keepWhenEnded: Long? = null
+
+    /** Test results the user discarded: a late save must not bring them back. */
+    private val discardedTests: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     /** Where the manual controls send their commands. */
     val commands: TreadmillCommands = RoutedCommands()
 
@@ -125,19 +156,93 @@ class TrainingCoordinator(
         // A new run shows its own screen again, even if the previous result was closed.
         scope.launch { programRunner.progress.map { it.state.isActive() }.distinctUntilChanged().collect { if (it) programResultSeen.value = false } }
         scope.launch { fitnessRunner.progress.map { it.phase.isActive() }.distinctUntilChanged().collect { if (it) testResultSeen.value = false } }
+        scope.launch { followSessions() }
         // The test result is stored as soon as it exists (during the cool-down) and again if it changes until the end.
         scope.launch {
             fitnessRunner.progress.map { it.result }.filterNotNull().distinctUntilChanged().collect { result ->
                 val owner = testOwnerId ?: return@collect
+                if (result.id in discardedTests) return@collect
                 _saveFailed.value = userData.fitnessTests.save(owner, result) !is DataResult.Success
             }
         }
     }
 
-    /** Closes the result of the program / test that has finished, so the main screen shows the live data again. */
+    /**
+     * Closes the result of the program / test that has finished, so the main screen shows the live data again, and
+     * keeps its workout. While the belt still runs (an abandoned program) the session goes on by hand and its workout
+     * is offered for discarding when it ends.
+     */
     fun dismissResult() {
         programResultSeen.value = true
         testResultSeen.value = true
+        val finished = _finishedWorkout.value
+        if (finished != null) {
+            keep(finished)
+        } else if (controller.state.value.status != BeltStatus.Running) {
+            keepWhenEnded = inProgressId
+        }
+    }
+
+    // ------------------------------------------------------------------ keep or discard the finished workout
+
+    fun keepFinishedWorkout() {
+        _finishedWorkout.value?.let { keep(it) }
+    }
+
+    /** Deletes the finished workout and its fitness test result; while its upload is held it leaves no trace. */
+    fun discardFinishedWorkout() {
+        val workout = _finishedWorkout.value ?: return
+        if (!_finishedWorkout.compareAndSet(workout, null)) return
+        workout.fitnessTestId?.let { discardedTests += it }
+        programResultSeen.value = true
+        testResultSeen.value = true
+        scope.launch {
+            userData.workouts.discardFinished(workout.workoutId)
+            workout.fitnessTestId?.let { userData.fitnessTests.releaseUpload(it) }
+        }
+    }
+
+    private fun keep(workout: FinishedWorkout) {
+        _finishedWorkout.compareAndSet(workout, null)
+        release(workout.workoutId, workout.fitnessTestId)
+    }
+
+    private fun release(workoutId: Long, testId: String?) {
+        userData.workouts.releaseUpload(workoutId)
+        testId?.let { userData.fitnessTests.releaseUpload(it) }
+    }
+
+    /** Follows the recorded sessions: holds the upload of each one and offers it when it ends. */
+    private suspend fun followSessions() {
+        var current: WorkoutSummary? = null
+        userData.workouts.inProgressWorkout().collect { workout ->
+            val previous = current
+            current = workout
+            if (workout != null) {
+                if (workout.id != previous?.id) {
+                    // A new session keeps the one still waiting for an answer.
+                    _finishedWorkout.value?.let { keep(it) }
+                    userData.workouts.holdUpload(workout.id)
+                }
+                workout.fitnessTestId?.let { userData.fitnessTests.holdUpload(it) }
+            }
+            // Until ended() has decided, "Done" still refers to the workout that is closing.
+            if (previous != null && previous.id != workout?.id) ended(previous)
+            inProgressId = workout?.id
+        }
+    }
+
+    private suspend fun ended(workout: WorkoutSummary) {
+        val summary = userData.workouts.detail(workout.id)?.summary
+        val testId = summary?.fitnessTestId ?: workout.fitnessTestId
+        val keptAlready = keepWhenEnded == workout.id
+        if (keptAlready) keepWhenEnded = null
+        // Dropped by the history (the belt never moved), or kept with "Done" before it ended.
+        if (summary == null || summary.isInProgress || keptAlready) {
+            release(workout.id, testId)
+            return
+        }
+        _finishedWorkout.value = FinishedWorkout(summary.id, summary.stats.durationSeconds, summary.stats.distanceMeters, testId)
     }
 
     // ------------------------------------------------------------------ starting
@@ -187,15 +292,19 @@ class TrainingCoordinator(
         if (!atRest || programRunner.progress.value.state.isActive() || fitnessRunner.progress.value.phase.isActive()) return StartOutcome.Busy
         val id = newTestId()
         testOwnerId = userId
+        // Its upload waits, with the workout's, for the user to keep or discard it (see finishedWorkout).
+        userData.fitnessTests.holdUpload(id)
         links.link(WorkoutLink(fitnessTestId = id))
         return when (val result = start(id)) {
             FitnessActionResult.Success -> StartOutcome.Started
             is FitnessActionResult.NotAllowed -> {
                 links.clear()
+                userData.fitnessTests.releaseUpload(id)
                 StartOutcome.TestRefused(result.refusal, result.message)
             }
             is FitnessActionResult.CommandFailed -> {
                 links.clear()
+                userData.fitnessTests.releaseUpload(id)
                 StartOutcome.CommandFailed(result.result)
             }
         }

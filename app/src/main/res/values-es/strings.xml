@@ -437,6 +437,11 @@
     <string name="session_bar_program">Programa</string>
     <string name="session_bar_test">Test</string>
     <string name="action_done">Hecho</string>
+    <string name="action_discard">Descartar</string>
+    <string name="finished_workout_title">Entrenamiento terminado</string>
+    <string name="finished_workout_figures">%1$s · %2$s km</string>
+    <string name="discard_workout_title">¿Descartar este entrenamiento?</string>
+    <string name="discard_workout_body">Se borra de este dispositivo y nunca se sube. No se puede deshacer.</string>
     <string name="unit_meters">m</string>
     <string name="unit_vo2max">ml/kg/min</string>
     <string name="value_kg">%1$s kg</string>
@@ -538,6 +543,7 @@
     <string name="start_max_incline_hint">La inclinación más fuerte del programa.</string>
     <string name="start_adjustment">Ajuste de intensidad</string>
     <string name="start_adjustment_hint">Cambia la velocidad de todos los bloques en este porcentaje. La inclinación no cambia.</string>
+    <string name="start_restore_defaults">Valores por defecto</string>
     <string name="adjustment_plus">+%1$d %%</string>
     <string name="adjustment_minus">−%1$d %%</string>
     <string name="adjustment_none">Ninguno</string>

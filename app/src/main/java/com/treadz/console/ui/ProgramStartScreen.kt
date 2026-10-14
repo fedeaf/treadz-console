@@ -43,6 +43,7 @@ data class ProgramStartActions(
     val onMaxIncline: (String) -> Unit = {},
     val onMaxInclineStep: (Int) -> Unit = {},
     val onAdjustmentStep: (Int) -> Unit = {},
+    val onRestoreDefaults: () -> Unit = {},
     val onStart: () -> Unit = {},
     val onSaveAsFree: (String) -> Unit = {},
 )
@@ -168,6 +169,12 @@ private fun StartForm(state: ProgramStartUiState, actions: ProgramStartActions) 
             } else {
                 fields.forEach { field -> field(Modifier) }
             }
+            RowButton(
+                stringResource(R.string.start_restore_defaults),
+                actions.onRestoreDefaults,
+                Modifier.align(Alignment.End).testTag("restore_defaults_button"),
+                enabled = !state.atDefaults,
+            )
         }
     }
 }

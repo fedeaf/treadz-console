@@ -1,6 +1,7 @@
 package com.treadz.console.userdata.room
 
 import androidx.room.withTransaction
+import com.treadz.console.userdata.sync.UploadHold
 import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.DataResult
@@ -303,9 +304,11 @@ internal class RoomWeightRepository(
 internal class RoomWorkoutRepository(
     private val db: UserDataDatabase,
     private val stamper: Stamper,
+    private val hold: UploadHold = UploadHold(),
 ) : WorkoutHistoryRepository, WorkoutSessionStore {
     private val users = db.users()
     private val dao = db.workouts()
+    private val fitnessTests = db.fitnessTests()
 
     override fun workouts(userId: Long): Flow<List<WorkoutSummary>> = dao.observeByUser(userId).map { l -> l.map { it.toSummary() } }
 
@@ -348,6 +351,35 @@ internal class RoomWorkoutRepository(
             dao.deleteSamples(workoutId)
             DataResult.Success(Unit)
         }
+    }
+
+    override fun holdUpload(workoutId: Long) = hold.holdWorkout(workoutId)
+
+    override fun releaseUpload(workoutId: Long) = hold.releaseWorkout(workoutId)
+
+    override suspend fun discardFinished(workoutId: Long): DataResult<Unit> {
+        val result = guarded {
+            db.withTransaction {
+                val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
+                current.fitnessTestId?.let { testId ->
+                    val test = fitnessTests.get(testId)
+                    when {
+                        test == null -> Unit
+                        hold.isTestHeld(testId) -> fitnessTests.hardDelete(testId)
+                        else -> fitnessTests.markDeleted(testId, stamper.at(test.updatedAtMillis), stamper.deviceId)
+                    }
+                }
+                dao.deleteSamples(workoutId)
+                if (hold.isWorkoutHeld(workoutId)) {
+                    dao.hardDelete(workoutId)
+                } else {
+                    dao.markDeleted(workoutId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+                }
+                DataResult.Success(Unit)
+            }
+        }
+        if (result is DataResult.Success) hold.releaseWorkout(workoutId)
+        return result
     }
 
     override suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit> = guarded {

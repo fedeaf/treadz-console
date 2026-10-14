@@ -11,6 +11,7 @@ import com.treadz.console.settings.SettingsStore
 import com.treadz.console.sync.SyncError
 import com.treadz.console.sync.service.SyncService
 import com.treadz.console.sync.service.SyncSetup
+import com.treadz.console.training.FinishedWorkout
 import com.treadz.console.training.TrainingCoordinator
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
@@ -96,11 +97,14 @@ class MainViewModel(
         sync?.status?.map { status -> status.error.takeIf { status.setup == SyncSetup.Linked } }?.distinctUntilChanged()
             ?: flowOf(null)
 
+    private data class People(val user: UserProfile?, val unassigned: Int, val syncError: SyncError?, val finishedWorkout: FinishedWorkout?)
+
     private val people = combine(
         userData.profiles.activeUser,
         userData.workouts.unassignedWorkouts().map { it.size },
         syncError,
-    ) { user, unassigned, syncError -> Triple(user, unassigned, syncError) }
+        training?.finishedWorkout ?: flowOf(null),
+    ) { user, unassigned, syncError, finished -> People(user, unassigned, syncError, finished) }
 
     /** Everything the state needs besides the controller's connection, treadmill, recording and alerts. */
     private data class Extras(
@@ -110,6 +114,7 @@ class MainViewModel(
         val syncError: SyncError?,
         val controls: ControlsState,
         val session: SessionControls,
+        val finishedWorkout: FinishedWorkout?,
         val bluetoothEnabled: Boolean,
         val reconnectProblem: ConnectionProblem?,
     )
@@ -121,7 +126,7 @@ class MainViewModel(
         controller.bluetoothEnabled,
         controller.connectionProblem,
     ) { local, people, controls, bluetooth, reconnectProblem ->
-        Extras(local, people.first, people.second, people.third, controls.first, controls.second, bluetooth, reconnectProblem)
+        Extras(local, people.user, people.unassigned, people.syncError, controls.first, controls.second, people.finishedWorkout, bluetooth, reconnectProblem)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -156,6 +161,7 @@ class MainViewModel(
             syncError = extras.syncError,
             controls = extras.controls,
             session = extras.session,
+            finishedWorkout = extras.finishedWorkout,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
 
@@ -387,6 +393,16 @@ class MainViewModel(
     /** The user acknowledges the visible alert; the controller removes it from its pending ones. */
     fun dismissAlert() {
         uiState.value.alert?.let(controller::acknowledgeAlert)
+    }
+
+    /** Keeps the workout that has just ended (it is uploaded as usual). */
+    fun keepFinishedWorkout() {
+        training?.keepFinishedWorkout()
+    }
+
+    /** Deletes the workout that has just ended; it is never uploaded. */
+    fun discardFinishedWorkout() {
+        training?.discardFinishedWorkout()
     }
 
     fun dismissRecordingNotice() {

@@ -17,7 +17,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -50,6 +54,8 @@ data class RunActions(
     val onEndTest: () -> Unit = {},
     /** Closes the result of a program / test that has finished. */
     val onDismiss: () -> Unit = {},
+    /** Deletes the workout of the program / test that has just ended (it is never uploaded). */
+    val onDiscard: () -> Unit = {},
     val onUseMeasuredHeartRateMax: () -> Unit = {},
     val onKeepManualHeartRateMax: () -> Unit = {},
     /** Opens the stored result of a fitness test. */
@@ -401,6 +407,22 @@ fun FinishedBar(ui: MainUiState, controls: ControlActions, actions: RunActions, 
                 } else {
                     StopButton(controls.onStop, textSize = 34.sp, modifier = Modifier.weight(1f).height(72.dp))
                 }
+            }
+        } else if (ui.finishedWorkout != null) {
+            // The workout has been recorded: it can still be thrown away.
+            var confirming by rememberSaveable { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                BigOutlinedButton(stringResource(R.string.action_discard), { confirming = true }, Modifier.weight(1f).testTag("discard_button"), destructive = true)
+                BigButton(stringResource(R.string.action_done), actions.onDismiss, Modifier.weight(2f).testTag("done_button"))
+            }
+            if (confirming) {
+                DiscardWorkoutDialog(
+                    onConfirm = {
+                        confirming = false
+                        actions.onDiscard()
+                    },
+                    onDismiss = { confirming = false },
+                )
             }
         } else {
             BigButton(stringResource(R.string.action_done), actions.onDismiss, Modifier.fillMaxWidth().testTag("done_button"))

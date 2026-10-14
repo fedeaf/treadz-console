@@ -4,6 +4,7 @@ import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionControls
 import com.treadz.console.sync.SyncError
+import com.treadz.console.training.FinishedWorkout
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionProblem
@@ -52,6 +53,8 @@ data class MainUiState(
     val controls: ControlsState = ControlsState(),
     /** What a program or fitness test in progress allows the manual controls to do. */
     val session: SessionControls = SessionControls(),
+    /** The workout that has just ended, waiting to be kept or discarded. */
+    val finishedWorkout: FinishedWorkout? = null,
 ) {
     val isConnected: Boolean get() = connection is ConnectionState.Connected
 

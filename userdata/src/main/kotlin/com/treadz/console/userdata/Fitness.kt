@@ -57,6 +57,14 @@ interface FitnessTestRepository {
     suspend fun delete(testId: String): DataResult<Unit>
 
     /**
+     * Keeps a result out of the uploads until [releaseUpload] (see [WorkoutHistoryRepository.holdUpload]): it is held
+     * from the start of the test, before it exists. In memory only.
+     */
+    fun holdUpload(testId: String) {}
+
+    fun releaseUpload(testId: String) {}
+
+    /**
      * The deterministic snapshot of the fitness profile (see [FitnessProfiles.snapshot]); `null` when the user has no
      * usable result (or is unknown). Emits again whenever the results or the profile's sex and birth date change.
      */

@@ -123,6 +123,12 @@ class RunViewModel(
     }
 
     /** Closes the result: the main screen shows the live data again. */
+    /** Throws away the workout of the program / test that has just ended and closes its result. */
+    fun discard() {
+        local.update { Local() }
+        training.discardFinishedWorkout()
+    }
+
     fun dismiss() {
         local.update { Local() }
         training.dismissResult()

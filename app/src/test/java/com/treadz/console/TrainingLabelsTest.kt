@@ -19,6 +19,18 @@ import com.treadz.console.programs.fitness.HeartRateMaxOrigin
 import com.treadz.console.programs.fitness.SteadyStateStatus
 import com.treadz.console.programs.fitness.Vo2MaxCategory
 import com.treadz.console.programs.model.BlockPhase
+import com.treadz.console.programs.model.HeartRateAdjust
+import com.treadz.console.programs.personalised.CouchToFiveKDecision
+import com.treadz.console.programs.personalised.ExerciseMode
+import com.treadz.console.programs.personalised.GeneratorNotice
+import com.treadz.console.programs.personalised.GeneratorNoticeCode
+import com.treadz.console.programs.personalised.ProgramGenerators
+import com.treadz.console.programs.personalised.SessionOutcome
+import com.treadz.console.training.GeneratorProblem
+import com.treadz.console.ui.adjustedValueText
+import com.treadz.console.ui.generatorDescriptionRes
+import com.treadz.console.ui.generatorNameRes
+import com.treadz.console.ui.generatorTagText
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.plan.IntensityParameter
 import com.treadz.console.programs.plan.PlanWarning
@@ -97,6 +109,24 @@ class TrainingLabelsTest {
             StartOutcome.CommandFailed(CommandResult.NotConnected).text(),
             StartOutcome.CommandFailed(CommandResult.Rejected(FailureCode.NotStarted, "x")).text(),
         ),
+        "ExerciseMode" to ExerciseMode.entries.map { it.label() },
+        "HeartRateAdjust" to HeartRateAdjust.entries.map { it.label() },
+        "GeneratorProblem" to GeneratorProblem.entries.map { it.text() },
+        "CouchToFiveKDecision" to CouchToFiveKDecision.entries.map { it.text() },
+        "SessionOutcome" to SessionOutcome.entries.map { it.label() },
+        "GeneratorNotice" to GeneratorNoticeCode.entries.flatMap { code ->
+            listOf(
+                GeneratorNotice(code, null, 12.0).text(null, null),
+                GeneratorNotice(code, "1.0", 7.5).text(null, null),
+            )
+        },
+        "GeneratorNames" to ProgramGenerators.all.flatMap {
+            listOf(
+                androidx.compose.ui.res.stringResource(generatorNameRes(it.descriptor.id)),
+                androidx.compose.ui.res.stringResource(generatorDescriptionRes(it.descriptor.id)),
+            )
+        },
+        "GeneratorTags" to listOf(generatorTagText("couch-to-5k", 7), generatorTagText("zone2", null), adjustedValueText(HeartRateAdjust.Speed, 8.5), adjustedValueText(HeartRateAdjust.Incline, 6.0)),
         "StandardPrograms" to StandardPrograms.all.flatMap { listOf(programDisplayName(it.id, it.program.name), androidx.compose.ui.res.stringResource(standardDescriptionRes(it.key))) },
     )
 
@@ -110,7 +140,7 @@ class TrainingLabelsTest {
             }
         }
         // Each value of an enum reads differently (a missing branch would repeat a text).
-        for (name in listOf("BlockPhase", "ProgramKind", "RunState", "FitnessTestType", "FitnessTestPhase", "FitnessInstruction", "FitnessEndReason", "FitnessTestFlag", "Vo2MaxCategory", "InterruptionReason", "Refusal", "FitnessRefusal", "SteadyStateStatus", "EffortAssessment", "HeartRateMaxOrigin")) {
+        for (name in listOf("BlockPhase", "ProgramKind", "RunState", "FitnessTestType", "FitnessTestPhase", "FitnessInstruction", "FitnessEndReason", "FitnessTestFlag", "Vo2MaxCategory", "InterruptionReason", "Refusal", "FitnessRefusal", "SteadyStateStatus", "EffortAssessment", "HeartRateMaxOrigin", "ExerciseMode", "HeartRateAdjust", "GeneratorProblem", "CouchToFiveKDecision", "SessionOutcome")) {
             val list = texts.getValue(name)
             assertEquals("$name has repeated texts", list.size, list.toSet().size)
         }
@@ -143,6 +173,16 @@ class TrainingLabelsTest {
             assertEquals(std.descriptionResourceKey, context.resources.getResourceEntryName(standardDescriptionRes(std.key)))
         }
         assertEquals(8, StandardPrograms.all.size)
+    }
+
+    @Test fun theGeneratorsResourceKeysAreTheOnesTheAppDefines() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        for (generator in ProgramGenerators.all) {
+            val d = generator.descriptor
+            assertEquals(d.nameResourceKey, context.resources.getResourceEntryName(generatorNameRes(d.id)))
+            assertEquals(d.descriptionResourceKey, context.resources.getResourceEntryName(generatorDescriptionRes(d.id)))
+        }
+        assertEquals(5, ProgramGenerators.all.size)
     }
 
     @Test fun bothLanguagesDefineTheSameStrings() {

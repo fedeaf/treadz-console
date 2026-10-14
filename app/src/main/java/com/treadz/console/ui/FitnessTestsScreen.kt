@@ -89,8 +89,8 @@ private fun Intro() {
     Text(stringResource(R.string.fitness_tests_intro), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** The tests the screen offers. The maximal heart-rate walk is not offered until it has its own start screen. */
-private val OFFERED_TESTS = listOf(FitnessTestType.EbbelingWalk, FitnessTestType.MaxIncrementalRun)
+/** The tests the screen offers, in the order they are listed. */
+private val OFFERED_TESTS = listOf(FitnessTestType.EbbelingWalk, FitnessTestType.MaxIncrementalRun, FitnessTestType.MaxHeartRateWalk)
 
 @Composable
 private fun TestCards(state: FitnessTestsUiState, actions: FitnessTestsActions) {
@@ -178,6 +178,17 @@ private fun ResultRow(record: FitnessTestRecord, actions: FitnessTestsActions) {
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
+            // The walking heart-rate test measures the maximum heart rate and nothing else.
+            result.measuredHrMaxCandidateBpm?.takeIf { result.testType == FitnessTestType.MaxHeartRateWalk }?.let { bpm ->
+                Text(
+                    stringResource(
+                        if (result.effortAssessment == com.treadz.console.programs.fitness.EffortAssessment.Maximal) R.string.result_hrmax_line else R.string.result_peak_line,
+                        bpm,
+                    ) + (result.effortAssessment?.let { " · " + it.label() } ?: ""),
+                    Modifier.testTag("test_hrmax_${record.id}"),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 RowButton(stringResource(R.string.action_delete), { actions.onDelete(record.id) }, Modifier.testTag("delete_test_${record.id}"), destructive = true)
             }
@@ -192,6 +203,8 @@ data class FitnessStartActions(
     val onBack: () -> Unit = {},
     val onSpeed: (String) -> Unit = {},
     val onSpeedStep: (Int) -> Unit = {},
+    val onIncline: (String) -> Unit = {},
+    val onInclineStep: (Int) -> Unit = {},
     val onRestoreDefaults: () -> Unit = {},
     val onStart: () -> Unit = {},
 )
@@ -227,12 +240,29 @@ fun FitnessStartScreen(state: FitnessStartUiState, actions: FitnessStartActions,
 @Composable
 private fun WarningPanel(type: FitnessTestType) {
     val ebbeling = type == FitnessTestType.EbbelingWalk
+    val walk = type == FitnessTestType.MaxHeartRateWalk
     Panel(Modifier.fillMaxWidth().testTag("test_warning"), borderColor = MaterialTheme.extra.warning) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (walk) {
+                Text(stringResource(R.string.test_walk_measures), Modifier.testTag("test_walk_measures"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.test_walk_duration), Modifier.testTag("test_walk_duration"), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Text(stringResource(R.string.test_warning_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.extra.warning)
-            Text(stringResource(if (ebbeling) R.string.test_warning_effort_ebbeling else R.string.test_warning_effort_max), style = MaterialTheme.typography.bodyLarge)
-            val bullets = listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap) +
-                if (ebbeling) listOf(R.string.test_warning_stop_ebbeling) else listOf(R.string.test_warning_end_max)
+            Text(
+                stringResource(
+                    when {
+                        ebbeling -> R.string.test_warning_effort_ebbeling
+                        walk -> R.string.test_warning_effort_walk
+                        else -> R.string.test_warning_effort_max
+                    },
+                ),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            val bullets = when {
+                ebbeling -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap, R.string.test_warning_stop_ebbeling)
+                walk -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap_walk, R.string.test_warning_handrails, R.string.test_warning_end_walk)
+                else -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap, R.string.test_warning_end_max)
+            }
             bullets.forEach { Text("• " + stringResource(it), style = MaterialTheme.typography.bodyLarge) }
         }
     }
@@ -258,17 +288,37 @@ private fun SubjectPanel(state: FitnessStartUiState) {
 
 @Composable
 private fun SpeedPanelCard(state: FitnessStartUiState, actions: FitnessStartActions) {
-    Panel(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val walk = state.type == FitnessTestType.MaxHeartRateWalk
+    Panel(Modifier.fillMaxWidth().testTag("test_start_values")) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             StepperField(
-                label = stringResource(R.string.test_start_speed), value = state.speedText, onValue = actions.onSpeed, onStep = actions.onSpeedStep,
+                label = stringResource(if (walk) R.string.test_ramp_speed else R.string.test_start_speed), value = state.speedText, onValue = actions.onSpeed, onStep = actions.onSpeedStep,
                 unit = stringResource(R.string.unit_speed), tag = "test_speed",
                 error = if (state.speedInvalid && state.speedText.isNotBlank()) stringResource(R.string.err_speed_range, Format.speed(state.speedMin), Format.speed(state.speedMax)) else null,
                 supporting = stringResource(
-                    if (state.type == FitnessTestType.EbbelingWalk) R.string.test_start_speed_hint_ebbeling else R.string.test_start_speed_hint_max,
+                    when (state.type) {
+                        FitnessTestType.EbbelingWalk -> R.string.test_start_speed_hint_ebbeling
+                        FitnessTestType.MaxIncrementalRun -> R.string.test_start_speed_hint_max
+                        FitnessTestType.MaxHeartRateWalk -> R.string.test_start_speed_hint_walk
+                    },
                     Format.speed(state.speedMin), Format.speed(state.speedMax),
                 ),
             )
+            if (walk) {
+                StepperField(
+                    label = stringResource(R.string.test_ramp_incline), value = state.inclineText, onValue = actions.onIncline, onStep = actions.onInclineStep,
+                    unit = stringResource(R.string.unit_incline), tag = "test_incline", keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                    error = if (state.inclineInvalid && state.inclineText.isNotBlank()) stringResource(R.string.err_incline_range, state.inclineMin.toInt(), state.inclineMax.toInt()) else null,
+                    supporting = stringResource(R.string.test_start_incline_hint_walk, state.inclineMin.toInt(), state.inclineMax.toInt()),
+                )
+                state.warmUpSpeeds?.let { (first, second) ->
+                    Text(
+                        stringResource(R.string.test_walk_warm_up, Format.speed(first), Format.speed(second)),
+                        Modifier.testTag("test_walk_warm_up"),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             RowButton(
                 stringResource(R.string.start_restore_defaults),
                 actions.onRestoreDefaults,
@@ -283,6 +333,7 @@ private fun SpeedPanelCard(state: FitnessStartUiState, actions: FitnessStartActi
 @Composable
 private fun HeartRateNow(state: FitnessStartUiState) {
     val bpm = state.heartRateBpm
+    val source = state.heartRateSource
     Row(Modifier.fillMaxWidth().testTag("test_heart_rate_now"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         StatusDot(if (bpm != null) MaterialTheme.extra.ok else MaterialTheme.extra.warning, size = 14.dp)
         Text(
@@ -290,6 +341,10 @@ private fun HeartRateNow(state: FitnessStartUiState) {
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
+        if (bpm != null && source != null) {
+            HeartRateSourceIcon(source, size = 18.dp)
+            Text(source.label(), Modifier.testTag("test_heart_rate_source"), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

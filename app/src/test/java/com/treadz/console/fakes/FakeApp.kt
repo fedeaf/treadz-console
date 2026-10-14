@@ -79,8 +79,11 @@ class FakeApp(
     val programRunner: ProgramRunner by lazy { ProgramRunner(controller, trainingScope, trainingClock) }
     val fitnessRunner: FitnessTestRunner by lazy { FitnessTestRunner(controller, trainingScope, trainingClock) }
 
+    /** What went wrong in the background of the training coordinator (the record of a generated session). */
+    val trainingErrors = mutableListOf<Throwable>()
+
     override val training: TrainingCoordinator by lazy {
-        TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, trainingScope)
+        TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, trainingScope, onError = { trainingErrors += it })
     }
 
 
@@ -110,6 +113,9 @@ class RecordingSessionLinks : SessionLinks {
     val linked = mutableListOf<WorkoutLink>()
     var clears = 0
 
+    /** The workout the coordinator attaches a generated session record to (tests set it to a workout they created). */
+    var workoutId: Long? = null
+
     override fun link(link: WorkoutLink) {
         linked += link
     }
@@ -117,4 +123,6 @@ class RecordingSessionLinks : SessionLinks {
     override fun clear() {
         clears++
     }
+
+    override fun currentWorkoutId(): Long? = workoutId
 }

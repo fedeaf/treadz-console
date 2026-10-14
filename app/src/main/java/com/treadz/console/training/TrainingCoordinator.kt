@@ -5,6 +5,7 @@ import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionControls
 import com.treadz.console.controls.SessionKind
 import com.treadz.console.controls.TreadmillCommands
+import com.treadz.console.programs.engine.ProgramEvent
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.ProgramRunner
 import com.treadz.console.programs.engine.Refusal
@@ -18,8 +19,12 @@ import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestProgress
 import com.treadz.console.programs.fitness.FitnessTestRunner
 import com.treadz.console.programs.fitness.FitnessTestType
+import com.treadz.console.programs.fitness.MaxHeartRateWalkParameters
 import com.treadz.console.programs.fitness.MaxTestParameters
 import com.treadz.console.programs.heartrate.HeartRateProfile
+import com.treadz.console.programs.model.ProgramOrigin
+import com.treadz.console.programs.personalised.GeneratedSessionRecords
+import com.treadz.console.programs.personalised.TimedHeartRate
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.programs.plan.StartParameters
 import com.treadz.console.treadmill.BeltStatus
@@ -30,7 +35,10 @@ import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSummary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -73,6 +81,12 @@ data class FinishedWorkout(
 interface SessionLinks {
     fun link(link: WorkoutLink)
     fun clear()
+
+    /**
+     * The workout being recorded now or, once the belt has stopped, the one that has just ended: where the record of a
+     * generated session is attached. `null` when unknown.
+     */
+    fun currentWorkoutId(): Long? = null
 }
 
 /**
@@ -95,6 +109,8 @@ class TrainingCoordinator(
     private val scope: CoroutineScope,
     /** Ids of fitness test results, known before the test starts so the workout can be linked to the result. */
     private val newTestId: () -> String = { java.util.UUID.randomUUID().toString() },
+    /** Something went wrong in the background (storing the record of a generated session): logged, never shown. */
+    private val onError: (Throwable) -> Unit = {},
 ) {
 
     /** Owner of the test that is running or ran last: its result is stored for this user. */
@@ -260,19 +276,52 @@ class TrainingCoordinator(
     private suspend fun startProgramBody(userId: Long, plan: ResolvedPlan, parameters: StartParameters): StartOutcome {
         if (programRunner.progress.value.state.isActive() || fitnessRunner.progress.value.phase.isActive()) return StartOutcome.Busy
         links.link(WorkoutLink(plan = plan))
+        val origin = plan.source.origin
+        // Listening starts before the program does: the runner's events are not replayed.
+        val recording = origin?.let(::recordGeneratedSession)
         return when (val result = programRunner.start(plan, RunOptions(heartRateProfile = heartRateProfile(userId)))) {
             RunnerResult.Success -> {
-                userData.startParameters.save(userId, plan.source.programId, parameters)
+                // A generated program has no start parameters to remember: its values come from the generator.
+                if (origin == null) userData.startParameters.save(userId, plan.source.programId, parameters)
                 StartOutcome.Started
             }
             is RunnerResult.NotAllowed -> {
+                recording?.cancel()
                 links.clear()
                 StartOutcome.ProgramRefused(result.refusal, result.message)
             }
             is RunnerResult.CommandFailed -> {
+                recording?.cancel()
                 links.clear()
                 StartOutcome.CommandFailed(result.result)
             }
+        }
+    }
+
+    /**
+     * Collects the events of the run that starts now and, when it finishes, stores the record of the generated session
+     * ([GeneratedSessionRecords]) with its workout. This is what makes the generators start where the heart rate settled
+     * last time and what makes Couch to 5K advance. Errors are reported to [onError]; the run never notices.
+     */
+    private fun recordGeneratedSession(origin: ProgramOrigin): Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val events = mutableListOf<ProgramEvent>()
+        val finished = programRunner.events.first { event ->
+            if (event is ProgramEvent.Started || events.isNotEmpty()) events += event
+            event is ProgramEvent.Finished && events.isNotEmpty()
+        } as ProgramEvent.Finished
+        try {
+            val workoutId = links.currentWorkoutId() ?: throw IllegalStateException("No workout to attach the session record to")
+            val samples = userData.workouts.detail(workoutId)?.samples.orEmpty()
+                .mapNotNull { s -> s.heartRateBpm?.let { TimedHeartRate(s.timestampMillis, it) } }
+            val record = GeneratedSessionRecords.build(origin, finished, events, samples)
+            when (val result = userData.workouts.attachSessionRecord(workoutId, record)) {
+                is DataResult.Success -> Unit
+                else -> throw IllegalStateException("The session record was not stored: $result")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e)
         }
     }
 
@@ -294,6 +343,17 @@ class TrainingCoordinator(
 
     suspend fun startMaxTest(userId: Long, parameters: MaxTestParameters): StartOutcome =
         startTest(userId) { id -> fitnessRunner.startMaxTest(parameters.copy(resultId = id)) }
+
+    /** Starts the maximal heart-rate walk test (modified Balke), like the other two tests. */
+    suspend fun startMaxHeartRateWalk(userId: Long, parameters: MaxHeartRateWalkParameters): StartOutcome =
+        startTest(userId) { id -> fitnessRunner.startMaxHeartRateWalk(parameters.copy(resultId = id)) }
+
+    /**
+     * During the warm-up of the walking heart-rate test: changes the speed and/or the incline the ramp starts at (`null`
+     * keeps a value). The runner clamps them and refuses it in any other phase or test.
+     */
+    fun adjustRampStart(speedKmh: Double?, inclinePercent: Double?): FitnessActionResult =
+        fitnessRunner.adjustRampStart(speedKmh, inclinePercent)
 
     /**
      * A test needs the belt at rest: the workout is linked to the result id before the belt moves, and a session already

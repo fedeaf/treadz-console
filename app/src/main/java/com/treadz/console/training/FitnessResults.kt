@@ -3,6 +3,7 @@ package com.treadz.console.training
 import com.treadz.console.programs.fitness.EbbelingMeasurements
 import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.FitnessTestType
+import com.treadz.console.programs.fitness.MaxHeartRateWalkMeasurements
 import com.treadz.console.programs.fitness.Validity
 
 /** How a result compares with the previous valid test of the same type. */
@@ -58,4 +59,11 @@ object FitnessResults {
     /** Start speed of the last maximal test, else [default]. */
     fun suggestedMaxStartSpeed(all: List<FitnessTestResult>, default: Double): Double =
         all.filter { it.testType == FitnessTestType.MaxIncrementalRun }.maxByOrNull { it.startedAtMillis }?.inputs?.startSpeedKmh ?: default
+
+    /** Ramp start (speed, incline) of the last walking heart-rate test, as it ended up after the warm-up, else the defaults. */
+    fun suggestedWalkStart(all: List<FitnessTestResult>, defaultSpeed: Double, defaultIncline: Double): Pair<Double, Double> {
+        val last = all.filter { it.testType == FitnessTestType.MaxHeartRateWalk }.maxByOrNull { it.startedAtMillis }
+        val m = last?.measurements as? MaxHeartRateWalkMeasurements ?: return defaultSpeed to defaultIncline
+        return m.startSpeedKmh to m.startInclinePercent
+    }
 }

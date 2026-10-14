@@ -227,12 +227,13 @@ class ProgramEditorViewModelTest {
     }
 
     @Test fun aProgramThatCannotBeEditedIsLeftAlone() {
+        // A heart-rate block with a relative start cannot be shown in the editor (absolute starts can).
         val hr = Program(
             "", "By heart rate", ProgramKind.Free,
             listOf(
                 Block(
                     BlockPhase.Work, BlockEnd.Duration(600),
-                    BlockTarget.HeartRate(HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70), HeartRateAdjust.Speed, 4.0, 10.0, BlockTarget.Absolute(6.0, 0.0)),
+                    BlockTarget.HeartRate(HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70), HeartRateAdjust.Speed, 40.0, 100.0, BlockTarget.Relative(50.0, 0.0)),
                 ),
             ),
         )

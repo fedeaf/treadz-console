@@ -5,10 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.treadz.console.controls.SessionKind
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.Refusal
+import com.treadz.console.programs.engine.RunState
 import com.treadz.console.programs.engine.RunnerResult
 import com.treadz.console.programs.fitness.FitnessTestProgress
 import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.personalised.CouchToFiveK
+import com.treadz.console.programs.personalised.CouchToFiveKSelection
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.UserData
@@ -18,12 +23,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /** Why "Continue" did not work. */
 sealed interface ContinueFailure {
@@ -43,6 +52,10 @@ data class RunUiState(
     /** For a finished test: how it compares with the previous test of the same type. */
     val comparison: FitnessComparison? = null,
     val heartRateMax: HeartRateMaxDecision? = null,
+    /** Where the heart rate comes from now (`null`: none, or not known). */
+    val heartRateSource: HeartRateSourceKind? = null,
+    /** After a Couch to 5K session: what comes next, once the record of the session that has just ended is stored. */
+    val couchNext: CouchToFiveKSelection? = null,
 ) {
     val testResultShown: Boolean get() = kind == SessionKind.FitnessTest && test.phase == FitnessTestPhase.Finished
 }
@@ -55,6 +68,10 @@ data class RunUiState(
 class RunViewModel(
     private val training: TrainingCoordinator,
     private val userData: UserData,
+    /** The app's heart-rate source, for the icon next to the heart rate during a test. */
+    private val heartRate: HeartRateSource? = null,
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
     private data class Local(val continuing: Boolean = false, val failure: ContinueFailure? = null)
@@ -75,11 +92,40 @@ class RunViewModel(
             }
         }
 
+    private val heartRateSource: Flow<HeartRateSourceKind?> = if (heartRate == null) {
+        flowOf(null)
+    } else {
+        heartRate.readings.map { r -> r.source.takeIf { r.bpm != null } }
+            .onStart { emit(heartRate.latest().let { r -> r.source.takeIf { r.bpm != null } }) }
+            .distinctUntilChanged()
+    }
+
+    /** What comes after the Couch to 5K session that has just finished (see [RunUiState.couchNext]). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val couchNext: Flow<CouchToFiveKSelection?> = training.programRunner.progress
+        .map { p -> p.plan?.takeIf { p.state == RunState.Finished && it.source.origin?.generatorId == CouchToFiveK.ID } }
+        .distinctUntilChanged()
+        .flatMapLatest { plan ->
+            if (plan == null) {
+                flowOf(null)
+            } else {
+                generatorContext(userData, CouchToFiveK.ID).map { context ->
+                    // The record of this very session must be stored, or what comes next would follow from the one before.
+                    if (context == null || context.history.none { it.programId == plan.source.programId }) {
+                        null
+                    } else {
+                        GeneratorRequests.couchSession(context, today(), nowMillis())?.couchToFiveK
+                    }
+                }
+            }
+        }
+
     val uiState: StateFlow<RunUiState> = combine(
         combine(training.visible, training.programRunner.progress, training.fitnessRunner.progress) { kind, program, test -> Triple(kind, program, test) },
         combine(local, training.saveFailed, extras) { local, saveFailed, extras -> Triple(local, saveFailed, extras) },
-    ) { (kind, program, test), (local, saveFailed, extras) ->
-        RunUiState(kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax)
+        combine(heartRateSource, couchNext) { source, next -> source to next },
+    ) { (kind, program, test), (local, saveFailed, extras), (source, next) ->
+        RunUiState(kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax, source, next)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RunUiState())
 
     // ------------------------------------------------------------------ program
@@ -125,6 +171,22 @@ class RunViewModel(
 
     fun endTest() {
         training.fitnessRunner.endTest()
+    }
+
+    /** Walking heart-rate test, warm-up: changes the speed and/or incline the ramp starts at. */
+    fun adjustRampStart(speedKmh: Double?, inclinePercent: Double?) {
+        training.adjustRampStart(speedKmh, inclinePercent)
+    }
+
+    /** One − / + step of the ramp start speed (0.1 km/h) or incline (1 %) from what the test shows now. */
+    fun stepRampSpeed(direction: Int) {
+        val current = uiState.value.test.nextStageSpeedKmh ?: return
+        adjustRampStart(kotlin.math.round((current + direction * 0.1) * 10) / 10.0, null)
+    }
+
+    fun stepRampIncline(direction: Int) {
+        val current = uiState.value.test.nextStageInclinePercent ?: return
+        adjustRampStart(null, kotlin.math.round(current) + direction)
     }
 
     /** Closes the result: the main screen shows the live data again. */

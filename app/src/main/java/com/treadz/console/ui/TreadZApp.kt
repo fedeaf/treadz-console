@@ -57,6 +57,7 @@ import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.training.FitnessResultViewModel
 import com.treadz.console.training.FitnessStartViewModel
 import com.treadz.console.training.FitnessTestsViewModel
+import com.treadz.console.training.GeneratorViewModel
 import com.treadz.console.training.ProgramEditorViewModel
 import com.treadz.console.training.ProgramStartViewModel
 import com.treadz.console.training.ProgramsViewModel
@@ -176,7 +177,9 @@ fun TreadZRoot(
                         } else {
                             // A program or a fitness test is on (or has just ended): its screen takes the place of the live data.
                             val runVm = viewModel<RunViewModel>(
-                                factory = viewModelFactory { initializer { RunViewModel(training, dependencies.userData) } },
+                                factory = viewModelFactory {
+                                    initializer { RunViewModel(training, dependencies.userData, dependencies.heartRate, dependencies::nowMillis, dependencies::today) }
+                                },
                             )
                             val run by runVm.uiState.collectAsStateWithLifecycle()
                             val runActions = RunActions(
@@ -191,6 +194,8 @@ fun TreadZRoot(
                                 onUseMeasuredHeartRateMax = runVm::useMeasuredHeartRateMax,
                                 onKeepManualHeartRateMax = runVm::keepManualHeartRateMax,
                                 onResumeHeartRateControl = runVm::resumeHeartRateControl,
+                                onRampSpeedStep = runVm::stepRampSpeed,
+                                onRampInclineStep = runVm::stepRampIncline,
                             )
                             if (visible == SessionKind.Program) ProgramRunScreen(ui, run, controlActions, runActions)
                             else FitnessRunScreen(ui, run, controlActions, runActions)
@@ -452,7 +457,13 @@ fun TreadZRoot(
                         val context = LocalContext.current
                         val vm = viewModel<ProgramsViewModel>(
                             factory = viewModelFactory {
-                                initializer { ProgramsViewModel(dependencies.userData) { name -> context.getString(R.string.program_copy_name, name) } }
+                                initializer {
+                                    ProgramsViewModel(
+                                        dependencies.userData,
+                                        dependencies::nowMillis,
+                                        dependencies::today,
+                                    ) { name -> context.getString(R.string.program_copy_name, name) }
+                                }
                             },
                         )
                         val state by vm.uiState.collectAsStateWithLifecycle()
@@ -463,7 +474,14 @@ fun TreadZRoot(
                                 onOpen = { navigation.push(Screen.ProgramStart(it)) },
                                 onEdit = { navigation.openProgramEditor(it) },
                                 onNew = { navigation.openProgramEditor(null) },
-                                onDuplicate = { id -> vm.duplicate(id) },
+                                onDuplicate = { id ->
+                                    // The copy of a generated session is a free program: open it, so it is clear that it can be edited.
+                                    val generated = state.generators.any { g -> g.sessions.any { it.programId == id } }
+                                    vm.duplicate(id) { copyId -> if (generated) navigation.openProgramEditor(copyId) }
+                                },
+                                onOpenGenerator = { navigation.push(Screen.Generator(it)) },
+                                onRegenerate = { generatorId, programId -> navigation.push(Screen.Generator(generatorId, programId)) },
+                                onToggleSessions = vm::toggleExpanded,
                                 onDelete = vm::requestDelete,
                                 onConfirmDelete = vm::confirmDelete,
                                 onCancelDelete = vm::cancelDelete,
@@ -495,6 +513,51 @@ fun TreadZRoot(
                                 onRestoreDefaults = vm::restoreDefaults,
                                 onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
                                 onSaveAsFree = { name -> vm.saveAsFreeProgram(name) { id -> navigation.openProgramEditor(id) } },
+                                onRegenerate = { state.origin?.let { navigation.push(Screen.Generator(it.generatorId, screen.programId)) } },
+                            ),
+                        )
+                    }
+
+                    is Screen.Generator -> {
+                        val context = LocalContext.current
+                        val vm = viewModel<GeneratorViewModel>(
+                            key = "generator-${screen.generatorId}-${screen.fromProgramId}",
+                            factory = viewModelFactory {
+                                initializer {
+                                    GeneratorViewModel(
+                                        generatorId = screen.generatorId,
+                                        fromProgramId = screen.fromProgramId,
+                                        userData = dependencies.userData,
+                                        training = training,
+                                        controller = dependencies.controller,
+                                        settings = dependencies.settings,
+                                        nowMillis = dependencies::nowMillis,
+                                        today = dependencies::today,
+                                        programName = { d, form -> generatorProgramName(context, d, form) },
+                                        heartRate = dependencies.heartRate,
+                                    )
+                                }
+                            },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        GeneratorScreen(
+                            state = state,
+                            actions = GeneratorActions(
+                                onBack = navigation::pop,
+                                onMode = vm::setMode,
+                                onDurationStep = vm::stepDuration,
+                                onSeriesStep = vm::stepSeries,
+                                onWalkingSpeed = vm::setWalkingSpeed,
+                                onWalkingSpeedStep = vm::stepWalkingSpeed,
+                                onChooseStartWeek = vm::chooseStartWeek,
+                                onStartWeek = vm::setStartWeek,
+                                onJogStep = vm::stepJogAdjustment,
+                                onRestoreDefaults = vm::restoreDefaults,
+                                onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
+                                onOpenFitnessTests = { navigation.push(Screen.FitnessTests) },
+                                onOpenWeight = { navigation.push(Screen.Weight) },
+                                onOpenProfile = { state.user?.let { navigation.openEditor(it.id) } },
+                                onOpenResting = { navigation.push(Screen.RestingHeartRate) },
                             ),
                         )
                     }
@@ -530,6 +593,13 @@ fun TreadZRoot(
                                 onCancelDelete = vm::cancelDelete,
                                 onDiscard = navigation::pop,
                                 onCancelDiscard = vm::cancelDiscard,
+                                onHeartRateTarget = vm::setHeartRateTarget,
+                                onZone = vm::setZone,
+                                onReserve = vm::setReserve,
+                                onAdjust = vm::setAdjust,
+                                onHeartRateBound = vm::setHeartRateBound,
+                                onEditHeartRate = vm::editHeartRate,
+                                onOpenResting = { navigation.push(Screen.RestingHeartRate) },
                             ),
                         )
                     }
@@ -558,7 +628,7 @@ fun TreadZRoot(
                         val vm = viewModel<FitnessStartViewModel>(
                             key = "fitness-start-${screen.type}",
                             factory = viewModelFactory {
-                                initializer { FitnessStartViewModel(screen.type, dependencies.userData, training, dependencies.controller, dependencies::today) }
+                                initializer { FitnessStartViewModel(screen.type, dependencies.userData, training, dependencies.controller, dependencies::today, heartRate = dependencies.heartRate) }
                             },
                         )
                         val state by vm.uiState.collectAsStateWithLifecycle()
@@ -568,6 +638,8 @@ fun TreadZRoot(
                                 onBack = navigation::pop,
                                 onSpeed = vm::setSpeed,
                                 onSpeedStep = vm::stepSpeed,
+                                onIncline = vm::setIncline,
+                                onInclineStep = vm::stepIncline,
                                 onRestoreDefaults = vm::restoreDefaults,
                                 onStart = { vm.start(onStarted = { navigation.replaceAll(Screen.Main) }) },
                             ),

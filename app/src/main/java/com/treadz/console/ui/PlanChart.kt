@@ -45,6 +45,7 @@ fun PlanChart(
     speedColor: Color = MaterialTheme.colorScheme.primary,
     inclineColor: Color = MaterialTheme.colorScheme.secondary,
     emptyText: String? = null,
+    heartRateColor: Color = MaterialTheme.colorScheme.error,
 ) {
     val measurer = rememberTextMeasurer()
     val labelStyle = TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -101,6 +102,28 @@ fun PlanChart(
                 }
             }
 
+            // Blocks guided by heart rate: a tinted column and a bar with a small heart on top of the plot.
+            segments.filter { it.heartRate != null }.forEach { s ->
+                val x0 = px(s.startSeconds.toDouble())
+                val x1 = px(s.endSeconds.toDouble())
+                drawRect(heartRateColor.copy(alpha = 0.10f), Offset(x0, top), Size(x1 - x0, plot.height))
+                drawRoundRect(
+                    heartRateColor.copy(alpha = 0.9f), Offset(x0, top), Size((x1 - x0).coerceAtLeast(1f), 5.dp.toPx()),
+                    androidx.compose.ui.geometry.CornerRadius(2.5.dp.toPx()),
+                )
+                if (showAxes && x1 - x0 >= 26.dp.toPx()) {
+                    val cx = (x0 + x1) / 2f
+                    val h = 11.dp.toPx()
+                    val heart = Path().apply {
+                        moveTo(cx, top + 8.dp.toPx() + h)
+                        cubicTo(cx - h * 1.2f, top + 8.dp.toPx() + h * 0.45f, cx - h * 0.9f, top + 8.dp.toPx() - h * 0.25f, cx, top + 8.dp.toPx() + h * 0.25f)
+                        cubicTo(cx + h * 0.9f, top + 8.dp.toPx() - h * 0.25f, cx + h * 1.2f, top + 8.dp.toPx() + h * 0.45f, cx, top + 8.dp.toPx() + h)
+                        close()
+                    }
+                    drawPath(heart, heartRateColor)
+                }
+            }
+
             // Incline: filled steps.
             val inclinePath = Path().apply {
                 moveTo(px(0.0), pyIncline(0.0))
@@ -146,12 +169,24 @@ private fun DrawScope.drawActual(points: List<ChartPoint>, px: (Double) -> Float
 }
 
 /** Colour key of a [PlanChart]. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun PlanLegend(speedLabel: String, inclineLabel: String, modifier: Modifier = Modifier, actualLabel: String? = null) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+fun PlanLegend(
+    speedLabel: String,
+    inclineLabel: String,
+    modifier: Modifier = Modifier,
+    actualLabel: String? = null,
+    /** Shown when the plan has blocks guided by heart rate. */
+    heartRateLabel: String? = null,
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         LegendItem(MaterialTheme.colorScheme.primary, speedLabel)
         LegendItem(MaterialTheme.colorScheme.secondary, inclineLabel)
         if (actualLabel != null) LegendItem(MaterialTheme.colorScheme.onSurface, actualLabel)
+        if (heartRateLabel != null) LegendItem(MaterialTheme.colorScheme.error, heartRateLabel)
     }
 }
 

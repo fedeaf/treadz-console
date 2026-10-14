@@ -25,19 +25,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
+import com.treadz.console.programs.engine.HeartRateControlMode
+import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.BlockPhase
+import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.plan.ProgramResolver
 import com.treadz.console.training.BlockDraft
 import com.treadz.console.training.EditorField
 import com.treadz.console.training.FieldRef
+import com.treadz.console.training.HeartRateDraft
 import com.treadz.console.training.ProgramEditorUiState
 import com.treadz.console.training.RepeatStepDraft
 import com.treadz.console.training.SingleStepDraft
 import com.treadz.console.training.segments
 import com.treadz.console.training.stepDistance
 import com.treadz.console.training.stepDuration
+import com.treadz.console.training.stepHeartRateBound
 import com.treadz.console.training.stepIncline
 import com.treadz.console.training.stepSpeed
+import com.treadz.console.training.stepZone
 
 data class ProgramEditorActions(
     val onBack: () -> Unit = {},
@@ -59,6 +65,15 @@ data class ProgramEditorActions(
     val onCancelDelete: () -> Unit = {},
     val onDiscard: () -> Unit = {},
     val onCancelDiscard: () -> Unit = {},
+    /** Switches a block (step, block inside a repeat) between "speed and incline" and "heart rate". */
+    val onHeartRateTarget: (step: Int, block: Int?, enabled: Boolean) -> Unit = { _, _, _ -> },
+    /** Zone 1-5 (0-4), or `null` for a zone of the user's own. */
+    val onZone: (step: Int, block: Int?, zone: Int?) -> Unit = { _, _, _ -> },
+    val onReserve: (step: Int, block: Int?, reserve: Boolean) -> Unit = { _, _, _ -> },
+    val onAdjust: (step: Int, block: Int?, adjust: HeartRateAdjust) -> Unit = { _, _, _ -> },
+    val onHeartRateBound: (step: Int, block: Int?, maximum: Boolean, text: String) -> Unit = { _, _, _, _ -> },
+    val onEditHeartRate: (step: Int, block: Int?, edit: (HeartRateDraft) -> HeartRateDraft) -> Unit = { _, _, _ -> },
+    val onOpenResting: () -> Unit = {},
 )
 
 /** Editor of a free program: name, blocks by time or distance, repeats, and a live preview. */
@@ -72,7 +87,7 @@ fun ProgramEditorScreen(state: ProgramEditorUiState, actions: ProgramEditorActio
         )
         when {
             state.notFound -> Text(stringResource(R.string.program_not_found), Modifier.testTag("program_not_found"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            state.unsupported -> Text(stringResource(R.string.editor_program_unsupported), Modifier.testTag("program_unsupported"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            state.unsupported -> Text(stringResource(if (state.generated) R.string.editor_program_generated else R.string.editor_program_unsupported), Modifier.testTag("program_unsupported"), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             state.loading -> Unit
             wide -> {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -113,8 +128,8 @@ fun ProgramEditorScreen(state: ProgramEditorUiState, actions: ProgramEditorActio
 }
 
 @Composable
-private fun problem(state: ProgramEditorUiState, step: Int?, block: Int?, field: EditorField): String? =
-    if (!state.showProblems) null else state.problems[FieldRef(step, block, field)]?.text(field)
+private fun problem(state: ProgramEditorUiState, step: Int?, block: Int?, field: EditorField, adjust: HeartRateAdjust? = null): String? =
+    if (!state.showProblems) null else state.problems[FieldRef(step, block, field)]?.text(field, adjust)
 
 @Composable
 private fun Steps(state: ProgramEditorUiState, actions: ProgramEditorActions) {
@@ -220,10 +235,12 @@ private fun BlockCard(
     val tag = if (blockIndex == null) "block_$stepIndex" else "block_${stepIndex}_$blockIndex"
     fun edit(change: (BlockDraft) -> BlockDraft) = actions.onEditBlock(stepIndex, blockIndex, change)
     val short = (stepIndex to blockIndex) in state.shortBlocks
+    val shortHeartRate = (stepIndex to blockIndex) in state.shortHeartRateBlocks
+    val hr = block.heartRate
     Panel(
         Modifier.fillMaxWidth().testTag(tag),
         color = if (nested) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer,
-        borderColor = if (short) MaterialTheme.extra.warning else MaterialTheme.colorScheme.outlineVariant,
+        borderColor = if (short || shortHeartRate) MaterialTheme.extra.warning else MaterialTheme.colorScheme.outlineVariant,
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -231,6 +248,10 @@ private fun BlockCard(
                 for (phase in BlockPhase.entries) {
                     SmallChip(phase.label(), block.phase == phase, "${tag}_phase_${phase.name}") { edit { it.copy(phase = phase) } }
                 }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ChoiceChip(stringResource(R.string.editor_target_fixed), hr == null, "${tag}_target_fixed", { actions.onHeartRateTarget(stepIndex, blockIndex, false) })
+                ChoiceChip(stringResource(R.string.editor_target_heart_rate), hr != null, "${tag}_target_hr", { actions.onHeartRateTarget(stepIndex, blockIndex, true) })
             }
             val endTypes: @Composable () -> Unit = {
                 SmallChip(stringResource(R.string.editor_end_time), !block.byDistance, "${tag}_by_time") { edit { it.copy(byDistance = false) } }
@@ -257,16 +278,16 @@ private fun BlockCard(
             }
             val speedField: @Composable (Modifier) -> Unit = { m ->
                 StepperField(
-                    label = stringResource(R.string.chart_speed), value = block.speed, onValue = { v -> edit { it.copy(speed = v) } },
+                    label = stringResource(if (hr != null) R.string.editor_hr_start_speed else R.string.chart_speed), value = block.speed, onValue = { v -> edit { it.copy(speed = v) } },
                     onStep = { d -> edit { it.stepSpeed(d) } }, unit = null, tag = "${tag}_speed",
-                    error = problem(state, stepIndex, blockIndex, EditorField.Speed), modifier = m,
+                    error = problem(state, stepIndex, blockIndex, EditorField.Speed, hr?.adjust), modifier = m,
                 )
             }
             val inclineField: @Composable (Modifier) -> Unit = { m ->
                 StepperField(
-                    label = stringResource(R.string.chart_incline), value = block.incline, onValue = { v -> edit { it.copy(incline = v) } },
+                    label = stringResource(if (hr != null) R.string.editor_hr_start_incline else R.string.chart_incline), value = block.incline, onValue = { v -> edit { it.copy(incline = v) } },
                     onStep = { d -> edit { it.stepIncline(d) } }, unit = null, tag = "${tag}_incline",
-                    error = problem(state, stepIndex, blockIndex, EditorField.Incline), keyboardType = KeyboardType.Number, modifier = m,
+                    error = problem(state, stepIndex, blockIndex, EditorField.Incline, hr?.adjust), keyboardType = KeyboardType.Number, modifier = m,
                 )
             }
             if (wide) {
@@ -288,6 +309,7 @@ private fun BlockCard(
             if (short) {
                 Text(stringResource(R.string.editor_short_block, com.treadz.console.programs.plan.ProgramResolver.SHORT_BLOCK_SECONDS), Modifier.testTag("${tag}_short"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.extra.warning)
             }
+            if (hr != null) HeartRateTarget(state, actions, stepIndex, blockIndex, block, hr, tag, shortHeartRate)
             OutlinedTextField(
                 value = block.name,
                 onValueChange = { v -> edit { it.copy(name = v) } },
@@ -337,10 +359,20 @@ private fun Preview(state: ProgramEditorUiState, modifier: Modifier, fill: Boole
                 modifier = (if (fill) Modifier.weight(1f) else Modifier.height(200.dp)).fillMaxWidth().testTag("editor_chart"),
                 emptyText = stringResource(R.string.editor_preview_invalid),
             )
-            PlanLegend(stringResource(R.string.chart_speed), stringResource(R.string.chart_incline))
+            PlanLegend(
+                stringResource(R.string.chart_speed), stringResource(R.string.chart_incline),
+                heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+            )
             if (plan != null) {
                 PlanTotals(plan)
                 PlanWarnings(plan.warnings.filter { it.code != com.treadz.console.programs.plan.WarningCode.ShortBlock })
+            }
+            if (state.shortHeartRateBlocks.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.editor_hr_short_summary, state.shortHeartRateBlocks.size),
+                    Modifier.testTag("editor_hr_short_summary"),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.extra.warning,
+                )
             }
             if (state.shortBlocks.isNotEmpty()) {
                 Text(
@@ -359,5 +391,111 @@ private fun SaveBar(state: ProgramEditorUiState, actions: ProgramEditorActions) 
         if (state.saveFailed) ErrorText(stringResource(R.string.error_storage), Modifier.padding(bottom = 6.dp).testTag("editor_error"))
         if (state.showProblems && state.problems.isNotEmpty()) ErrorText(stringResource(R.string.editor_fix_problems), Modifier.padding(bottom = 6.dp).testTag("editor_problems"))
         BigButton(stringResource(R.string.action_save), actions.onSave, Modifier.fillMaxWidth().testTag("save_program_button"), enabled = !state.saving)
+    }
+}
+
+/**
+ * The heart-rate part of a block: the zone (Z1-Z5 or the user's own percentages) in bpm for the active user, the basis, what
+ * the control adjusts and between which bounds, how the block is controlled, and the warning of a block that is too short.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HeartRateTarget(
+    state: ProgramEditorUiState,
+    actions: ProgramEditorActions,
+    stepIndex: Int,
+    blockIndex: Int?,
+    block: BlockDraft,
+    hr: HeartRateDraft,
+    tag: String,
+    tooShort: Boolean,
+) {
+    fun edit(change: (BlockDraft) -> BlockDraft) = actions.onEditBlock(stepIndex, blockIndex, change)
+    val key = stepIndex to blockIndex
+    val wide = LocalLayout.current.wide
+    Column(Modifier.fillMaxWidth().testTag("${tag}_hr"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(stringResource(R.string.editor_hr_zone), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (i in HeartRateZones.STANDARD.indices) {
+                ChoiceChip("Z${i + 1}", hr.standardZone == i, "${tag}_zone_$i", { actions.onZone(stepIndex, blockIndex, i) })
+            }
+            ChoiceChip(stringResource(R.string.editor_hr_zone_custom), hr.standardZone == null, "${tag}_zone_custom", { actions.onZone(stepIndex, blockIndex, null) })
+        }
+        if (hr.standardZone == null) {
+            val range = stringResource(R.string.editor_hr_percent_unit)
+            // Two fields side by side on the tablet; one under the other on a phone, where each needs the full width.
+            val zoneFields: @Composable (Modifier) -> Unit = { m ->
+                StepperField(
+                    label = stringResource(R.string.editor_hr_zone_low), value = hr.customLow,
+                    onValue = { v -> actions.onEditHeartRate(stepIndex, blockIndex) { it.copy(customLow = v) } },
+                    onStep = { d -> edit { it.stepZone(false, d) } }, unit = range, tag = "${tag}_zone_low",
+                    error = problem(state, stepIndex, blockIndex, EditorField.ZoneLow), keyboardType = KeyboardType.Number, modifier = m,
+                )
+                StepperField(
+                    label = stringResource(R.string.editor_hr_zone_high), value = hr.customHigh,
+                    onValue = { v -> actions.onEditHeartRate(stepIndex, blockIndex) { it.copy(customHigh = v) } },
+                    onStep = { d -> edit { it.stepZone(true, d) } }, unit = range, tag = "${tag}_zone_high",
+                    error = problem(state, stepIndex, blockIndex, EditorField.ZoneHigh), keyboardType = KeyboardType.Number, modifier = m,
+                )
+            }
+            if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) { zoneFields(Modifier.weight(1f)) }
+            else zoneFields(Modifier)
+        }
+        // The basis of the percentages: the reserve (Karvonen) needs a resting heart rate.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ChoiceChip(stringResource(R.string.editor_hr_basis_max), !hr.reserve, "${tag}_basis_max", { actions.onReserve(stepIndex, blockIndex, false) })
+            ChoiceChip(stringResource(R.string.editor_hr_basis_reserve), hr.reserve, "${tag}_basis_reserve", { actions.onReserve(stepIndex, blockIndex, true) }, enabled = state.hasResting)
+        }
+        if (!state.hasResting) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.editor_hr_reserve_hint), Modifier.weight(1f).testTag("${tag}_reserve_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                RowButton(stringResource(R.string.editor_hr_measure_resting), actions.onOpenResting, Modifier.testTag("${tag}_resting_link"))
+            }
+        }
+        val bpm = state.zoneBpm[key]
+        Text(
+            if (bpm != null) stringResource(R.string.editor_hr_zone_bpm, bpm.lowBpm, bpm.highBpm, state.heartRateProfile?.maxBpm ?: 0)
+            else stringResource(R.string.editor_hr_zone_unknown),
+            Modifier.testTag("${tag}_zone_bpm"),
+            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+        )
+        // What the control moves, and between which bounds.
+        Text(stringResource(R.string.editor_hr_adjust), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ChoiceChip(stringResource(R.string.editor_hr_adjust_speed), hr.adjust == HeartRateAdjust.Speed, "${tag}_adjust_speed", { actions.onAdjust(stepIndex, blockIndex, HeartRateAdjust.Speed) })
+            ChoiceChip(stringResource(R.string.editor_hr_adjust_incline), hr.adjust == HeartRateAdjust.Incline, "${tag}_adjust_incline", { actions.onAdjust(stepIndex, blockIndex, HeartRateAdjust.Incline) })
+        }
+        val speed = hr.adjust == HeartRateAdjust.Speed
+        val unit = stringResource(if (speed) R.string.unit_speed else R.string.unit_incline)
+        val bounds: @Composable (Modifier) -> Unit = { m ->
+            StepperField(
+                label = stringResource(if (speed) R.string.editor_hr_min_speed else R.string.editor_hr_min_incline), value = hr.minimum,
+                onValue = { v -> actions.onHeartRateBound(stepIndex, blockIndex, false, v) },
+                onStep = { d -> edit { it.stepHeartRateBound(false, d) } }, unit = unit, tag = "${tag}_min",
+                error = problem(state, stepIndex, blockIndex, EditorField.HeartRateMin, hr.adjust),
+                keyboardType = if (speed) KeyboardType.Decimal else KeyboardType.Number, modifier = m,
+            )
+            StepperField(
+                label = stringResource(if (speed) R.string.editor_hr_max_speed else R.string.editor_hr_max_incline), value = hr.maximum,
+                onValue = { v -> actions.onHeartRateBound(stepIndex, blockIndex, true, v) },
+                onStep = { d -> edit { it.stepHeartRateBound(true, d) } }, unit = unit, tag = "${tag}_max",
+                error = problem(state, stepIndex, blockIndex, EditorField.HeartRateMax, hr.adjust),
+                keyboardType = if (speed) KeyboardType.Decimal else KeyboardType.Number, modifier = m,
+            )
+        }
+        if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) { bounds(Modifier.weight(1f)) }
+        else bounds(Modifier)
+        if (!speed) Text(stringResource(R.string.editor_hr_walking_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // How the block is controlled (the 6-minute rule of the program runner).
+        state.heartRateModes[key]?.let { mode ->
+            Text(
+                stringResource(if (mode == HeartRateControlMode.Continuous) R.string.editor_hr_mode_continuous else R.string.editor_hr_mode_between),
+                Modifier.testTag("${tag}_mode"),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (tooShort) {
+            Text(stringResource(R.string.editor_hr_short_block), Modifier.testTag("${tag}_hr_short"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.extra.warning)
+        }
     }
 }

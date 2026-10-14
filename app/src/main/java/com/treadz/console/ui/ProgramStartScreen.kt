@@ -46,6 +46,8 @@ data class ProgramStartActions(
     val onRestoreDefaults: () -> Unit = {},
     val onStart: () -> Unit = {},
     val onSaveAsFree: (String) -> Unit = {},
+    /** Opens the generator with the inputs of this personalised program, to generate it again with today's data. */
+    val onRegenerate: () -> Unit = {},
 )
 
 /** Start screen of a program: what to choose, the plan it gives, and START. */
@@ -66,16 +68,23 @@ fun ProgramStartScreen(state: ProgramStartUiState, actions: ProgramStartActions,
             layout.wide -> {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     Column(Modifier.weight(0.9f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Intro(state)
+                        Intro(state, actions)
                         StartForm(state, actions)
                     }
-                    PlanPreview(state, actions.onSaveAsFree, Modifier.weight(1.1f).fillMaxSize(), fill = true)
+                    if (state.origin != null || state.plan?.blocks?.any { it.heartRate != null } == true) {
+                        // With the list of blocks the preview is taller than the screen: it scrolls.
+                        Column(Modifier.weight(1.1f).fillMaxSize().verticalScroll(rememberScrollState())) {
+                            PlanPreview(state, actions.onSaveAsFree, Modifier.fillMaxWidth(), fill = false)
+                        }
+                    } else {
+                        PlanPreview(state, actions.onSaveAsFree, Modifier.weight(1.1f).fillMaxSize(), fill = true)
+                    }
                 }
                 StartBar(state, actions)
             }
             else -> {
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Intro(state)
+                    Intro(state, actions)
                     StartForm(state, actions)
                     PlanPreview(state, actions.onSaveAsFree, Modifier.fillMaxWidth(), fill = false)
                 }
@@ -86,15 +95,42 @@ fun ProgramStartScreen(state: ProgramStartUiState, actions: ProgramStartActions,
 }
 
 @Composable
-private fun Intro(state: ProgramStartUiState) {
+private fun Intro(state: ProgramStartUiState, actions: ProgramStartActions) {
     val description = state.standardKey?.let { stringResource(standardDescriptionRes(it)) } ?: state.description
     if (!description.isNullOrBlank()) {
         Text(description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    val origin = state.origin
+    if (origin != null) {
+        // A personalised program is repeated exactly as it was generated: its values, with no adjustments.
+        val inputs = origin.inputs
+        val mode = inputs["mode"]?.let { m -> com.treadz.console.programs.personalised.ExerciseMode.entries.firstOrNull { it.name.equals(m, ignoreCase = true) } }
+        val details = listOfNotNull(
+            mode?.label(),
+            inputs["durationMinutes"]?.toIntOrNull()?.let { stringResource(R.string.duration_minutes, it) },
+            if (origin.generatorId == "intervals-30-30") inputs["series"]?.toIntOrNull()?.let { stringResource(R.string.generator_series_count, it) } else null,
+        )
+        Panel(Modifier.fillMaxWidth().testTag("generated_info"), borderColor = MaterialTheme.colorScheme.secondary) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                state.generatedAtMillis?.let {
+                    Text(
+                        stringResource(R.string.generated_on, Format.dateTime(it, currentLocale())),
+                        Modifier.testTag("generated_on"),
+                        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    )
+                }
+                if (details.isNotEmpty()) Text(details.joinToString(" · "), Modifier.testTag("generated_inputs"), style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.generated_repeat_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                RowButton(stringResource(R.string.saved_regenerate), actions.onRegenerate, Modifier.testTag("regenerate_button"))
+            }
+        }
     }
 }
 
 @Composable
 private fun StartForm(state: ProgramStartUiState, actions: ProgramStartActions) {
+    // A personalised program runs as it was generated: nothing to choose.
+    if (state.kind == com.treadz.console.programs.model.ProgramKind.Personalised) return
     val form = state.form
     val wide = LocalLayout.current.wide
     val fields = mutableListOf<@Composable (Modifier) -> Unit>()
@@ -200,10 +236,15 @@ private fun PlanPreview(state: ProgramStartUiState, onSaveAsFree: (String) -> Un
                 modifier = (if (fill) Modifier.weight(1f) else Modifier.height(200.dp)).fillMaxWidth().testTag("plan_chart"),
                 emptyText = stringResource(R.string.start_preview_invalid),
             )
-            PlanLegend(stringResource(R.string.chart_speed), stringResource(R.string.chart_incline))
+            PlanLegend(
+                stringResource(R.string.chart_speed), stringResource(R.string.chart_incline),
+                heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+            )
             if (plan != null) {
                 PlanTotals(plan)
                 PlanWarnings(plan.warnings)
+                // The blocks with their zones in bpm, where heart rate is involved.
+                if (state.origin != null || segments.any { it.heartRate != null }) PlanBlockList(plan, state.heartRateProfile)
                 val copyName = stringResource(R.string.program_copy_name, programDisplayName(state.programId, state.name))
                 RowButton(stringResource(R.string.start_save_as_free), { onSaveAsFree(copyName) }, Modifier.testTag("save_as_free_button"), enabled = !state.savingCopy)
                 if (state.saveCopyFailed) ErrorText(stringResource(R.string.error_storage))

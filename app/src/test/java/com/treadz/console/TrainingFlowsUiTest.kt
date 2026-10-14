@@ -10,6 +10,7 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -196,7 +197,8 @@ class TrainingFlowsUiTest {
         show(Screen.Programs)
         rule.onNodeWithTag("programs_list").performScrollToNode(hasTestTag("edit_program_${DemoPrograms.NORWEGIAN_ID}"))
         click("edit_program_${DemoPrograms.NORWEGIAN_ID}")
-        rule.onNodeWithTag("repeat_1").assertIsDisplayed()
+        // The blocks have a row of targets now: the repeat may be below the fold.
+        rule.onNodeWithTag("repeat_1").performScrollTo().assertIsDisplayed()
         rule.onNodeWithTag("repeat_count_1").performTextReplacement("5")
         click("save_program_button")
         rule.waitForIdle()

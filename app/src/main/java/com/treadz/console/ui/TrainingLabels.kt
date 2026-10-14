@@ -207,7 +207,7 @@ fun ParameterProblem.text(parameter: IntensityParameter, speedMin: Double, speed
 /** Text of a problem of the program editor, next to its field. The limits come from [ProgramLimits]. */
 @Composable
 @ReadOnlyComposable
-fun EditorProblem.text(field: EditorField): String = when (this) {
+fun EditorProblem.text(field: EditorField, adjust: com.treadz.console.programs.model.HeartRateAdjust? = null): String = when (this) {
     EditorProblem.Required -> stringResource(R.string.err_required)
     EditorProblem.NotANumber -> stringResource(if (field == EditorField.Duration) R.string.err_duration_format else R.string.err_not_a_number)
     EditorProblem.NotWhole -> stringResource(R.string.err_whole_number)
@@ -224,7 +224,18 @@ fun EditorProblem.text(field: EditorField): String = when (this) {
             else -> ProgramLimits.MAX_BLOCK_NAME_LENGTH
         },
     )
+    EditorProblem.ZoneOrder -> stringResource(R.string.err_zone_order)
+    EditorProblem.MinAboveMax -> stringResource(R.string.err_min_above_max)
+    EditorProblem.StartOutsideBounds -> stringResource(R.string.err_start_outside_bounds)
     EditorProblem.OutOfRange -> when (field) {
+        EditorField.ZoneLow -> stringResource(R.string.err_percent_range, 0, 99)
+        EditorField.ZoneHigh -> stringResource(R.string.err_percent_range, 1, 100)
+        EditorField.HeartRateMin, EditorField.HeartRateMax ->
+            if (adjust == com.treadz.console.programs.model.HeartRateAdjust.Incline) {
+                stringResource(R.string.err_incline_range, ProgramLimits.MIN_INCLINE_PERCENT.toInt(), ProgramLimits.MAX_INCLINE_PERCENT.toInt())
+            } else {
+                stringResource(R.string.err_speed_range, Format.speed(ProgramLimits.MIN_SPEED_KMH), Format.speed(ProgramLimits.MAX_SPEED_KMH))
+            }
         EditorField.Speed -> stringResource(R.string.err_speed_range, Format.speed(ProgramLimits.MIN_SPEED_KMH), Format.speed(ProgramLimits.MAX_SPEED_KMH))
         EditorField.Incline -> stringResource(R.string.err_incline_range, ProgramLimits.MIN_INCLINE_PERCENT.toInt(), ProgramLimits.MAX_INCLINE_PERCENT.toInt())
         EditorField.Duration -> stringResource(R.string.err_duration_range, ProgramLimits.MAX_DURATION_SECONDS / 3_600)
@@ -331,6 +342,7 @@ fun TestBlocker.text(): String = stringResource(
         TestBlocker.SessionActive -> R.string.program_blocker_session
         TestBlocker.NoHeartRate -> R.string.test_refusal_no_heart_rate
         TestBlocker.InvalidSpeed -> R.string.test_blocker_speed
+        TestBlocker.InvalidIncline -> R.string.test_blocker_incline
     },
 )
 

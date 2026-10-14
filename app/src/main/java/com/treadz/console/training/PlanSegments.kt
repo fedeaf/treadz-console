@@ -2,6 +2,7 @@ package com.treadz.console.training
 
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.model.BlockPhase
+import com.treadz.console.programs.plan.HeartRateGuidance
 import com.treadz.console.programs.plan.ResolvedPlan
 
 /** One block of a plan placed on a time line, for the charts. Distance blocks use their estimated duration. */
@@ -12,6 +13,8 @@ data class PlanSegment(
     val speedKmh: Double,
     val inclinePercent: Double,
     val phase: BlockPhase,
+    /** Set for a block guided by heart rate: [speedKmh] and [inclinePercent] are then its starting values. */
+    val heartRate: HeartRateGuidance? = null,
 ) {
     val durationSeconds: Int get() = endSeconds - startSeconds
 }
@@ -20,7 +23,7 @@ data class PlanSegment(
 fun ResolvedPlan.segments(): List<PlanSegment> {
     var start = 0
     return blocks.map { b ->
-        PlanSegment(b.index, start, start + b.estimatedDurationSeconds, b.speedKmh, b.inclinePercent, b.phase).also { start = it.endSeconds }
+        PlanSegment(b.index, start, start + b.estimatedDurationSeconds, b.speedKmh, b.inclinePercent, b.phase, b.heartRate).also { start = it.endSeconds }
     }
 }
 

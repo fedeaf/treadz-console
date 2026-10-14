@@ -111,6 +111,7 @@ fun HistoryScreen(state: HistoryUiState, actions: HistoryActions, modifier: Modi
                         workout = workout,
                         unassigned = tab == HistoryTab.Unassigned,
                         pendingUpload = workout.id in state.pendingUploadIds,
+                        couchSession = state.couchSessions[workout.id],
                         onOpen = { actions.onOpen(workout.id) },
                         onAssign = { actions.onAssign(workout.id) },
                         onDelete = { actions.onDelete(workout.id) },
@@ -140,6 +141,7 @@ private fun WorkoutCard(
     workout: WorkoutSummary,
     unassigned: Boolean,
     pendingUpload: Boolean,
+    couchSession: Int?,
     onOpen: () -> Unit,
     onAssign: () -> Unit,
     onDelete: () -> Unit,
@@ -162,7 +164,11 @@ private fun WorkoutCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
-                if (workout.programId != null) {
+                val generatorId = workout.generatorId
+                if (generatorId != null) {
+                    // A generated session is known by its generator ("Couch to 5K · session 7"), not by the name it was saved with.
+                    Tag(generatorTagText(generatorId, couchSession), MaterialTheme.colorScheme.secondary, Modifier.testTag("generator_tag_${workout.id}"))
+                } else if (workout.programId != null) {
                     Tag(programDisplayName(workout.programId, workout.programName), MaterialTheme.colorScheme.secondary, Modifier.testTag("program_tag_${workout.id}"))
                 }
                 if (workout.fitnessTestId != null) {

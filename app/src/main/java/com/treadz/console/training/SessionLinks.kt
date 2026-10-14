@@ -7,4 +7,5 @@ import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 class ObserverSessionLinks(private val observer: WorkoutHistoryObserver) : SessionLinks {
     override fun link(link: WorkoutLink) = observer.linkNextSession(link)
     override fun clear() = observer.clearLink()
+    override fun currentWorkoutId(): Long? = observer.activeWorkoutId.value ?: observer.lastWorkoutId.value
 }

@@ -90,8 +90,9 @@ data class ResolvedBlock(
     val speedKmh: Double,
     val inclinePercent: Double,
     /**
-     * Set for blocks that ask for heart-rate control. Until that control exists (milestone 5f) the block runs at
-     * [speedKmh] and [inclinePercent], which are its starting values.
+     * Set for blocks that ask for heart-rate control. [speedKmh] and [inclinePercent] are the starting values; the
+     * runner then adjusts one of them ([HeartRateGuidance.adjust]) between the guidance bounds. A short block inside a
+     * repeat (< 6 min) is controlled between repetitions, any other one continuously.
      */
     val heartRate: HeartRateGuidance?,
     /** Index of the source step in `Program.steps`. */
@@ -125,7 +126,10 @@ enum class WarningCode {
     /** The block is so short that much of it is spent on the speed ramp (~0.5 km/h per second). */
     ShortBlock,
 
-    /** The block asks for heart-rate control, which is not available yet: it runs at its starting values. */
+    /**
+     * No longer produced (heart-rate control exists since milestone 5f). Kept so that plans stored by earlier versions
+     * can still be read.
+     */
     HeartRateControlUnavailable,
 }
 

@@ -34,6 +34,36 @@ class RecorderTest {
 
     private fun RecordedSession.types() = records.map { it["type"] as String }
 
+    // ------------------------------------------------------------------ external records
+
+    @Test
+    fun `external records (heart-rate strap, source) are written in the session and read back`() = runTest {
+        val rig = Rig(this)
+        rig.connect()
+        // Before the session: kept in the preroll.
+        rig.recorder.onTrace(TraceRecord.External(rig.clock.nowMillis(), "hrm_connection", mapOf("state" to "Connected", "address" to "AA:BB")))
+        assertEquals(CommandResult.Success, rig.controller.start())
+        rig.recorder.onTrace(
+            TraceRecord.External(
+                rig.clock.nowMillis(), "hrm_reading",
+                linkedMapOf("hr_bpm" to 121, "contact" to "Detected", "rr_ms" to listOf(496, 500), "t" to 1, "type" to "ignored"),
+            ),
+        )
+        rig.recorder.onTrace(TraceRecord.External(rig.clock.nowMillis(), "hr_source", mapOf("source" to "DirectStrap", "previous" to null)))
+        delay(2_000)
+        assertEquals(CommandResult.Success, rig.controller.stop())
+        delay(30_000)
+        val name = (rig.recorder.status.value as RecordingStatus.Saved).info.fileName
+        val session = rig.storage.parsed(name)
+        assertEquals("AA:BB", session.ofType("hrm_connection").single()["address"])
+        val reading = session.ofType("hrm_reading").single()
+        assertEquals(121L, reading["hr_bpm"])
+        assertEquals(listOf(496L, 500L), reading["rr_ms"])
+        assertTrue(reading["t"] as Long > 1, "t and type cannot be overridden by the fields")
+        assertEquals("DirectStrap", session.ofType("hr_source").single()["source"])
+        assertTrue(session.ofType("hr_source").single().containsKey("previous"))
+    }
+
     // ------------------------------------------------------------------ normal session
 
     @ParameterizedTest(name = "{displayName} [{0}]")

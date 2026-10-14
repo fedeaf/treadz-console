@@ -16,6 +16,13 @@ enum class FitnessTestType {
      * (VAMEVAL / UMTT style). Gives the maximal aerobic speed (MAS).
      */
     MaxIncrementalRun,
+
+    /**
+     * Maximal heart-rate walking test (modified Balke): 2-min warm-up, then walking from 5.5 km/h and 5 % with +1 % per
+     * minute up to 18 % (or the user's incline limit) and then the speed equivalent of +1 % per minute, until
+     * exhaustion. Its only purpose is the maximum heart rate (no VO2max, no MAS). Wire name `maxHeartRateWalk`.
+     */
+    MaxHeartRateWalk,
 }
 
 /** Where the heart rate came from. */
@@ -203,10 +210,13 @@ enum class FitnessTestPhase {
     /** Ebbeling stage 2: same speed, 5 % grade, until a steady state. */
     Stage2,
 
-    /** Maximal test warm-up. */
+    /** Warm-up of the maximal tests. */
     WarmUp,
 
-    /** Maximal test: +0.5 km/h every minute until exhaustion. */
+    /**
+     * Incremental phase until exhaustion: +0.5 km/h every minute (running test) or the incline/speed ramp (walking
+     * heart-rate test).
+     */
     Incremental,
 
     /** Easy walk after the test, then the belt is stopped. */
@@ -252,7 +262,7 @@ data class SpeedAdjustment(
     val origin: SpeedAdjustmentOrigin = SpeedAdjustmentOrigin.Automatic,
 )
 
-/** One stage of the maximal test. */
+/** One stage of a maximal test (the running test, or the ramp of the walking heart-rate test). */
 data class StageRecord(
     /** 1-based. */
     val number: Int,
@@ -318,6 +328,40 @@ data class MaxTestMeasurements(
     val plateauRiseBpm: Double? = null,
 ) : FitnessTestMeasurements
 
+/**
+ * Measurements of the maximal heart-rate walking test ([FitnessTestType.MaxHeartRateWalk]). This test has no VO2max:
+ * its result has no [FitnessTestResult.outputs]; the measured maximum is [hrMaxCandidateBpm], meaningful only for a
+ * valid result (see [FitnessTestResult.measuredHrMaxCandidateBpm]).
+ */
+data class MaxHeartRateWalkMeasurements(
+    val warmUpSeconds: Int,
+    /** Time in the ramp (the incremental phase) until the end of the effort. */
+    val rampSeconds: Int,
+    val startSpeedKmh: Double,
+    val startInclinePercent: Double,
+    val inclineIncrementPercent: Double,
+    /** Highest incline of the ramp: 18 %, or the user's incline limit, or the treadmill maximum. */
+    val inclineCapPercent: Double,
+    /** Speed added every minute once the incline cap is reached (equivalent of +1 % grade). */
+    val speedIncrementKmh: Double,
+    /** Highest speed allowed (treadmill maximum and user limit). */
+    val speedCapKmh: Double,
+    val stageSeconds: Int,
+    /** Both the incline cap and the speed cap were reached (the effort is then less likely to be maximal). */
+    val capReached: Boolean,
+    val stages: List<StageRecord>,
+    /** Highest 5-s mean heart rate of the last 2 min of the ramp; `null` without a reliable heart rate. */
+    val peakHeartRateBpm: Double?,
+    /** Fraction of the ramp with a valid heart rate (0-1). */
+    val heartRateCoverage: Double?,
+    val heartRatePlateau: Boolean = false,
+    val plateauRiseBpm: Double? = null,
+    /** The measured maximum heart rate (the peak, rounded), when the effort ended properly with a reliable heart rate. */
+    val hrMaxCandidateBpm: Int? = null,
+    /** Effort assessment with the rules of the running test; `null` when the effort did not end by exhaustion. */
+    val effort: EffortAssessment? = null,
+) : FitnessTestMeasurements
+
 enum class Vo2MaxMethod {
     /** VO2max = 15.1 + 21.8·v − 0.327·HR − 0.263·v·age + 0.00504·HR·age + 5.98·sex (Ebbeling et al. 1991). */
     Ebbeling1991,
@@ -360,7 +404,8 @@ data class FitnessTestOutputs(
 
 /**
  * The result of one fitness test. JSON: [FitnessTestJson]. Time values are epoch milliseconds (ISO-8601 in JSON).
- * [outputs] is present only for a [Validity.Valid] result.
+ * [outputs] is present only for a [Validity.Valid] result of a test that estimates VO2max (Ebbeling, maximal running
+ * test); the walking heart-rate test has no outputs: its result is in [MaxHeartRateWalkMeasurements].
  */
 data class FitnessTestResult(
     val id: String,
@@ -386,6 +431,19 @@ data class FitnessTestResult(
     val schemaVersion: Int = SCHEMA_VERSION,
 ) {
     val effortSeconds: Int get() = ((effortEndedAtMillis - startedAtMillis) / 1000).toInt()
+
+    /**
+     * The measured maximum heart rate this result offers (both maximal tests), only when the result is valid: the
+     * running test's [FitnessTestOutputs.hrMaxCandidateBpm] or the walking test's
+     * [MaxHeartRateWalkMeasurements.hrMaxCandidateBpm].
+     */
+    val measuredHrMaxCandidateBpm: Int?
+        get() = if (validity != Validity.Valid) null
+        else outputs?.hrMaxCandidateBpm ?: (measurements as? MaxHeartRateWalkMeasurements)?.hrMaxCandidateBpm
+
+    /** Effort assessment of a maximal test (either kind); `null` for Ebbeling or an effort that did not end properly. */
+    val effortAssessment: EffortAssessment?
+        get() = outputs?.effort ?: (measurements as? MaxHeartRateWalkMeasurements)?.effort
 
     companion object {
         const val SCHEMA_VERSION = 1

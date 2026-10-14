@@ -43,7 +43,10 @@ data class RecorderConfig(
  * as it is written, so an unexpected app shutdown does not lose what was recorded.
  *
  * Line types: `header`, `rx`, `tx`, `read`, `malformed`, `connection`, `device`, `data`, `status`,
- * `training`, `cp_response`, `state`, `event`, `command`, `command_result`, `note`, `end`.
+ * `training`, `cp_response`, `state`, `event`, `command`, `command_result`, `note`, `end`, plus the external records
+ * ([TraceRecord.External]) fed by other parts of the app through [onTrace]: the heart-rate strap connected to the app
+ * (`hrm_rx`, `hrm_read`, `hrm_malformed`, `hrm_reading`, `hrm_connection`, `hrm_note`) and the heart-rate source in use
+ * (`hr_source`). [onTrace] is thread-safe, so any component may call it.
  */
 class JsonlWorkoutRecorder(
     private val storage: RecordingStorage,

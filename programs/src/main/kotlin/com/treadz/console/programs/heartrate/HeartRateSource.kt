@@ -1,5 +1,6 @@
 package com.treadz.console.programs.heartrate
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillState
 import kotlinx.coroutines.flow.Flow
@@ -12,9 +13,12 @@ enum class HeartRateValidity {
     Valid,
 
     /**
-     * There is a value but the source cannot confirm it is real. This is the case of the heart rate relayed by the
-     * treadmill console: it has no contact indicator and keeps reporting plausible values for 1-2 minutes after the
-     * strap is taken off. Control code must treat it with care (plausibility checks, limited authority).
+     * There is a value but the source cannot confirm the sensor contact. This is the case of the heart rate relayed by
+     * the treadmill console (no contact indicator; it keeps reporting plausible values for 1-2 minutes after the strap
+     * is taken off) and of a strap that does not report its contact. The console's heart rate comes from a chest strap
+     * and is **as reliable as a strap connected to the app** (decision of 2026-10-14): heart-rate control and the
+     * tests treat [Valid] and [Unconfirmed] alike; the impossible-reading rules
+     * ([HeartRatePlausibilityFilter]) catch a strap that was taken off.
      */
     Unconfirmed,
 
@@ -28,6 +32,17 @@ data class HeartRateReading(
     val validity: HeartRateValidity,
     /** When the reading was taken, in epoch milliseconds (0 when unknown). */
     val atMillis: Long = 0,
+    /**
+     * Where it comes from: [HeartRateSourceKind.DirectStrap] (the strap connected to the app),
+     * [HeartRateSourceKind.TreadmillConsole], or `null` when there is no heart-rate source at all.
+     */
+    val source: HeartRateSourceKind? = null,
+    /**
+     * RR intervals (ms between beats) that arrived with this reading, oldest first; only a strap connected to the app
+     * provides them (the console does not). A reading is emitted for every strap notification, so collecting
+     * [HeartRateSource.readings] gives every interval once.
+     */
+    val rrIntervalsMs: List<Int> = emptyList(),
 ) {
     companion object {
         val NONE = HeartRateReading(null, HeartRateValidity.Invalid)
@@ -36,7 +51,7 @@ data class HeartRateReading(
 
 /**
  * Where the program engine gets the heart rate from. The engine does not care whether it comes from the treadmill
- * console or from a strap connected directly to the app: a better source only has to implement this interface.
+ * console or from a strap connected directly to the app: [AutomaticHeartRateSource] picks the best one available.
  */
 interface HeartRateSource {
     /** The most recent reading. */
@@ -47,9 +62,10 @@ interface HeartRateSource {
 }
 
 /**
- * Heart rate relayed by the treadmill (FTMS Treadmill Data). 0 means no heart-rate monitor; any other value is only
- * [HeartRateValidity.Unconfirmed], because the console gives no contact indicator and keeps repeating plausible values
- * after the strap is removed. Data marked stale (connection lost or frozen) is [HeartRateValidity.Invalid].
+ * Heart rate relayed by the treadmill (FTMS Treadmill Data). 0 means no heart-rate monitor; any other value is
+ * [HeartRateValidity.Unconfirmed] (the console gives no contact indicator) with source
+ * [HeartRateSourceKind.TreadmillConsole]. Data marked stale (connection lost or frozen) is [HeartRateValidity.Invalid]
+ * without a source.
  */
 class ControllerHeartRateSource(private val controller: TreadmillController) : HeartRateSource {
 
@@ -63,7 +79,7 @@ class ControllerHeartRateSource(private val controller: TreadmillController) : H
             return if (bpm == null || bpm <= 0 || state.isStale) {
                 HeartRateReading(null, HeartRateValidity.Invalid, state.updatedAtMillis)
             } else {
-                HeartRateReading(bpm, HeartRateValidity.Unconfirmed, state.updatedAtMillis)
+                HeartRateReading(bpm, HeartRateValidity.Unconfirmed, state.updatedAtMillis, HeartRateSourceKind.TreadmillConsole)
             }
         }
     }

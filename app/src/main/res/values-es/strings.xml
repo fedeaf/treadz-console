@@ -615,6 +615,8 @@
     <string name="fitness_test_ebbeling">Test de caminata de Ebbeling</string>
     <string name="fitness_test_ebbeling_summary">Un test suave: unos 8 a 10 minutos caminando, primero en llano y luego en subida, mientras la app mide tu pulso. Estima tu VO2máx. Necesita la banda de pecho.</string>
     <string name="fitness_test_max">Test máximo de carrera</string>
+    <string name="fitness_test_max_hr">Test de pulso máximo</string>
+    <string name="fitness_test_max_hr_summary">Un test duro caminando: la pendiente sube cada minuto hasta que no puedes seguir. Mide tu pulso máximo (no da VO2máx).</string>
     <string name="fitness_test_max_summary">Un test duro: corres a una velocidad que sube cada minuto hasta que no puedes seguir. Da tu velocidad aeróbica máxima (VAM), tu VO2máx y tu pulso máximo.</string>
     <string name="fitness_test_choose">Elegir este test</string>
     <string name="fitness_summary_title">Tu forma</string>
@@ -669,6 +671,7 @@
     <string name="instruction_walk_uphill_extended">Sigue caminando: tu pulso todavía no es estable.</string>
     <string name="instruction_warm_up_walk">Calienta con una caminata rápida.</string>
     <string name="instruction_warm_up_jog">Calienta con un trote suave.</string>
+    <string name="instruction_walk_uphill_until_exhausted">Sigue caminando. La pendiente sube cada minuto: no te agarres a las barras. Pulsa AGOTADO cuando no puedas seguir.</string>
     <string name="instruction_run_until_exhausted">Sigue corriendo. La velocidad sube cada minuto. Pulsa AGOTADO cuando no puedas seguir.</string>
     <string name="instruction_hold_top_speed">Velocidad máxima alcanzada. Mantenla todo lo que puedas y pulsa AGOTADO.</string>
     <string name="instruction_cool_down_walk">Camina suave para recuperar. La banda se para sola.</string>

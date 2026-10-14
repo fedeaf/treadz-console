@@ -298,5 +298,19 @@ fun sampleResult(
                 masKmh = 13.5, masIsLowerBound = false, hrMaxCandidateBpm = 185, effort = EffortAssessment.Maximal,
             ),
         )
+        FitnessTestType.MaxHeartRateWalk -> FitnessTestResult(
+            id = id, testType = type, protocolVersion = 1,
+            startedAtMillis = startedAt, effortEndedAtMillis = startedAt + 780_000, endedAtMillis = startedAt + 960_000,
+            validity = validity, flags = flags, endReason = FitnessEndReason.Exhausted,
+            inputs = inputs.copy(heartRateSource = HeartRateSourceKind.DirectStrap, requestedStartSpeedKmh = 5.5, startSpeedKmh = 5.5),
+            measurements = MaxHeartRateWalkMeasurements(
+                120, 660, 5.5, 5.0, 1.0, 18.0, 0.2, 20.0, 60, false,
+                listOf(StageRecord(1, 5.5, 5.0, 60, true, 131.0), StageRecord(11, 5.5, 15.0, 0, false, null)),
+                183.0, 0.97, false, 4.5, 183, EffortAssessment.Maximal,
+            ),
+            minutes = listOf(MinuteRecord(FitnessTestPhase.Incremental, 1, 180, 60, 5.5, 5.0, 131.0)),
+            coolDownSeconds = 180,
+            outputs = null,
+        )
     }
 }

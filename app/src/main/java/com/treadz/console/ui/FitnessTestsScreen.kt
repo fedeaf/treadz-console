@@ -89,9 +89,12 @@ private fun Intro() {
     Text(stringResource(R.string.fitness_tests_intro), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
+/** The tests the screen offers. The maximal heart-rate walk is not offered until it has its own start screen. */
+private val OFFERED_TESTS = listOf(FitnessTestType.EbbelingWalk, FitnessTestType.MaxIncrementalRun)
+
 @Composable
 private fun TestCards(state: FitnessTestsUiState, actions: FitnessTestsActions) {
-    for (type in FitnessTestType.entries) {
+    for (type in OFFERED_TESTS) {
         Panel(Modifier.fillMaxWidth().testTag("test_card_${type.name}")) {
             Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(type.label(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)

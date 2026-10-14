@@ -1,8 +1,11 @@
 package com.treadz.console.programs.engine
 
 import com.treadz.console.programs.heartrate.ControllerHeartRateSource
+import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.BlockEnd
+import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.plan.ResolvedBlock
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.BeltStatus
@@ -54,6 +57,13 @@ import kotlin.math.roundToInt
  *    given directly to the controller looks to the runner like the belt changing externally.
  *  - At the end of the last block the belt is stopped ([EndAction.StopBelt]) or left running
  *    ([EndAction.HandOverToManual]).
+ *  - **Heart-rate-guided blocks** ([ResolvedBlock.heartRate]) adjust one quantity (speed or incline) between the
+ *    block's bounds to keep the heart rate in the zone ([HeartRateBlockControl] has the rules: continuous or between
+ *    repetitions, safety ceiling, maximum heart rate, no heart rate, impossible readings). They need
+ *    [RunOptions.heartRateProfile]; without it they run at their start values. Every change goes through the
+ *    controller like any block target. A manual change switches the control off until the next block;
+ *    [resumeHeartRateControl] switches it back on. The heart rate comes from [heartRate] (normally an
+ *    `AutomaticHeartRateSource`: strap connected to the app, else console); both sources are treated alike.
  *
  * Thread safety: all state lives behind one lock and is changed only in short non-suspending sections; controller
  * calls are made outside it. User actions run in [scope] (they are not cancelled with the caller) and are serialised
@@ -109,6 +119,17 @@ class ProgramRunner(
     private var manualOverride = false
     private var needsApply = false
 
+    // -- heart-rate control (guarded by [lock])
+    private var hrTracker: HeartRateTracker? = null
+    private var hrControl: HeartRateBlockControl? = null
+
+    /** The pending application only carries a heart-rate change: a manual change made meanwhile wins over it. */
+    private var hrApplyPending = false
+
+    /** Value the next repetition of a block (step index, block in step) starts at, and the value it comes from. */
+    private val hrCarry = mutableMapOf<Pair<Int, Int?>, Pair<Double, Double>>()
+    private val hrSummaries = mutableListOf<HeartRateBlockSummary>()
+
     // ------------------------------------------------------------------ user actions
 
     /**
@@ -152,6 +173,10 @@ class ProgramRunner(
             totalMeters = 0
             lastDistance = controller.state.value.distanceMeters
             lastAccountAt = clock.nowMillis()
+            hrTracker = newOptions.heartRateProfile?.takeIf { it.isUsable }?.let { HeartRateTracker(it, config.heartRate) }
+            hrControl = null
+            hrCarry.clear()
+            hrSummaries.clear()
             setBlockTargets(newPlan.blocks[0])
             needsApply = false
             publish()
@@ -181,10 +206,12 @@ class ProgramRunner(
             lastAccountAt = clock.nowMillis()
             lastDistance = controller.state.value.distanceMeters
             runState = RunState.Running
+            hrControl?.onResume(clock.nowMillis())
             val p = checkNotNull(plan)
             emit(ProgramEvent.Started(clock.nowMillis(), 0, p, options))
             emit(ProgramEvent.BlockStarted(clock.nowMillis(), 0, 0, p.blocks[0], BlockChangeReason.ProgramStart))
             needsApply = true
+            hrApplyPending = false
             checkInterruptions()
             publish()
         }
@@ -340,6 +367,10 @@ class ProgramRunner(
                             speed?.let { value }, incline?.let { value }, ManualChangeSource.App,
                         ),
                     )
+                    hrControl?.let {
+                        it.manualOverride()
+                        drainHeartRate(it)
+                    }
                 }
             } else {
                 // The adjustment did not happen: back to what the engine wanted before.
@@ -421,6 +452,26 @@ class ProgramRunner(
     }.await()
 
     /**
+     * Switches the heart-rate control of the current block back on after a manual change turned it off
+     * ([HeartRateControlState.OffByManualChange]). It continues from the current values (the user's). Valid while
+     * running or paused; refused ([Refusal.WrongState]) when the block is not heart-rate controlled or its control is
+     * already on.
+     */
+    fun resumeHeartRateControl(): RunnerResult {
+        synchronized(lock) {
+            if (runState != RunState.Running && runState != RunState.Paused) return notAllowedState("resuming heart-rate control needs a running or paused program")
+            val c = hrControl ?: return RunnerResult.NotAllowed(Refusal.WrongState, "The current block is not heart-rate controlled")
+            if (!c.isOff) return RunnerResult.NotAllowed(Refusal.WrongState, "Heart-rate control is already on")
+            c.reEnable(clock.nowMillis(), adjustedTarget(c))
+            manualOverride = false
+            drainHeartRate(c)
+            publish()
+        }
+        wake()
+        return RunnerResult.Success
+    }
+
+    /**
      * Gives up an active program without sending any command: the belt is left as it is (the user stops it with the
      * controller or hands over to manual). Ends with [RunOutcome.Abandoned].
      */
@@ -445,6 +496,7 @@ class ProgramRunner(
             launch(start = CoroutineStart.UNDISPATCHED) { controller.events.collect(::onControllerEvent) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.state.collect(::onTreadmillState) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.connection.collect { onConnection() } }
+            launch(start = CoroutineStart.UNDISPATCHED) { heartRate.readings.collect(::onHeartRate) }
             driverLoop()
         }
     }
@@ -494,6 +546,16 @@ class ProgramRunner(
             publish()
             return Step.Wait(0)
         }
+        val c = hrControl
+        if (c != null && !needsApply) {
+            val value = c.update(clock.nowMillis(), currentBlockMs(), adjustedTarget(c))
+            drainHeartRate(c)
+            if (value != null) {
+                if (c.adjust == HeartRateAdjust.Speed) targetSpeed = value else targetIncline = value
+                needsApply = true
+                hrApplyPending = true
+            }
+        }
         publish()
         if (needsApply) return Step.Apply(blockIndex, targetSpeed ?: block.speedKmh, targetIncline ?: block.inclinePercent, epoch)
         val remaining = (block.end as? BlockEnd.Duration)?.let { it.seconds * 1000L - blockElapsedMs }
@@ -529,6 +591,7 @@ class ProgramRunner(
         synchronized(lock) {
             if (epoch != step.epoch || runState != RunState.Running) return
             needsApply = false
+            hrApplyPending = false
             if (sentSpeed != null || sentIncline != null) {
                 emit(ProgramEvent.TargetsApplied(clock.nowMillis(), programSeconds(), step.blockIndex, sentSpeed, sentIncline))
             }
@@ -604,11 +667,27 @@ class ProgramRunner(
     private fun onManualChange(e: TreadmillEvent.ManualChange) {
         if (runState != RunState.Running || busy) return
         emit(ProgramEvent.ManualChange(clock.nowMillis(), programSeconds(), blockIndex, e.speedKmh, e.inclinePercent))
-        // While the block's own targets are still pending they win: the block "applies its own values".
-        if (needsApply) return
+        // While the block's own targets are still pending they win: the block "applies its own values". A pending
+        // heart-rate correction does not: the user's change wins over it.
+        if (needsApply && !hrApplyPending) return
+        hrApplyPending = false
         e.speedKmh?.let { targetSpeed = it }
         e.inclinePercent?.let { targetIncline = it }
         manualOverride = true
+        hrControl?.let {
+            it.manualOverride()
+            drainHeartRate(it)
+        }
+    }
+
+    private fun onHeartRate(reading: HeartRateReading) {
+        synchronized(lock) {
+            if (runState == RunState.Idle || runState == RunState.Finished) return
+            val tracker = hrTracker ?: return
+            val t = clock.nowMillis()
+            val bpm = tracker.onReading(t, reading)
+            hrControl?.onSample(t, bpm)
+        }
     }
 
     // ------------------------------------------------------------------ state changes (all under the lock)
@@ -636,6 +715,98 @@ class ProgramRunner(
         targetSpeed = block.speedKmh
         targetIncline = block.inclinePercent
         manualOverride = false
+        hrControl = null
+        val g = block.heartRate ?: return
+        val tracker = hrTracker ?: return
+        val profile = checkNotNull(options.heartRateProfile)
+        val speed = g.adjust == HeartRateAdjust.Speed
+        val caps = controller.capabilities.value
+        val limits = controller.limits.value
+        val range = if (speed) caps?.speed ?: SafetyClamp.DEFAULT_SPEED_RANGE else caps?.incline ?: SafetyClamp.DEFAULT_INCLINE_RANGE
+        val clamp: (Double) -> Double = { v -> if (speed) SafetyClamp.speed(v, range, limits) else SafetyClamp.incline(v, range, limits) }
+        val min = clamp(g.minimum)
+        val max = maxOf(min, clamp(g.maximum))
+        val start = clamp(if (speed) block.speedKmh else block.inclinePercent).coerceIn(min, max)
+        val carried = if ((block.repetition?.iteration ?: 1) > 1) hrCarry[block.stepIndex to block.blockInStep] else null
+        val initial = carried?.first?.coerceIn(min, max) ?: start
+        val c = HeartRateBlockControl(
+            blockIndex = block.index,
+            adjust = g.adjust,
+            mode = HeartRateBlockControl.modeOf(block.repetition != null, block.estimatedDurationSeconds, config.heartRate),
+            zone = HeartRateZones.toBpm(g.zone, profile),
+            maxBpm = profile.maxBpm,
+            minimum = min,
+            maximum = max,
+            grid = range.step,
+            startValue = start,
+            initialValue = initial,
+            tracker = tracker,
+            config = config.heartRate,
+            startedAt = clock.nowMillis(),
+        )
+        hrControl = c
+        if (speed) targetSpeed = initial else targetIncline = initial
+        if (carried != null && carried.first != carried.second) {
+            emit(ProgramEvent.HeartRateAdjusted(clock.nowMillis(), programSeconds(), block.index, g.adjust, carried.second, initial, HeartRateAdjustReason.NextRepetition, null))
+        }
+        drainHeartRate(c)
+    }
+
+    /** What the engine targets now for the quantity [c] adjusts. */
+    private fun adjustedTarget(c: HeartRateBlockControl): Double =
+        (if (c.adjust == HeartRateAdjust.Speed) targetSpeed else targetIncline) ?: c.controlValue
+
+    /** The heart-rate block in progress ends: its summary, and the start value of its next repetition. */
+    private fun finishBlockControl() {
+        val c = hrControl ?: return
+        hrControl = null
+        val p = plan ?: return
+        val block = p.blocks[blockIndex]
+        val t = clock.nowMillis()
+        val current = adjustedTarget(c)
+        drainHeartRate(c)
+        val summary = c.summary(t, current)
+        hrSummaries += summary
+        emit(ProgramEvent.HeartRateBlockFinished(t, programSeconds(), summary))
+        if (block.repetition != null) hrCarry[block.stepIndex to block.blockInStep] = c.nextRepetitionValue(t, current) to current
+    }
+
+    private fun drainHeartRate(c: HeartRateBlockControl) {
+        if (c.pending.isEmpty()) return
+        val t = clock.nowMillis()
+        val ps = programSeconds()
+        for (signal in c.pending) {
+            emit(
+                when (signal) {
+                    is HeartRateSignal.Adjusted -> ProgramEvent.HeartRateAdjusted(t, ps, c.blockIndex, c.adjust, signal.from, signal.to, signal.reason, signal.heartRateBpm?.let { Math.round(it * 10) / 10.0 })
+                    is HeartRateSignal.CeilingExceeded -> ProgramEvent.HeartRateCeilingExceeded(t, ps, c.blockIndex, signal.heartRateBpm, signal.ceilingBpm, signal.reduced)
+                    is HeartRateSignal.MaxReached -> ProgramEvent.HeartRateMaxReached(t, ps, c.blockIndex, signal.heartRateBpm, signal.maxBpm, signal.reduced)
+                    is HeartRateSignal.StateChanged -> ProgramEvent.HeartRateControlChanged(t, ps, c.blockIndex, signal.state)
+                },
+            )
+        }
+        c.pending.clear()
+    }
+
+    private fun heartRateStatus(block: ResolvedBlock): HeartRateControlStatus? {
+        val g = block.heartRate ?: return null
+        val c = hrControl
+        if (c != null && c.blockIndex == block.index) return c.status(clock.nowMillis(), adjustedTarget(c))
+        return HeartRateControlStatus(
+            state = HeartRateControlState.Unavailable,
+            mode = HeartRateBlockControl.modeOf(block.repetition != null, block.estimatedDurationSeconds, config.heartRate),
+            adjust = g.adjust,
+            zoneLowBpm = null,
+            zoneHighBpm = null,
+            ceilingBpm = null,
+            maxBpm = null,
+            minimum = g.minimum,
+            maximum = g.maximum,
+            targetValue = if (g.adjust == HeartRateAdjust.Speed) targetSpeed else targetIncline,
+            heartRateMeanBpm = null,
+            source = null,
+            secondsToNextDecision = null,
+        )
     }
 
     /**
@@ -645,6 +816,7 @@ class ProgramRunner(
     private fun advanceTo(index: Int, reason: BlockChangeReason, carryOver: Boolean) {
         val p = checkNotNull(plan)
         val old = p.blocks[blockIndex]
+        finishBlockControl()
         emit(ProgramEvent.BlockCompleted(clock.nowMillis(), programSeconds(), blockIndex, (currentBlockMs() / 1000).toInt(), blockMeters, reason))
         var carryMs = 0L
         var carryMeters = 0
@@ -659,6 +831,7 @@ class ProgramRunner(
         blockMeters = carryMeters
         setBlockTargets(p.blocks[index])
         needsApply = true
+        hrApplyPending = false
         epoch++
         emit(ProgramEvent.BlockStarted(clock.nowMillis(), programSeconds(), index, p.blocks[index], reason))
     }
@@ -668,7 +841,9 @@ class ProgramRunner(
         lastAccountAt = clock.nowMillis()
         lastDistance = controller.state.value.distanceMeters
         runState = RunState.Running
+        hrControl?.onResume(clock.nowMillis())
         needsApply = true
+        hrApplyPending = false
         epoch++
         emit(event)
         checkInterruptions()
@@ -739,11 +914,12 @@ class ProgramRunner(
     private fun finish(result: RunOutcome, endAction: EndAction?, stopResult: CommandResult?) {
         if (runState == RunState.Finished || runState == RunState.Idle) return
         accumulate()
+        finishBlockControl()
         runState = RunState.Finished
         outcome = result
         busy = false
         epoch++
-        emit(ProgramEvent.Finished(clock.nowMillis(), programSeconds(), result, endAction, stopResult))
+        emit(ProgramEvent.Finished(clock.nowMillis(), programSeconds(), result, endAction, stopResult, hrSummaries.toList()))
         publish()
         runJob?.cancel()
         runJob = null
@@ -753,6 +929,8 @@ class ProgramRunner(
     private fun resetToIdle() {
         runState = RunState.Idle
         plan = null
+        hrControl = null
+        hrTracker = null
         interruption = null
         initialStart = false
         busy = false
@@ -812,6 +990,9 @@ class ProgramRunner(
             actualInclinePercent = s.inclinePercent,
             heartRateBpm = hr.bpm,
             heartRateValidity = hr.validity,
+            heartRateSource = hr.source,
+            heartRateControl = heartRateStatus(block),
+            heartRateSummaries = hrSummaries.toList(),
         )
     }
 }

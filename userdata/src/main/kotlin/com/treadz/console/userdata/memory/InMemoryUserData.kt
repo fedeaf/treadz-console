@@ -4,7 +4,10 @@ import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.FitnessTestJson
 import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
+import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.json.PlanJson
+import com.treadz.console.programs.personalised.GeneratedSessionJson
+import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.programs.json.ProgramJson
 import com.treadz.console.programs.model.Program
 import com.treadz.console.programs.plan.ResolvedPlan
@@ -16,12 +19,22 @@ import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.FitnessTestRecord
 import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.GenericProfile
+import com.treadz.console.userdata.HeartRatePeakRecord
 import com.treadz.console.userdata.InputField
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.ProfileRepository
 import com.treadz.console.userdata.ProgramRepository
 import com.treadz.console.userdata.ProgramSaveResult
+import com.treadz.console.userdata.RestingHeartRateAssessment
+import com.treadz.console.userdata.RestingHeartRateInput
+import com.treadz.console.userdata.RestingHeartRateMeasurement
+import com.treadz.console.userdata.RestingHeartRateReference
+import com.treadz.console.userdata.RestingHeartRateRepository
+import com.treadz.console.userdata.RestingHeartRates
 import com.treadz.console.userdata.StartParametersRepository
+import com.treadz.console.userdata.StoredSessionRecord
+import com.treadz.console.userdata.StrapRules
+import com.treadz.console.userdata.StrapSaveResult
 import com.treadz.console.userdata.UserProgram
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
@@ -45,6 +58,9 @@ import com.treadz.console.userdata.workout.WorkoutSessionStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.time.LocalDate
@@ -72,6 +88,8 @@ class InMemoryUserData(
         val programs: List<UserProgram> = emptyList(),
         val fitness: List<FitnessTestRecord> = emptyList(),
         val startParams: Map<Pair<Long, String>, StartParameters> = emptyMap(),
+        val resting: List<RestingHeartRateMeasurement> = emptyList(),
+        val sessionRecords: Map<Long, GeneratedSessionRecord> = emptyMap(),
         val nextId: Long = 1,
     )
 
@@ -99,6 +117,22 @@ class InMemoryUserData(
         )
     }
 
+    /** The profile with the resting heart rate derived from the user's history (the reference now). */
+    private fun UserProfile.withResting(d: Data): UserProfile =
+        copy(restingHeartRateBpm = RestingHeartRates.referenceOf(d.resting.filter { it.userId == id }, clock.nowMillis())?.bpm)
+
+    /** Adds the resting heart rate typed in a profile form as a manual measurement when it differs from the reference. */
+    private fun addTypedResting(d: Data, userId: Long, bpm: Int?): Data {
+        if (bpm == null) return d
+        val reference = RestingHeartRates.referenceOf(d.resting.filter { it.userId == userId }, clock.nowMillis())?.bpm
+        if (reference == bpm) return d
+        val input = RestingHeartRateInput(clock.nowMillis(), bpm, com.treadz.console.userdata.RestingHeartRateSource.Manual)
+        return d.copy(resting = d.resting + input.toMeasurement(d.nextId, userId), nextId = d.nextId + 1)
+    }
+
+    private fun RestingHeartRateInput.toMeasurement(id: Long, userId: Long) =
+        RestingHeartRateMeasurement(id, userId, measuredAtMillis, bpm, source, lowestMeanBpm, coverage, rmssdMs)
+
     private fun <T> modify(block: (Data) -> Pair<Data, DataResult<T>>): DataResult<T> = synchronized(lock) {
         val (next, result) = block(data.value)
         data.value = next
@@ -106,10 +140,10 @@ class InMemoryUserData(
     }
 
     override val profiles: ProfileRepository = object : ProfileRepository {
-        override val profiles: Flow<List<UserProfile>> = data.map { d -> d.profiles.sortedWith(byName) }
-        override val activeUser: Flow<UserProfile?> = data.map { d -> d.profiles.firstOrNull { it.id == d.activeId } }
+        override val profiles: Flow<List<UserProfile>> = data.map { d -> d.profiles.map { it.withResting(d) }.sortedWith(byName) }
+        override val activeUser: Flow<UserProfile?> = data.map { d -> d.profiles.firstOrNull { it.id == d.activeId }?.withResting(d) }
 
-        override fun profile(id: Long): Flow<UserProfile?> = data.map { d -> d.profiles.firstOrNull { it.id == id } }
+        override fun profile(id: Long): Flow<UserProfile?> = data.map { d -> d.profiles.firstOrNull { it.id == id }?.withResting(d) }
 
         override suspend fun activeUserId(): Long? = data.value.activeId
 
@@ -126,7 +160,6 @@ class InMemoryUserData(
                     sex = input.sex,
                     heightCm = input.heightCm,
                     birthDate = input.birthDate,
-                    restingHeartRateBpm = input.restingHeartRateBpm,
                     maxHeartRateBpm = input.maxHeartRateBpm,
                     fitnessLevel = input.fitnessLevel,
                     goal = input.goal,
@@ -134,7 +167,8 @@ class InMemoryUserData(
                     maxHeartRateSetAtMillis = if (input.maxHeartRateBpm != null) clock.nowMillis() else null,
                 )
                 val active = if (d.profiles.isEmpty()) profile.id else d.activeId
-                d.copy(profiles = d.profiles + profile, activeId = active, nextId = d.nextId + 1) to DataResult.Success(profile)
+                val next = addTypedResting(d.copy(profiles = d.profiles + profile, activeId = active, nextId = d.nextId + 1), profile.id, input.restingHeartRateBpm)
+                next to DataResult.Success(profile.withResting(next))
             }
         }
 
@@ -169,7 +203,6 @@ class InMemoryUserData(
                 sex = input.sex,
                 heightCm = input.heightCm,
                 birthDate = input.birthDate,
-                restingHeartRateBpm = input.restingHeartRateBpm,
                 maxHeartRateBpm = input.maxHeartRateBpm,
                 fitnessLevel = input.fitnessLevel,
                 goal = input.goal,
@@ -180,7 +213,8 @@ class InMemoryUserData(
                     else -> current.maxHeartRateSetAtMillis
                 },
             )
-            return d.copy(profiles = d.profiles.map { if (it.id == id) updated else it }) to DataResult.Success(updated)
+            val next = addTypedResting(d.copy(profiles = d.profiles.map { if (it.id == id) updated else it }), id, input.restingHeartRateBpm)
+            return next to DataResult.Success(updated.withResting(next))
         }
 
         override suspend fun delete(id: Long): DataResult<Unit> = modify { d ->
@@ -188,6 +222,8 @@ class InMemoryUserData(
             val removed = d.workouts.filter { it.userId == id }.map { it.id }
             removed.forEach { workoutSamples.remove(it); workoutPlans.remove(it) }
             val remaining = d.copy(
+                resting = d.resting.filter { it.userId != id },
+                sessionRecords = d.sessionRecords - removed.toSet(),
                 profiles = d.profiles.filter { it.id != id },
                 targets = d.targets - id,
                 activeId = d.activeId.takeIf { it != id },
@@ -204,6 +240,25 @@ class InMemoryUserData(
         override suspend fun setActiveUser(id: Long?): DataResult<Unit> = modify { d ->
             if (id != null && d.profiles.none { it.id == id }) return@modify d to DataResult.NotFound
             d.copy(activeId = id) to DataResult.Success(Unit)
+        }
+
+        override suspend fun setStrap(id: Long, address: String, name: String?): StrapSaveResult {
+            val normalised = StrapRules.normalizeAddress(address) ?: return StrapSaveResult.InvalidAddress
+            val strapName = StrapRules.normalizeName(name)
+            if (strapName != null && strapName.length > StrapRules.NAME_MAX_LENGTH) return StrapSaveResult.NameTooLong
+            var saved: UserProfile? = null
+            modify { d ->
+                val current = d.profiles.firstOrNull { it.id == id } ?: return@modify d to DataResult.NotFound
+                val updated = current.copy(strapAddress = normalised, strapName = strapName)
+                saved = updated.withResting(d)
+                d.copy(profiles = d.profiles.map { if (it.id == id) updated else it }) to DataResult.Success(Unit)
+            }
+            return saved?.let { StrapSaveResult.Saved(it) } ?: StrapSaveResult.NotFound
+        }
+
+        override suspend fun clearStrap(id: Long): DataResult<Unit> = modify { d ->
+            val current = d.profiles.firstOrNull { it.id == id } ?: return@modify d to DataResult.NotFound
+            d.copy(profiles = d.profiles.map { if (it.id == id) current.copy(strapAddress = null, strapName = null) else it }) to DataResult.Success(Unit)
         }
     }
 
@@ -296,7 +351,7 @@ class InMemoryUserData(
             synchronized(lock) {
                 workoutSamples.remove(workoutId)
                 workoutPlans.remove(workoutId)
-                data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }) }
+                data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }, sessionRecords = d.sessionRecords - workoutId) }
             }
         }
 
@@ -328,14 +383,14 @@ class InMemoryUserData(
 
         override suspend fun detail(workoutId: Long): WorkoutDetail? = synchronized(lock) {
             val summary = data.value.workouts.firstOrNull { it.id == workoutId } ?: return null
-            WorkoutDetail(summary, workoutSamples[workoutId].orEmpty().toList(), workoutPlans[workoutId])
+            WorkoutDetail(summary, workoutSamples[workoutId].orEmpty().toList(), workoutPlans[workoutId], data.value.sessionRecords[workoutId])
         }
 
         override suspend fun delete(workoutId: Long): DataResult<Unit> = synchronized(lock) {
             if (data.value.workouts.none { it.id == workoutId }) return DataResult.NotFound
             workoutSamples.remove(workoutId)
             workoutPlans.remove(workoutId)
-            data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }) }
+            data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }, sessionRecords = d.sessionRecords - workoutId) }
             DataResult.Success(Unit)
         }
 
@@ -347,6 +402,7 @@ class InMemoryUserData(
             data.value = data.value.let { d ->
                 d.copy(
                     workouts = d.workouts.filter { it.id != workoutId },
+                    sessionRecords = d.sessionRecords - workoutId,
                     fitness = d.fitness.filter { workout.fitnessTestId == null || it.id != workout.fitnessTestId },
                 )
             }
@@ -355,6 +411,36 @@ class InMemoryUserData(
 
         override suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit> = synchronized(lock) {
             if (applyLink(workoutId, link)) DataResult.Success(Unit) else DataResult.NotFound
+        }
+
+        override suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit> = synchronized(lock) {
+            val d = data.value
+            if (d.workouts.none { it.id == workoutId }) return DataResult.NotFound
+            // Stored as the JSON document, like the real implementation, so that what is read back is identical.
+            val normalised = GeneratedSessionJson.decode(GeneratedSessionJson.encode(record))
+            data.value = d.copy(
+                workouts = d.workouts.map { if (it.id == workoutId) it.copy(generatorId = it.generatorId ?: normalised.generatorId) else it },
+                sessionRecords = d.sessionRecords + (workoutId to normalised),
+            )
+            DataResult.Success(Unit)
+        }
+
+        override fun sessionRecords(userId: Long, generatorId: String): Flow<List<StoredSessionRecord>> = data.map { d ->
+            newestFirst(d.workouts.filter { it.userId == userId }).mapNotNull { w ->
+                d.sessionRecords[w.id]?.takeIf { it.generatorId == generatorId }?.let { StoredSessionRecord(w.id, w.startedAtMillis, it) }
+            }
+        }
+
+        override fun highestHeartRatePeak(userId: Long, withinDays: Int): Flow<HeartRatePeakRecord?> = flow {
+            val since = clock.nowMillis() - withinDays * 86_400_000L
+            emitAll(
+                data.map { d ->
+                    d.workouts
+                        .filter { it.userId == userId && !it.isInProgress }
+                        .mapNotNull { w -> w.stats.peakHeartRate?.takeIf { it.atMillis >= since }?.let { HeartRatePeakRecord(w.id, it) } }
+                        .maxWithOrNull(compareBy({ it.bpm }, { it.atMillis }, { it.workoutId }))
+                },
+            )
         }
 
         override suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit> = modify { d ->
@@ -377,6 +463,7 @@ class InMemoryUserData(
                         programId = link.plan?.source?.programId ?: it.programId,
                         programName = link.plan?.source?.programName ?: it.programName,
                         fitnessTestId = link.fitnessTestId ?: it.fitnessTestId,
+                        generatorId = link.plan?.source?.origin?.generatorId ?: it.generatorId,
                     )
                 }
             },
@@ -501,12 +588,57 @@ class InMemoryUserData(
         }
     }
 
+    override val restingHeartRates: RestingHeartRateRepository = object : RestingHeartRateRepository {
+        private fun ordered(d: Data, userId: Long) =
+            d.resting.filter { it.userId == userId }.sortedWith(compareBy({ it.measuredAtMillis }, { it.id }))
+
+        override fun measurements(userId: Long): Flow<List<RestingHeartRateMeasurement>> = data.map { d -> ordered(d, userId) }
+
+        override fun reference(userId: Long): Flow<RestingHeartRateReference?> =
+            data.map { d -> RestingHeartRates.referenceOf(ordered(d, userId), clock.nowMillis()) }
+
+        override suspend fun add(userId: Long, input: RestingHeartRateInput): DataResult<RestingHeartRateMeasurement> {
+            val issues = RestingHeartRates.validate(input, clock.nowMillis())
+            if (issues.isNotEmpty()) return DataResult.Invalid(issues)
+            return modify { d ->
+                if (d.profiles.none { it.id == userId }) return@modify d to DataResult.NotFound
+                val m = input.toMeasurement(d.nextId, userId)
+                d.copy(resting = d.resting + m, nextId = d.nextId + 1) to DataResult.Success(m)
+            }
+        }
+
+        override suspend fun update(measurementId: Long, input: RestingHeartRateInput): DataResult<RestingHeartRateMeasurement> {
+            val issues = RestingHeartRates.validate(input, clock.nowMillis())
+            if (issues.isNotEmpty()) return DataResult.Invalid(issues)
+            return modify { d ->
+                val current = d.resting.firstOrNull { it.id == measurementId } ?: return@modify d to DataResult.NotFound
+                val m = input.toMeasurement(measurementId, current.userId)
+                d.copy(resting = d.resting.map { if (it.id == measurementId) m else it }) to DataResult.Success(m)
+            }
+        }
+
+        override suspend fun delete(measurementId: Long): DataResult<Unit> = modify { d ->
+            if (d.resting.none { it.id == measurementId }) return@modify d to DataResult.NotFound
+            d.copy(resting = d.resting.filter { it.id != measurementId }) to DataResult.Success(Unit)
+        }
+
+        override suspend fun assessment(measurementId: Long): RestingHeartRateAssessment? {
+            val d = data.value
+            val m = d.resting.firstOrNull { it.id == measurementId } ?: return null
+            return RestingHeartRates.assess(m, d.resting.filter { it.userId == m.userId })
+        }
+    }
+
     override fun workoutObserver(
         controller: TreadmillController,
         clock: Clock,
         config: WorkoutObserverConfig,
+        heartRateSource: HeartRateSource?,
         onError: (Throwable) -> Unit,
-    ) = WorkoutHistoryObserver(controller, store, profiles::activeUserId, clock, config, onError)
+    ) = WorkoutHistoryObserver(
+        controller, store, profiles::activeUserId, clock, config, onError, heartRateSource,
+        heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
+    )
 
     /** Adds a finished workout directly (for UI tests and screenshots), assigned to [userId]. Returns its id. */
     fun addWorkout(userId: Long?, summaryStats: WorkoutStats, samples: List<WorkoutSample>, startedAtMillis: Long, reason: WorkoutEndReason = WorkoutEndReason.Stopped): Long =

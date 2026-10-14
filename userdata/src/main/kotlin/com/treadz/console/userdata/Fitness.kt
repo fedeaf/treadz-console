@@ -111,11 +111,14 @@ object FitnessProfiles {
      * database order, so every device computes exactly the same document. Its `computedAtMillis` is that newest
      * result's time. `null` without a usable result.
      *
+     * A result is usable when it is valid and has outputs (VO2max) or a measured maximum heart rate (the walking heart
+     * rate test has no outputs, only the maximum heart rate).
+     *
      * Consequence: the snapshot does not age. A result drops out of it only when a newer one is more than the
      * maximum age (365 days) after it; for ageing use [live].
      */
     fun snapshot(results: List<FitnessTestResult>, sex: Sex, birthDate: LocalDate): FitnessProfile? {
-        val usable = results.filter { it.validity == Validity.Valid && it.outputs != null }
+        val usable = results.filter { it.validity == Validity.Valid && (it.outputs != null || it.measuredHrMaxCandidateBpm != null) }
         if (usable.isEmpty()) return null
         val now = usable.maxOf { it.startedAtMillis }
         val age = ageOn(birthDate, Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC).toLocalDate())

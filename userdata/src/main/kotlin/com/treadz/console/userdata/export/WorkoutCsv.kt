@@ -1,5 +1,6 @@
 package com.treadz.console.userdata.export
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.userdata.WorkoutSample
 import java.time.Instant
@@ -12,6 +13,10 @@ import java.time.format.DateTimeParseException
  * The file keeps one row per distinct sample (repeated packets are collapsed), with values rounded as exported (speed 2
  * decimals, incline 1). [read] therefore returns the collapsed series, renumbered from 0 without gaps; the derived
  * `elevation_gain_m` column is ignored. A heart rate of 0 was exported as "no reading".
+ *
+ * The columns `hr_source` (`direct_strap`, `treadmill_console` or empty) and `rr_ms` (the RR intervals received since the
+ * previous row, in milliseconds, separated by `;`) come last. Files written before they existed lack them: [read] gives
+ * samples without source and RR intervals then, and ignores columns it does not know.
  */
 object WorkoutCsv {
 
@@ -43,6 +48,8 @@ object WorkoutCsv {
                     heartRateBpm = col(row, "hr_bpm")?.toInt(),
                     beltStatus = beltStatus(col(row, "belt_status")!!),
                     isStale = col(row, "stale") == "true",
+                    heartRateSource = col(row, "hr_source")?.let { code -> HeartRateSourceKind.entries.firstOrNull { CsvWorkoutWriter.sourceCode(it) == code } },
+                    rrIntervalsMs = col(row, "rr_ms")?.split(CsvWorkoutWriter.RR_SEPARATOR)?.mapNotNull { it.trim().toIntOrNull() }.orEmpty(),
                 )
             }
             sample.getOrNull()?.let { samples += it }

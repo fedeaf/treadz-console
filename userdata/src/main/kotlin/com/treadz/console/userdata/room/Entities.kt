@@ -21,6 +21,11 @@ import androidx.room.PrimaryKey
 // Since schema version 4: users carry maxHeartRateSetAtMillis; workouts carry the executed plan and the fitness test
 // they were done for; new tables hold programs and fitness test results (documents with the same synchronisation
 // bookkeeping as above) and the last-used start parameters (local only).
+//
+// Since schema version 5 (heart rate data): workout samples carry the heart rate source and the RR intervals; workouts
+// carry the heart rate peak, the record of a generated session and the generator id; users carry the paired strap; the
+// new table resting_heart_rates holds the resting heart rate history (it replaces users.restingHeartRateBpm, which stays
+// in the table as a legacy column that is no longer read).
 
 @Entity(
     tableName = "users",
@@ -51,6 +56,9 @@ internal data class UserEntity(
     @ColumnInfo(defaultValue = "0") val dirty: Boolean,
     /** When the manual [maxHeartRateBpm] was entered or last confirmed (since schema version 4); `null` if unknown. */
     val maxHeartRateSetAtMillis: Long? = null,
+    /** Paired heart rate strap (since schema version 5). */
+    val strapAddress: String? = null,
+    val strapName: String? = null,
 )
 
 /** Single row (id 1) holding the active user; cleared by the database itself when that user is deleted. */
@@ -149,6 +157,14 @@ internal data class WorkoutEntity(
     val programName: String? = null,
     /** Id of the fitness test result run in this workout. */
     val fitnessTestId: String? = null,
+    /** Heart rate peak of the workout (since schema version 5): the 5-second mean, its source and when it was reached. */
+    val peakHeartRateBpm: Int? = null,
+    val peakHeartRateSource: String? = null,
+    val peakHeartRateAtMillis: Long? = null,
+    /** The `GeneratedSessionJson` document of the generated session run in this workout. */
+    val sessionRecordJson: String? = null,
+    /** Generator of the executed personalised program, denormalised for the history filter. */
+    val generatorId: String? = null,
 )
 
 @Entity(
@@ -176,6 +192,10 @@ internal data class WorkoutSampleEntity(
     val heartRateBpm: Int?,
     val beltStatus: String,
     val isStale: Boolean,
+    /** `HeartRateSourceKind` name (since schema version 5). */
+    val heartRateSource: String? = null,
+    /** RR intervals in ms received since the previous sample, separated by `;` (since schema version 5). */
+    val rrIntervalsMs: String? = null,
 )
 
 /**
@@ -270,4 +290,36 @@ internal data class StartParametersEntity(
     val maxInclinePercent: Double?,
     val intensityAdjustmentPercent: Int,
     val updatedAtMillis: Long,
+)
+
+/**
+ * One resting heart rate measurement of a user (since schema version 5), with the synchronisation bookkeeping of the
+ * weight entries. [source] is a `RestingHeartRateSource` name.
+ */
+@Entity(
+    tableName = "resting_heart_rates",
+    foreignKeys = [
+        ForeignKey(
+            entity = UserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["userId", "measuredAtMillis"]), Index(value = ["uuid"], unique = true)],
+)
+internal data class RestingHeartRateEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val userId: Long,
+    val uuid: String,
+    val measuredAtMillis: Long,
+    val bpm: Int,
+    val source: String,
+    val lowestMeanBpm: Double?,
+    val coverage: Double?,
+    val rmssdMs: Double?,
+    val updatedAtMillis: Long,
+    val updatedBy: String,
+    val deleted: Boolean,
+    val dirty: Boolean,
 )

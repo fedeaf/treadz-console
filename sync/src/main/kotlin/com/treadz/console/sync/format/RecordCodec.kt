@@ -1,9 +1,14 @@
 package com.treadz.console.sync.format
 
 import com.treadz.console.programs.fitness.FitnessTestJson
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.personalised.GeneratedSessionJson
 import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
+import com.treadz.console.userdata.HeartRatePeak
+import com.treadz.console.userdata.RestingHeartRateSource
+import com.treadz.console.userdata.RestingHeartRates
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutStats
@@ -11,6 +16,7 @@ import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.SyncProfile
+import com.treadz.console.userdata.sync.SyncRestingHeartRate
 import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
 import org.json.JSONException
@@ -58,6 +64,8 @@ internal object RecordCodec {
                 .put("created_at", time(p.createdAtMillis))
             // Left out when unknown, so that profile files written before the field existed stay byte-identical.
             p.maxHeartRateSetAtMillis?.let { json.put("max_hr_set_at", time(it)) }
+            p.strapAddress?.let { json.put("strap_address", it) }
+            p.strapName?.let { json.put("strap_name", it) }
             // Read-only: each device derives it from the synchronised fitness tests, so it is ignored on reading.
             p.fitness?.let { json.putRaw("fitness", FitnessTestJson.encodeProfile(it)) }
         }
@@ -86,6 +94,8 @@ internal object RecordCodec {
                 targetWeightKg = if (o.isNull("target_weight_kg")) null else o.optDouble("target_weight_kg"),
                 createdAtMillis = o.optStringOrNull("created_at")?.let(::parseTime) ?: version.updatedAtMillis,
                 maxHeartRateSetAtMillis = o.optStringOrNull("max_hr_set_at")?.let(::parseTime),
+                strapAddress = o.optStringOrNull("strap_address"),
+                strapName = o.optStringOrNull("strap_name"),
                 // "fitness" is never read: it is derived from the fitness tests.
             )
         }
@@ -165,27 +175,35 @@ internal object RecordCodec {
         if (!w.deleted) {
             json.put("ended_at", time(w.endedAtMillis))
                 .put("end_reason", code(w.endReason.name))
-                .put(
-                    "stats",
-                    JsonObjectWriter()
-                        .put("duration_s", w.stats.durationSeconds)
-                        .put("distance_m", w.stats.distanceMeters)
-                        .put("calories", w.stats.calories)
-                        .put("avg_speed_kmh", rounded(w.stats.averageSpeedKmh, SPEED_DECIMALS))
-                        .put("max_speed_kmh", rounded(w.stats.maxSpeedKmh, SPEED_DECIMALS))
-                        .put("avg_hr_bpm", w.stats.averageHeartRateBpm)
-                        .put("max_hr_bpm", w.stats.maxHeartRateBpm)
-                        .put("max_incline_pct", rounded(w.stats.maxInclinePercent, INCLINE_DECIMALS)),
-                )
+            val stats = JsonObjectWriter()
+                .put("duration_s", w.stats.durationSeconds)
+                .put("distance_m", w.stats.distanceMeters)
+                .put("calories", w.stats.calories)
+                .put("avg_speed_kmh", rounded(w.stats.averageSpeedKmh, SPEED_DECIMALS))
+                .put("max_speed_kmh", rounded(w.stats.maxSpeedKmh, SPEED_DECIMALS))
+                .put("avg_hr_bpm", w.stats.averageHeartRateBpm)
+                .put("max_hr_bpm", w.stats.maxHeartRateBpm)
+                .put("max_incline_pct", rounded(w.stats.maxInclinePercent, INCLINE_DECIMALS))
+            // Left out when there is no peak, so that files of workouts without one stay as they were.
+            w.stats.peakHeartRate?.let { peak ->
+                stats.put("peak_hr_bpm", peak.bpm)
+                peak.source?.let { stats.put("peak_hr_source", code(it.name)) }
+                stats.put("peak_hr_at", time(peak.atMillis))
+            }
+            json.put("stats", stats)
             val plan = w.planJson
+            val record = w.sessionRecordJson
             if (plan != null) {
                 // The ids are repeated outside the plan so that a reader sees what the workout was without parsing it.
                 val source = runCatching { PlanJson.decode(plan).source }.getOrNull()
                 json.put("program_id", source?.programId).put("program_name", source?.programName)
+                (source?.origin?.generatorId ?: recordGeneratorId(record))?.let { json.put("generator_id", it) }
                 json.put("fitness_test_id", w.fitnessTestId).putRaw("plan", plan)
-            } else if (w.fitnessTestId != null) {
-                json.put("fitness_test_id", w.fitnessTestId)
+            } else {
+                recordGeneratorId(record)?.let { json.put("generator_id", it) }
+                if (w.fitnessTestId != null) json.put("fitness_test_id", w.fitnessTestId)
             }
+            if (record != null) json.putRaw("session_record", record)
         }
         json.put("updated_at", time(w.version.updatedAtMillis)).put("updated_by", w.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -218,11 +236,96 @@ internal object RecordCodec {
                     averageHeartRateBpm = s.optIntOrNull("avg_hr_bpm"),
                     maxHeartRateBpm = s.optIntOrNull("max_hr_bpm"),
                     maxInclinePercent = s.getDouble("max_incline_pct"),
+                    peakHeartRate = s.optIntOrNull("peak_hr_bpm")?.let { bpm ->
+                        HeartRatePeak(
+                            bpm = bpm,
+                            source = enumOf<HeartRateSourceKind>(s.optStringOrNull("peak_hr_source")),
+                            atMillis = s.optStringOrNull("peak_hr_at")?.let(::parseTime) ?: 0,
+                        )
+                    },
                 ),
                 planJson = o.optJSONObject("plan")?.toString(),
                 fitnessTestId = o.optStringOrNull("fitness_test_id"),
+                sessionRecordJson = o.optJSONObject("session_record")?.toString(),
             )
         }
+    }
+
+    /** The generator named by a session record document, `null` if there is none or it cannot be read (the file keeps the record as it is). */
+    private fun recordGeneratorId(record: String?): String? =
+        if (record == null) null else runCatching { GeneratedSessionJson.decode(record).generatorId }.getOrNull()
+
+    // ---- resting-heart-rate.csv ----
+
+    private const val RESTING_HEADER = "uuid,measured_at,bpm,source,lowest_mean_bpm,coverage,rmssd_ms,deleted,updated_at,updated_by"
+
+    /**
+     * The whole resting heart rate history of a user, tombstones included (they keep their uuid and version but no
+     * values). Rows are ordered by measurement time and uuid; the tombstones come first, by uuid, so that every device
+     * writes the same file for the same records.
+     */
+    fun restingHeartRateCsv(entries: List<SyncRestingHeartRate>): ByteArray {
+        val out = StringBuilder(RESTING_HEADER).append('\n')
+        for (e in entries.sortedWith(compareBy({ if (it.deleted) Long.MIN_VALUE else it.measuredAtMillis }, { it.uuid }))) {
+            val fields = listOf(
+                e.uuid,
+                if (e.deleted) "" else time(e.measuredAtMillis),
+                if (e.deleted) "" else e.bpm.toString(),
+                if (e.deleted) "" else code(e.source.name),
+                if (e.deleted) "" else e.lowestMeanBpm?.let(::decimal).orEmpty(),
+                if (e.deleted) "" else e.coverage?.let(::decimal).orEmpty(),
+                if (e.deleted) "" else e.rmssdMs?.let(::decimal).orEmpty(),
+                e.deleted.toString(),
+                time(e.version.updatedAtMillis),
+                e.version.deviceId,
+            )
+            out.append(fields.joinToString(",") { csv(it) }).append('\n')
+        }
+        return out.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    /** Rows that cannot be understood are skipped. */
+    fun parseRestingHeartRateCsv(bytes: ByteArray, userUuid: String): List<SyncRestingHeartRate> {
+        val rows = CsvRows.parse(String(bytes, Charsets.UTF_8))
+        if (rows.isEmpty()) return emptyList()
+        val header = rows.first().withIndex().associate { (i, n) -> n.trim() to i }
+        fun col(row: List<String>, name: String) = header[name]?.let { row.getOrNull(it) }?.takeIf { it.isNotBlank() }
+        return rows.drop(1).mapNotNull { row ->
+            runCatching {
+                val deleted = col(row, "deleted") == "true"
+                SyncRestingHeartRate(
+                    uuid = col(row, "uuid")!!,
+                    userUuid = userUuid,
+                    version = RecordVersion(parseTime(col(row, "updated_at")!!), col(row, "updated_by")!!),
+                    deleted = deleted,
+                    measuredAtMillis = if (deleted) 0 else parseTime(col(row, "measured_at")!!.trim()),
+                    bpm = if (deleted) 0 else col(row, "bpm")!!.trim().toInt(),
+                    source = enumOf<RestingHeartRateSource>(col(row, "source")?.trim()) ?: RestingHeartRateSource.Manual,
+                    lowestMeanBpm = if (deleted) null else col(row, "lowest_mean_bpm")?.trim()?.toDouble(),
+                    coverage = if (deleted) null else col(row, "coverage")?.trim()?.toDouble(),
+                    rmssdMs = if (deleted) null else col(row, "rmssd_ms")?.trim()?.toDouble(),
+                )
+            }.getOrNull()
+        }
+    }
+
+    /**
+     * The manual measurement that stands for the resting heart rate of a profile file written before the history existed
+     * (it carries `resting_hr_bpm` and the repository has no `resting-heart-rate.csv` for the user). The uuid depends only on
+     * the user and the version is the profile's, so every device derives the same record.
+     */
+    fun legacyResting(profile: SyncProfile): SyncRestingHeartRate? {
+        val bpm = profile.restingHeartRateBpm ?: return null
+        if (profile.deleted) return null
+        return SyncRestingHeartRate(
+            uuid = RestingHeartRates.legacyMeasurementUuid(profile.uuid),
+            userUuid = profile.uuid,
+            version = profile.version,
+            deleted = false,
+            measuredAtMillis = profile.version.updatedAtMillis,
+            bpm = bpm,
+            source = RestingHeartRateSource.Manual,
+        )
     }
 
     // ---- programs ----

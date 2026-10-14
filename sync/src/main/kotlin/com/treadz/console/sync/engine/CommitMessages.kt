@@ -53,6 +53,17 @@ internal object CommitMessages {
                     listOf(name(e.userUuid), "weight ${DAY.format(e.date)}", "%.1f kg".format(Locale.ROOT, e.weightKg)).joinToString(SEP)
                 }
             }
+            changes.restingHeartRates.firstOrNull()?.let { m ->
+                return if (m.deleted) {
+                    listOf(name(m.userUuid), "resting heart rate deleted").joinToString(SEP)
+                } else {
+                    listOf(
+                        name(m.userUuid),
+                        "resting heart rate ${DAY.format(Instant.ofEpochMilli(m.measuredAtMillis).atZone(zone))}",
+                        "${m.bpm} bpm",
+                    ).joinToString(SEP)
+                }
+            }
             changes.profiles.firstOrNull()?.let { p ->
                 return listOf(name(p.uuid), if (p.deleted) "profile deleted" else "profile").joinToString(SEP)
             }
@@ -62,12 +73,13 @@ internal object CommitMessages {
         val parts = buildList {
             count(changes.workouts.size, "workout")?.let(::add)
             count(changes.weights.size, "weight entry", "weight entries")?.let(::add)
+            count(changes.restingHeartRates.size, "resting heart rate")?.let(::add)
             count(changes.profiles.size, "profile")?.let(::add)
             count(programs.size, "program")?.let(::add)
             count(fitnessTests.size, "fitness test")?.let(::add)
         }
         val users = (changes.profiles.map { it.uuid } + changes.weights.map { it.userUuid } + changes.workouts.map { it.userUuid } +
-            programs.map { it.userUuid } + fitnessTests.map { it.userUuid }).distinct().map(::name).sorted()
+            changes.restingHeartRates.map { it.userUuid } + programs.map { it.userUuid } + fitnessTests.map { it.userUuid }).distinct().map(::name).sorted()
         val who = if (users.isEmpty()) "" else users.joinToString(", ", prefix = SEP)
         return "Sync$SEP${parts.joinToString(", ")}$who"
     }

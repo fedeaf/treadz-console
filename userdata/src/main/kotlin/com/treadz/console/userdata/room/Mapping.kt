@@ -2,6 +2,9 @@ package com.treadz.console.userdata.room
 
 import com.treadz.console.programs.fitness.FitnessTestJson
 import com.treadz.console.programs.fitness.FitnessTestResult
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.personalised.GeneratedSessionJson
+import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.programs.json.ProgramJson
 import com.treadz.console.programs.model.Program
@@ -12,6 +15,9 @@ import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.FitnessTestRecord
+import com.treadz.console.userdata.HeartRatePeak
+import com.treadz.console.userdata.RestingHeartRateMeasurement
+import com.treadz.console.userdata.RestingHeartRateSource
 import com.treadz.console.userdata.UserProfile
 import com.treadz.console.userdata.UserProgram
 import com.treadz.console.userdata.WeightEntry
@@ -22,7 +28,11 @@ import com.treadz.console.userdata.WorkoutSummary
 import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
 
-internal fun UserEntity.toProfile() = UserProfile(
+/**
+ * @param restingHeartRateBpm The reference of the user's resting heart rate history. The column
+ *   `users.restingHeartRateBpm` is the value of schema versions before 5 and is no longer read.
+ */
+internal fun UserEntity.toProfile(restingHeartRateBpm: Int? = null) = UserProfile(
     id = id,
     name = name,
     sex = enumOrNull<Sex>(sex) ?: Sex.Male,
@@ -35,6 +45,8 @@ internal fun UserEntity.toProfile() = UserProfile(
     createdAtMillis = createdAtMillis,
     isGeneric = isGeneric,
     maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
+    strapAddress = strapAddress,
+    strapName = strapName,
 )
 
 internal fun WeightEntryEntity.toEntry() = WeightEntry(id, userId, LocalDate.ofEpochDay(epochDay), weightKg, isPlaceholder, createdAtMillis)
@@ -54,10 +66,14 @@ internal fun WorkoutEntity.toSummary() = WorkoutSummary(
         averageHeartRateBpm = averageHeartRateBpm,
         maxHeartRateBpm = maxHeartRateBpm,
         maxInclinePercent = maxInclinePercent,
+        peakHeartRate = peakHeartRateBpm?.let {
+            HeartRatePeak(it, peakHeartRateSource?.let { name -> enumOrNull<HeartRateSourceKind>(name) }, peakHeartRateAtMillis ?: 0)
+        },
     ),
     programId = programId,
     programName = programName,
     fitnessTestId = fitnessTestId,
+    generatorId = generatorId,
 )
 
 internal fun WorkoutSampleEntity.toSample() = WorkoutSample(
@@ -72,6 +88,8 @@ internal fun WorkoutSampleEntity.toSample() = WorkoutSample(
     heartRateBpm = heartRateBpm,
     beltStatus = enumOrNull<BeltStatus>(beltStatus) ?: BeltStatus.Idle,
     isStale = isStale,
+    heartRateSource = heartRateSource?.let { enumOrNull<HeartRateSourceKind>(it) },
+    rrIntervalsMs = RrCodec.decode(rrIntervalsMs),
 )
 
 internal fun WorkoutSample.toEntity(workoutId: Long) = WorkoutSampleEntity(
@@ -87,6 +105,26 @@ internal fun WorkoutSample.toEntity(workoutId: Long) = WorkoutSampleEntity(
     heartRateBpm = heartRateBpm,
     beltStatus = beltStatus.name,
     isStale = isStale,
+    heartRateSource = heartRateSource?.name,
+    rrIntervalsMs = RrCodec.encode(rrIntervalsMs),
+)
+
+/** RR intervals as stored in a text column: milliseconds separated by `;`, `null` when there are none. */
+internal object RrCodec {
+    fun encode(intervals: List<Int>): String? = if (intervals.isEmpty()) null else intervals.joinToString(";")
+
+    fun decode(text: String?): List<Int> = if (text.isNullOrEmpty()) emptyList() else text.split(';').mapNotNull { it.trim().toIntOrNull() }
+}
+
+internal fun RestingHeartRateEntity.toMeasurement() = RestingHeartRateMeasurement(
+    id = id,
+    userId = userId,
+    measuredAtMillis = measuredAtMillis,
+    bpm = bpm,
+    source = enumOrNull<RestingHeartRateSource>(source) ?: RestingHeartRateSource.Manual,
+    lowestMeanBpm = lowestMeanBpm,
+    coverage = coverage,
+    rmssdMs = rmssdMs,
 )
 
 private inline fun <reified E : Enum<E>> enumOrNull(name: String): E? = enumValues<E>().firstOrNull { it.name == name }
@@ -113,6 +151,12 @@ internal fun readProgram(json: String): Program? = try {
 
 internal fun readFitnessResult(json: String): FitnessTestResult? = try {
     FitnessTestJson.decode(json)
+} catch (e: Exception) {
+    null
+}
+
+internal fun readSessionRecord(json: String?): GeneratedSessionRecord? = if (json == null) null else try {
+    GeneratedSessionJson.decode(json)
 } catch (e: Exception) {
     null
 }

@@ -25,6 +25,7 @@ import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.RemoteChanges
 import com.treadz.console.userdata.sync.SyncProfile
+import com.treadz.console.userdata.sync.SyncRestingHeartRate
 import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
@@ -52,6 +53,14 @@ import java.time.ZoneId
  * meantime the update is refused; the cycle starts again (pull the new commit, rebuild, push), at most
  * [maxAttempts] times. Files whose content did not change are not touched, and nothing is committed when nothing
  * changed. Records are marked as synchronised only after the branch moved.
+ *
+ * ## The resting heart rate history
+ * Measurements go to `resting-heart-rate.csv` of the user with the rules of `weight.csv` (one row per record, whole file
+ * rewritten when a record changes, tombstones for deletions). `profile.json` shows the reference of the measurements
+ * (`resting_hr_bpm`) for people to read; like the fitness block it is rewritten with the profile's own version whenever
+ * measurements of the user are uploaded and ignored on download. A profile file with `resting_hr_bpm` in a repository that
+ * has no measurements file for the user was written before the history existed: its value becomes the user's first manual
+ * measurement (the same record on every device).
  *
  * ## The fitness block of `profile.json`
  * The fitness profile of a user is derived from the user's fitness test results (see `SyncProfile.fitness`), so
@@ -88,7 +97,7 @@ class SyncEngine(
         val programPending = programs.pending()
         val fitnessPending = fitnessTests.pending()
         val uuids = (pending.profiles.map { it.uuid } + pending.weights.map { it.userUuid } + pending.workouts.map { it.userUuid } +
-            programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
+            pending.restingHeartRates.map { it.userUuid } + programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
         val users = uuids.map { uuid ->
             val profile = pending.profiles.firstOrNull { it.uuid == uuid } ?: store.profile(uuid)
             UserUpload(
@@ -98,6 +107,7 @@ class SyncEngine(
                 workouts = pending.workouts.count { it.userUuid == uuid },
                 programs = programPending.count { it.userUuid == uuid },
                 fitnessTests = fitnessPending.count { it.userUuid == uuid },
+                restingHeartRates = pending.restingHeartRates.count { it.userUuid == uuid },
             )
         }.sortedBy { it.name.lowercase() }
         val remoteUsers = try {
@@ -233,6 +243,7 @@ class SyncEngine(
 
         val profiles = ArrayList<SyncProfile>()
         val weights = ArrayList<SyncWeightEntry>()
+        val restingHeartRates = ArrayList<SyncRestingHeartRate>()
         val workouts = ArrayList<SyncWorkoutData>()
         val documents = ArrayList<ProgramDocument>()
         val fitness = ArrayList<FitnessTestDocument>()
@@ -243,6 +254,7 @@ class SyncEngine(
             val folder = when (kind) {
                 is RepoPaths.Kind.Profile -> kind.folder
                 is RepoPaths.Kind.Weights -> kind.folder
+                is RepoPaths.Kind.RestingHeartRates -> kind.folder
                 is RepoPaths.Kind.WorkoutSummary -> kind.folder
                 is RepoPaths.Kind.Program -> kind.folder
                 is RepoPaths.Kind.FitnessTest -> kind.folder
@@ -251,8 +263,13 @@ class SyncEngine(
             val folderUser = RepoPaths.uuidOfFolder(folder) ?: continue
             val bytes = client.blob(repo, sha)
             when (kind) {
-                is RepoPaths.Kind.Profile -> RecordCodec.parseProfile(bytes)?.let { profiles += it }
+                is RepoPaths.Kind.Profile -> RecordCodec.parseProfile(bytes)?.let { profile ->
+                    profiles += profile
+                    // A profile written before the resting heart rate history existed: its value is the first measurement.
+                    if (RepoPaths.restingHeartRates(kind.folder) !in files) RecordCodec.legacyResting(profile)?.let { restingHeartRates += it }
+                }
                 is RepoPaths.Kind.Weights -> weights += RecordCodec.parseWeightCsv(bytes, folderUser)
+                is RepoPaths.Kind.RestingHeartRates -> restingHeartRates += RecordCodec.parseRestingHeartRateCsv(bytes, folderUser)
                 is RepoPaths.Kind.WorkoutSummary -> RecordCodec.parseWorkout(bytes, folderUser)?.let { workout ->
                     workoutPaths[workout.uuid] = path
                     val csvPath = RepoPaths.csvOf(path)
@@ -264,7 +281,7 @@ class SyncEngine(
                 RepoPaths.Kind.Other -> Unit
             }
         }
-        val result = store.applyRemote(RemoteChanges(profiles, weights, workouts))
+        val result = store.applyRemote(RemoteChanges(profiles, weights, workouts, restingHeartRates))
         val programsApplied = if (documents.isEmpty()) 0 else programs.applyRemote(documents)
         val fitnessApplied = if (fitness.isEmpty()) 0 else fitnessTests.applyRemote(fitness)
         return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths)
@@ -333,7 +350,7 @@ class SyncEngine(
             RepoPaths.uuidOfFolder(folder)?.let { folders.putIfAbsent(it, folder) }
         }
         val userUuids = (pending.profiles.map { it.uuid } + pending.weights.map { it.userUuid } + pending.workouts.map { it.userUuid } +
-            programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
+            pending.restingHeartRates.map { it.userUuid } + programPending.map { it.userUuid } + fitnessPending.map { it.userUuid }).distinct()
 
         for (userUuid in userUuids) {
             val pendingProfile = pending.profiles.firstOrNull { it.uuid == userUuid }
@@ -355,13 +372,16 @@ class SyncEngine(
             val profilePath = RepoPaths.profile(folder)
             // Changed results change the fitness block of the profile file (same version, new content).
             val fitnessChanged = fitnessPending.any { it.userUuid == userUuid }
-            if (pendingProfile != null || fitnessChanged || existing == null || (existing == folder && profilePath !in files)) {
+            // The same for the resting heart rate the profile file shows (the reference of the measurements).
+            val restingChanged = pending.restingHeartRates.any { it.userUuid == userUuid }
+            if (pendingProfile != null || fitnessChanged || restingChanged || existing == null || (existing == folder && profilePath !in files)) {
                 plan.put(profilePath, RecordCodec.profile(profile))
             }
 
             if (pending.weights.any { it.userUuid == userUuid }) {
                 plan.put(RepoPaths.weights(folder), RecordCodec.weightCsv(store.weightEntries(userUuid)))
             }
+            if (restingChanged) plan.put(RepoPaths.restingHeartRates(folder), RecordCodec.restingHeartRateCsv(store.restingHeartRates(userUuid)))
             for (workout in pending.workouts.filter { it.userUuid == userUuid }) planWorkout(plan, files, folder, workout)
             for (document in programPending.filter { it.userUuid == userUuid }) {
                 plan.put(RepoPaths.program(folder, document.uuid), RecordCodec.program(document))
@@ -425,6 +445,7 @@ class SyncEngine(
                 profiles = pending.profiles.map { SyncedRef(it.uuid, it.version) },
                 weights = pending.weights.map { SyncedRef(it.uuid, it.version) },
                 workouts = pending.workouts.map { SyncedRef(it.uuid, it.version) },
+                restingHeartRates = pending.restingHeartRates.map { SyncedRef(it.uuid, it.version) },
             ),
         )
         if (programPending.isNotEmpty()) programs.markSynced(programPending.map { SyncedRef(it.uuid, it.version) })

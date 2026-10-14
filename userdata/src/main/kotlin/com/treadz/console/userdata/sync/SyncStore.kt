@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
  * The port the `:sync` module uses to read local changes and to merge remote ones. The UI does not use it.
  *
  * ## Model
- * Profiles, weight entries and workouts have a global identity ([SyncProfile.uuid] and so on) next to their local
+ * Profiles, weight entries, resting heart rate measurements and workouts have a global identity ([SyncProfile.uuid] and so on) next to their local
  * `Long` id, a [RecordVersion] and a tombstone flag. Every local change (create, edit, delete) stamps a new version and
  * flags the record as *pending*; [markSynced] clears the flag.
  *
@@ -49,6 +49,12 @@ interface SyncStore {
      * file. Empty for an unknown profile.
      */
     suspend fun weightEntries(userUuid: String): List<SyncWeightEntry>
+
+    /**
+     * Every resting heart rate measurement of a profile, tombstones included: the content of its
+     * `resting-heart-rate.csv`. Empty for an unknown profile.
+     */
+    suspend fun restingHeartRates(userUuid: String): List<SyncRestingHeartRate> = emptyList()
 
     /** Per-second samples of a workout, ordered by `seq`; empty for a tombstone or an unknown workout. */
     suspend fun workoutSamples(workoutUuid: String): List<WorkoutSample>

@@ -29,6 +29,12 @@ data class UserProfile(
     val sex: Sex,
     val heightCm: Int,
     val birthDate: LocalDate,
+    /**
+     * The resting heart rate to use: the **reference** of the user's resting heart rate history
+     * ([RestingHeartRateRepository.reference]: the median of the measurements of the last 30 days, or the latest one if
+     * there is none in that time), `null` while there is no measurement. Saving a profile whose
+     * [ProfileInput.restingHeartRateBpm] differs from it adds a manual measurement to the history.
+     */
     val restingHeartRateBpm: Int? = null,
     /** Maximum heart rate set by the user (e.g. measured). `null` means "use the estimate". */
     val maxHeartRateBpm: Int? = null,
@@ -48,6 +54,14 @@ data class UserProfile(
      * value, and refreshed by [FitnessTestRepository.keepManualHeartRateMax]. Synchronised with the profile.
      */
     val maxHeartRateSetAtMillis: Long? = null,
+    /**
+     * Bluetooth address of the user's heart rate strap (`AA:BB:CC:DD:EE:FF`, upper case), or `null` when no strap is
+     * paired. Set with [ProfileRepository.setStrap]; synchronised with the profile, so the other devices of the user find
+     * the same strap.
+     */
+    val strapAddress: String? = null,
+    /** Name the strap advertises, for the UI; `null` if unknown or no strap. */
+    val strapName: String? = null,
 ) {
     /** Age in whole years on [date] (never negative). */
     fun ageOn(date: LocalDate): Int = Period.between(birthDate, date).years.coerceAtLeast(0)
@@ -75,6 +89,12 @@ data class ProfileInput(
     val sex: Sex,
     val heightCm: Int,
     val birthDate: LocalDate,
+    /**
+     * A resting heart rate typed by the user. When it differs from the profile's current
+     * [UserProfile.restingHeartRateBpm] (the reference of the history) it is stored as a new manual measurement dated
+     * now; when equal, or `null`, the history is left alone (a form pre-filled with the reference can be saved without
+     * adding a measurement; measurements are deleted through [RestingHeartRateRepository]).
+     */
     val restingHeartRateBpm: Int? = null,
     val maxHeartRateBpm: Int? = null,
     val fitnessLevel: FitnessLevel? = null,
@@ -101,6 +121,35 @@ object GenericProfile {
         heightCm = HEIGHT_CM,
         birthDate = today.minusYears(AGE_YEARS.toLong()),
     )
+}
+
+/** Outcome of [ProfileRepository.setStrap]. Stable codes: the UI translates them. */
+sealed interface StrapSaveResult {
+    /** Saved (or already saved as it was); [profile] is the profile as it is now, with the normalised address. */
+    data class Saved(val profile: UserProfile) : StrapSaveResult
+
+    /** The address is not six pairs of hexadecimal digits separated by colons (`AA:BB:CC:DD:EE:FF`). */
+    data object InvalidAddress : StrapSaveResult
+
+    /** The name is longer than [StrapRules.NAME_MAX_LENGTH]. */
+    data object NameTooLong : StrapSaveResult
+
+    /** The profile does not exist. */
+    data object NotFound : StrapSaveResult
+
+    data class StorageError(val reason: String) : StrapSaveResult
+}
+
+/** Rules of the strap fields of a profile, shared by every implementation. */
+object StrapRules {
+    const val NAME_MAX_LENGTH = 60
+    private val ADDRESS = Regex("^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
+
+    /** The address trimmed and in upper case when it has the Bluetooth address format, else `null`. */
+    fun normalizeAddress(address: String): String? = address.trim().uppercase(java.util.Locale.ROOT).takeIf { ADDRESS.matches(it) }
+
+    /** The name trimmed; blank is `null`. */
+    fun normalizeName(name: String?): String? = name?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 object HeartRateEstimates {

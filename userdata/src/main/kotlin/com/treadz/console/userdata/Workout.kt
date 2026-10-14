@@ -1,5 +1,7 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.BeltStatus
 
@@ -45,6 +47,32 @@ data class WorkoutSample(
     val beltStatus: BeltStatus,
     /** The values were not current (frozen data); they are excluded from the averages and maximums. */
     val isStale: Boolean = false,
+    /**
+     * Where [heartRateBpm] came from: the strap connected to the app ([HeartRateSourceKind.DirectStrap]) or the
+     * treadmill console ([HeartRateSourceKind.TreadmillConsole]). `null` when there is no heart rate, and for samples
+     * stored before the source was recorded.
+     */
+    val heartRateSource: HeartRateSourceKind? = null,
+    /**
+     * RR intervals (milliseconds between heart beats) received since the previous sample, oldest first, so that
+     * concatenating the intervals of the samples of a workout gives every interval once. Only a strap connected to the
+     * app provides them; empty otherwise.
+     */
+    val rrIntervalsMs: List<Int> = emptyList(),
+)
+
+/**
+ * The highest heart rate of a workout: the **highest 5-second mean of plausible readings** (impossible readings are
+ * discarded with the rules of `HeartRatePlausibilityFilter`, see [HeartRatePeakTracker]). It is what can reveal a
+ * maximum heart rate higher than the one in use.
+ */
+data class HeartRatePeak(
+    /** The 5-second mean, rounded to whole beats per minute. */
+    val bpm: Int,
+    /** Source of the readings at the end of the window; `null` if the source was not recorded. */
+    val source: HeartRateSourceKind?,
+    /** Epoch ms of the last reading of the window. */
+    val atMillis: Long,
 )
 
 /**
@@ -56,6 +84,7 @@ data class WorkoutSample(
  * - [averageSpeedKmh]: mean speed of the non-stale samples with the belt moving (speed above 0), i.e. the
  *   moving average, not counting pauses.
  * - Heart rates: only samples with a heart rate reading; `null` if there was none.
+ * - [peakHeartRate]: the highest 5-second mean of plausible readings, `null` if there was no usable heart rate.
  */
 data class WorkoutStats(
     val durationSeconds: Int = 0,
@@ -66,6 +95,7 @@ data class WorkoutStats(
     val averageHeartRateBpm: Int? = null,
     val maxHeartRateBpm: Int? = null,
     val maxInclinePercent: Double = 0.0,
+    val peakHeartRate: HeartRatePeak? = null,
 )
 
 data class WorkoutSummary(
@@ -84,6 +114,11 @@ data class WorkoutSummary(
     val programName: String? = null,
     /** Id of the fitness test result that was run in this workout (see [FitnessTestRepository]); `null` for a normal workout. */
     val fitnessTestId: String? = null,
+    /**
+     * Id of the generator that produced the executed program (`origin.generatorId` of the plan, or of the session
+     * record), for a personalised program; `null` for any other workout. The history can filter by it.
+     */
+    val generatorId: String? = null,
 ) {
     val isInProgress: Boolean get() = endReason == null
 }
@@ -98,7 +133,32 @@ data class WorkoutDetail(
      * app than this one (unreadable).
      */
     val plan: ResolvedPlan? = null,
+    /**
+     * The record of the generated session, if the app attached one ([WorkoutHistoryRepository.attachSessionRecord]);
+     * `null` otherwise and for a record written by a newer app than this one (unreadable).
+     */
+    val sessionRecord: GeneratedSessionRecord? = null,
 )
+
+/**
+ * The record of a generated session with the workout it belongs to, as the generators read it
+ * ([WorkoutHistoryRepository.sessionRecords]).
+ */
+data class StoredSessionRecord(
+    val workoutId: Long,
+    val workoutStartedAtMillis: Long,
+    val record: GeneratedSessionRecord,
+)
+
+/** The highest heart-rate peak a user has reached lately and where it was observed ([WorkoutHistoryRepository.highestHeartRatePeak]). */
+data class HeartRatePeakRecord(
+    val workoutId: Long,
+    val peak: HeartRatePeak,
+) {
+    val bpm: Int get() = peak.bpm
+    val source: HeartRateSourceKind? get() = peak.source
+    val atMillis: Long get() = peak.atMillis
+}
 
 /**
  * What a workout was for, attached to it by the app: the plan that was executed and/or the fitness test that was run.

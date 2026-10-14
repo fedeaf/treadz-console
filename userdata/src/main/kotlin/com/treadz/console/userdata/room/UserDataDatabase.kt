@@ -15,6 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *    [Migration2To3].
  * 4. Programs, fitness tests and the fitness profile: tables `programs`, `fitness_tests` and `start_parameters`;
  *    `users.maxHeartRateSetAtMillis`; the executed plan and fitness test id on `workouts`. See [Migration3To4].
+ * 5. Heart rate data: the source and RR intervals of each sample, the heart rate peak, the generated session record and
+ *    the generator id of each workout, the strap of each user and the table `resting_heart_rates` (the resting heart
+ *    rate history). See [Migration4To5].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -33,6 +36,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProgramEntity::class,
         FitnessTestEntity::class,
         StartParametersEntity::class,
+        RestingHeartRateEntity::class,
     ],
     version = UserDataDatabase.VERSION,
     exportSchema = true,
@@ -44,9 +48,10 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun programs(): ProgramDao
     abstract fun fitnessTests(): FitnessTestDao
     abstract fun startParameters(): StartParametersDao
+    abstract fun restingHeartRates(): RestingHeartRateDao
 
     companion object {
-        const val VERSION = 4
+        const val VERSION = 5
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -56,7 +61,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId))
     }
 }
 
@@ -160,5 +165,66 @@ internal class Migration3To4 : Migration(3, 4) {
                 "PRIMARY KEY(`userId`, `programId`), " +
                 "FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         )
+    }
+}
+
+/**
+ * Version 4 to 5 (heart rate data). Only adds; every existing row is kept as it is:
+ * - `workout_samples.heartRateSource`, `rrIntervalsMs` and `workouts.peakHeartRate*`, `sessionRecordJson`: `NULL` (older
+ *   workouts have no source, RR intervals, peak or session record; their samples came from the console);
+ * - `workouts.generatorId`: filled from the origin of the stored plan when it has one;
+ * - `users.strapAddress` and `strapName`: `NULL`;
+ * - the new table `resting_heart_rates`, filled with one manual measurement per existing profile that had a resting
+ *   heart rate (dated by the profile's last change, uuid `resting-<profile uuid>` so that devices converting the same
+ *   profile agree, flagged `dirty` so that it is uploaded). The old column `users.restingHeartRateBpm` stays as it is
+ *   and is no longer read.
+ * The statements are the ones of the exported version-5 schema.
+ */
+internal class Migration4To5(private val deviceId: String) : Migration(4, 5) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `users` ADD COLUMN `strapAddress` TEXT")
+        db.execSQL("ALTER TABLE `users` ADD COLUMN `strapName` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `peakHeartRateBpm` INTEGER")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `peakHeartRateSource` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `peakHeartRateAtMillis` INTEGER")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `sessionRecordJson` TEXT")
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `generatorId` TEXT")
+        db.execSQL("ALTER TABLE `workout_samples` ADD COLUMN `heartRateSource` TEXT")
+        db.execSQL("ALTER TABLE `workout_samples` ADD COLUMN `rrIntervalsMs` TEXT")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `resting_heart_rates` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` INTEGER NOT NULL, " +
+                "`uuid` TEXT NOT NULL, `measuredAtMillis` INTEGER NOT NULL, `bpm` INTEGER NOT NULL, `source` TEXT NOT NULL, " +
+                "`lowestMeanBpm` REAL, `coverage` REAL, `rmssdMs` REAL, `updatedAtMillis` INTEGER NOT NULL, `updatedBy` TEXT NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_resting_heart_rates_userId_measuredAtMillis` ON `resting_heart_rates` (`userId`, `measuredAtMillis`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_resting_heart_rates_uuid` ON `resting_heart_rates` (`uuid`)")
+
+        val quotedDevice = "'" + deviceId.replace("'", "''") + "'"
+        db.execSQL(
+            "INSERT INTO `resting_heart_rates` (`userId`, `uuid`, `measuredAtMillis`, `bpm`, `source`, `lowestMeanBpm`, `coverage`, `rmssdMs`, " +
+                "`updatedAtMillis`, `updatedBy`, `deleted`, `dirty`) " +
+                "SELECT `id`, '${RESTING_UUID_PREFIX}' || `uuid`, `updatedAtMillis`, `restingHeartRateBpm`, 'Manual', NULL, NULL, NULL, " +
+                "`updatedAtMillis`, $quotedDevice, 0, 1 FROM `users` WHERE `restingHeartRateBpm` IS NOT NULL AND `deleted` = 0",
+        )
+
+        // The generator of the personalised programs already run, from the stored plan.
+        val generators = mutableListOf<Pair<Long, String>>()
+        db.query("SELECT `id`, `planJson` FROM `workouts` WHERE `planJson` IS NOT NULL").use { c ->
+            while (c.moveToNext()) {
+                readPlan(c.getString(1))?.source?.origin?.generatorId?.let { generators += c.getLong(0) to it }
+            }
+        }
+        for ((id, generatorId) in generators) {
+            db.execSQL("UPDATE `workouts` SET `generatorId` = ? WHERE `id` = ?", arrayOf<Any>(generatorId, id))
+        }
+    }
+
+    private companion object {
+        /** `RestingHeartRates.legacyMeasurementUuid` for every profile, in SQL. */
+        const val RESTING_UUID_PREFIX = "resting-"
     }
 }

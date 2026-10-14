@@ -1,10 +1,12 @@
 package com.treadz.console.userdata.room
 
+import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.ProfileRepository
 import com.treadz.console.userdata.ProgramRepository
+import com.treadz.console.userdata.RestingHeartRateRepository
 import com.treadz.console.userdata.StartParametersRepository
 import com.treadz.console.userdata.SyncableUserData
 import com.treadz.console.userdata.WeightRepository
@@ -15,6 +17,7 @@ import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.sync.UploadHold
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
+import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 import java.util.UUID
 
@@ -39,6 +42,7 @@ internal class RoomUserData(
     override val programs: ProgramRepository = RoomProgramRepository(db, stamper)
     override val fitnessTests: FitnessTestRepository = RoomFitnessTestRepository(db, clock, zone, stamper, uploadHold)
     override val startParameters: StartParametersRepository = RoomStartParametersRepository(db, stamper)
+    override val restingHeartRates: RestingHeartRateRepository = RoomRestingHeartRateRepository(db, clock, stamper)
     override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper, uploadHold)
     override val programDocuments: ProgramDocumentStore = RoomProgramDocuments(db)
     override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db, uploadHold)
@@ -47,6 +51,11 @@ internal class RoomUserData(
         controller: TreadmillController,
         clock: Clock,
         config: WorkoutObserverConfig,
+        heartRateSource: HeartRateSource?,
         onError: (Throwable) -> Unit,
-    ) = WorkoutHistoryObserver(controller, workoutRepository, profiles::activeUserId, clock, config, onError)
+    ) = WorkoutHistoryObserver(
+        controller, workoutRepository, profiles::activeUserId, clock, config, onError, heartRateSource,
+        // The maximum heart rate in use, for the plausibility rules of the workout's heart rate peak.
+        heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
+    )
 }

@@ -104,3 +104,38 @@ fun state(
     heartRateBpm = hr,
     isStale = stale,
 )
+
+/** A heart rate source driven by the test: [emit] sets the latest reading and publishes it. */
+class FakeHeartRateSource : com.treadz.console.programs.heartrate.HeartRateSource {
+    private val flow = kotlinx.coroutines.flow.MutableSharedFlow<com.treadz.console.programs.heartrate.HeartRateReading>(extraBufferCapacity = 256)
+    private var current = com.treadz.console.programs.heartrate.HeartRateReading.NONE
+
+    override fun latest() = current
+    override val readings: Flow<com.treadz.console.programs.heartrate.HeartRateReading> = flow
+
+    fun emit(
+        bpm: Int?,
+        rr: List<Int> = emptyList(),
+        source: com.treadz.console.programs.fitness.HeartRateSourceKind? = com.treadz.console.programs.fitness.HeartRateSourceKind.DirectStrap,
+        validity: com.treadz.console.programs.heartrate.HeartRateValidity =
+            if (bpm == null) com.treadz.console.programs.heartrate.HeartRateValidity.Invalid else com.treadz.console.programs.heartrate.HeartRateValidity.Valid,
+    ) {
+        current = com.treadz.console.programs.heartrate.HeartRateReading(bpm, validity, source = source, rrIntervalsMs = rr)
+        flow.tryEmit(current)
+    }
+}
+
+/** Stores a finished workout directly (the observer is not needed): with the observer's store in Room, `addWorkout` in memory. */
+internal suspend fun UserData.addFinishedWorkout(
+    userId: Long?,
+    startedAt: Long = T0,
+    samples: List<WorkoutSample> = listOf(WorkoutSample(0, startedAt, 1, 8.0, 8.0, 0.0, 2, 0, 120, BeltStatus.Running)),
+    stats: WorkoutStats = WorkoutStats(durationSeconds = 1, distanceMeters = 2),
+): Long = if (this is com.treadz.console.userdata.memory.InMemoryUserData) {
+    addWorkout(userId, stats, samples, startedAt)
+} else {
+    val store = workouts as com.treadz.console.userdata.workout.WorkoutSessionStore
+    val id = store.begin(userId, startedAt)
+    store.finish(id, samples, stats, startedAt + 1000L * stats.durationSeconds, WorkoutEndReason.Stopped)
+    id
+}

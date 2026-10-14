@@ -1,5 +1,8 @@
 package com.treadz.console.userdata.workout
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
+import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.TreadmillController
@@ -55,6 +58,19 @@ import kotlin.math.roundToInt
  * ([activeWorkoutId] tells which workout is being recorded). Call [linkNextSession] when the belt is stopped: a
  * session that is still decelerating from a previous workout would take the link.
  *
+ * ## Heart rate, its source and RR intervals
+ * Without a [HeartRateSource] the heart rate of a sample is the console's (`TreadmillState.heartRateBpm`) and its source
+ * [HeartRateSourceKind.TreadmillConsole]. With one (the app passes its `AutomaticHeartRateSource`), the heart rate and the
+ * source of every sample are those of the source's latest usable reading (a missing or invalid reading gives a sample
+ * without heart rate), and the sample carries the RR intervals of the source's readings **received since the previous
+ * sample**: they are collected from [HeartRateSource.readings] while a session runs and handed to the next sample
+ * written, so concatenating the intervals of all samples gives each interval once, in order (those received before the
+ * session started, or after its last sample, are not part of it). The same holds for the samples of fitness test
+ * workouts, which are ordinary workouts linked to a test.
+ *
+ * The workout's heart-rate peak ([WorkoutStats.peakHeartRate]) is computed along the way ([HeartRatePeakTracker]) with
+ * the user's maximum heart rate resolved by [heartRateMax] when the session starts.
+ *
  * ## Crash safety and performance
  * Samples are buffered in memory and written in one transaction at least every
  * [WorkoutObserverConfig.flushIntervalMs], together with the running totals, and again when the session ends. If the
@@ -65,6 +81,9 @@ import kotlin.math.roundToInt
  *
  * @param activeUserId resolves who is training at the time a session starts.
  * @param onError storage errors (the observer keeps buffering and retries on the next flush).
+ * @param heartRate where the heart rate and the RR intervals come from; `null` uses the console's heart rate.
+ * @param heartRateMax resolves the maximum heart rate of the session's owner when the session starts, for the
+ *   plausibility rules of the peak (`null`: only the absolute ceiling applies).
  */
 class WorkoutHistoryObserver(
     private val controller: TreadmillController,
@@ -73,12 +92,24 @@ class WorkoutHistoryObserver(
     private val clock: Clock = Clock.System,
     private val config: WorkoutObserverConfig = WorkoutObserverConfig(),
     private val onError: (Throwable) -> Unit = {},
+    private val heartRate: HeartRateSource? = null,
+    private val heartRateMax: suspend (userId: Long?) -> Int? = { null },
 ) {
 
     private val _activeWorkoutId = MutableStateFlow<Long?>(null)
 
     /** Id of the workout being recorded, `null` when there is no session. */
     val activeWorkoutId: StateFlow<Long?> = _activeWorkoutId.asStateFlow()
+
+    private val _lastWorkoutId = MutableStateFlow<Long?>(null)
+
+    /**
+     * Id of the most recent workout this observer recorded: the one in progress or, once it ends, the one that has just
+     * ended (it stays until the next session starts). The app uses it to attach data to a workout that ended a moment
+     * ago, e.g. `WorkoutHistoryRepository.attachSessionRecord`. A session in which the belt never moved is discarded and
+     * its id remains here, but the workout no longer exists.
+     */
+    val lastWorkoutId: StateFlow<Long?> = _lastWorkoutId.asStateFlow()
 
     private sealed interface Input {
         val at: Long
@@ -87,6 +118,7 @@ class WorkoutHistoryObserver(
         class Connection(val state: ConnectionState, override val at: Long) : Input
         class ConnectionLost(override val at: Long) : Input
         class Tick(override val at: Long) : Input
+        class RrIntervals(val intervalsMs: List<Int>, override val at: Long) : Input
         class Link(val link: WorkoutLink, override val at: Long) : Input
         class ClearLink(override val at: Long) : Input
         class Stop(override val at: Long, val done: CompletableDeferred<Unit>) : Input
@@ -138,6 +170,14 @@ class WorkoutHistoryObserver(
             launch {
                 controller.events.collect { if (it is TreadmillEvent.ConnectionLost) channel.trySend(Input.ConnectionLost(clock.nowMillis())) }
             }
+            heartRate?.let { source ->
+                // Only the intervals are taken from the readings: the heart rate itself is read when a sample is written.
+                launch {
+                    source.readings.collect { r ->
+                        if (r.rrIntervalsMs.isNotEmpty()) channel.trySend(Input.RrIntervals(r.rrIntervalsMs, clock.nowMillis()))
+                    }
+                }
+            }
             processScope = this
             process(channel)
         }
@@ -179,6 +219,7 @@ class WorkoutHistoryObserver(
                         else -> Unit
                     }
                     is Input.ConnectionLost -> endSession(WorkoutEndReason.ConnectionLost, input.at)
+                    is Input.RrIntervals -> session?.addRrIntervals(input.intervalsMs)
                     is Input.Tick -> onTick(input.at)
                     is Input.Link -> onLink(input.link, input.at)
                     is Input.ClearLink -> pendingLink = null
@@ -202,18 +243,32 @@ class WorkoutHistoryObserver(
         if (s == null) {
             if (state.status != BeltStatus.Idle && !state.isStale && !blockedUntilIdle) {
                 val started = startSession(at) ?: return
-                started.add(state, at, config)
+                started.add(state, at, config, heartReading(state))
             }
             return
         }
         if (idle) {
-            s.add(state, at, config, terminal = true)
+            s.add(state, at, config, heartReading(state), terminal = true)
             endSession(normalEndReason(s), at)
         } else {
-            s.add(state, at, config)
+            s.add(state, at, config, heartReading(state))
             if (s.decelerationTimedOut(at, config)) endSession(normalEndReason(s), at)
         }
     }
+
+    /** The heart rate and its source for the sample of [state] (see the class description). */
+    private fun heartReading(state: TreadmillState): HeartReading {
+        val source = heartRate
+        if (source == null) {
+            val bpm = state.heartRateBpm
+            return HeartReading(bpm, if (bpm != null && bpm > 0) HeartRateSourceKind.TreadmillConsole else null)
+        }
+        val reading = source.latest()
+        val bpm = reading.bpm?.takeIf { it > 0 && reading.validity != HeartRateValidity.Invalid }
+        return HeartReading(bpm, if (bpm != null) reading.source else null)
+    }
+
+    private class HeartReading(val bpm: Int?, val source: HeartRateSourceKind?)
 
     private suspend fun onLink(link: WorkoutLink, at: Long) {
         val s = session
@@ -273,9 +328,18 @@ class WorkoutHistoryObserver(
             return null
         }
         pendingLink = null
-        val s = Session(id, at)
+        val maxHeartRate = try {
+            heartRateMax(userId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e)
+            null
+        }
+        val s = Session(id, at, maxHeartRate)
         session = s
         _activeWorkoutId.value = id
+        _lastWorkoutId.value = id
         // Periodic flush trigger: it only enqueues ticks, so all the processing stays sequential.
         ticker = scope.launch {
             while (true) {
@@ -339,8 +403,12 @@ class WorkoutHistoryObserver(
         blockedUntilIdle = true
     }
 
-    private class Session(val workoutId: Long, val startedAt: Long) {
+    private class Session(val workoutId: Long, val startedAt: Long, maxHeartRateBpm: Int?) {
         val buffer = ArrayDeque<WorkoutSample>()
+        private val peakTracker = HeartRatePeakTracker(maxHeartRateBpm)
+
+        /** RR intervals received since the last sample was written. */
+        private val pendingRr = ArrayList<Int>()
         var statsDirty = false
 
         /** A link announced during the session that has not been stored yet. */
@@ -365,6 +433,7 @@ class WorkoutHistoryObserver(
         private var hrCount = 0
         private var maxHr = 0
         private var lastHeartRate: Int? = null
+        private var lastHeartSource: HeartRateSourceKind? = null
         private var maxIncline = 0.0
 
         val hasMoved: Boolean get() = maxSpeed > 0.0
@@ -380,7 +449,12 @@ class WorkoutHistoryObserver(
          *   whatever the spacing), keeping the distance, time and calories reached, which the treadmill has just reset,
          *   and the last heart rate before it (the console reports a sudden drop of ~20 bpm in that packet).
          */
-        fun add(state: TreadmillState, at: Long, config: WorkoutObserverConfig, terminal: Boolean = false) {
+        fun addRrIntervals(intervalsMs: List<Int>) {
+            pendingRr.addAll(intervalsMs)
+            while (pendingRr.size > MAX_PENDING_RR) pendingRr.removeAt(0)
+        }
+
+        fun add(state: TreadmillState, at: Long, config: WorkoutObserverConfig, heart: HeartReading, terminal: Boolean = false) {
             if (state.status != BeltStatus.Idle) {
                 lastNonIdleStatus = state.status
                 decelerationSince = null
@@ -398,6 +472,10 @@ class WorkoutHistoryObserver(
             if (!terminal && !spaced && state.status == lastStatus) return
             lastSampleAt = at
             lastStatus = state.status
+            val repeatLast = terminal && lastHeartRate != null
+            val bpm = if (repeatLast) lastHeartRate else heart.bpm
+            val source = if (repeatLast) lastHeartSource else heart.source
+            val rr = if (pendingRr.isEmpty()) emptyList() else pendingRr.toList().also { pendingRr.clear() }
             val sample = WorkoutSample(
                 seq = seq++,
                 timestampMillis = at,
@@ -407,15 +485,20 @@ class WorkoutHistoryObserver(
                 inclinePercent = state.inclinePercent,
                 distanceMeters = if (terminal) maxOf(state.distanceMeters, distance) else state.distanceMeters,
                 calories = if (terminal) maxOf(state.calories, calories) else state.calories,
-                heartRateBpm = if (terminal) lastHeartRate ?: state.heartRateBpm else state.heartRateBpm,
+                heartRateBpm = bpm,
                 beltStatus = state.status,
                 isStale = state.isStale,
+                heartRateSource = source,
+                rrIntervalsMs = rr,
             )
             buffer.addLast(sample)
             duration = maxOf(duration, sample.elapsedSeconds)
             distance = maxOf(distance, sample.distanceMeters)
             calories = maxOf(calories, sample.calories)
-            if (!terminal) lastHeartRate = state.heartRateBpm
+            if (!terminal) {
+                lastHeartRate = heart.bpm
+                lastHeartSource = heart.source
+            }
             if (!state.isStale && !terminal) {
                 maxSpeed = maxOf(maxSpeed, state.speedKmh)
                 if (state.speedKmh > 0.0) {
@@ -423,7 +506,8 @@ class WorkoutHistoryObserver(
                     speedCount++
                 }
                 maxIncline = maxOf(maxIncline, state.inclinePercent)
-                val hr = state.heartRateBpm
+                peakTracker.add(at, heart.bpm, heart.source)
+                val hr = heart.bpm
                 if (hr != null && hr > 0) {
                     hrSum += hr
                     hrCount++
@@ -442,6 +526,11 @@ class WorkoutHistoryObserver(
             averageHeartRateBpm = if (hrCount > 0) (hrSum.toDouble() / hrCount).roundToInt() else null,
             maxHeartRateBpm = if (hrCount > 0) maxHr else null,
             maxInclinePercent = maxIncline,
+            peakHeartRate = peakTracker.peak,
         )
+
+        private companion object {
+            const val MAX_PENDING_RR = 10_000
+        }
     }
 }

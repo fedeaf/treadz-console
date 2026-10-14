@@ -1,6 +1,8 @@
 package com.treadz.console.userdata
 
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
+import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
@@ -72,6 +74,16 @@ interface ProfileRepository {
 
     /** Selects who is training; `null` leaves nobody selected. */
     suspend fun setActiveUser(id: Long?): DataResult<Unit>
+
+    /**
+     * Pairs the user with a heart rate strap (the one found by the strap scan: [address] is its Bluetooth address, [name]
+     * what it advertises). The address is validated and stored in upper case ([StrapRules]); a blank name is stored as
+     * `null`. Replaces the previous strap. Changing the strap is a change of the profile, so it is synchronised.
+     */
+    suspend fun setStrap(id: Long, address: String, name: String?): StrapSaveResult
+
+    /** Forgets the user's strap. [DataResult.NotFound] if the profile does not exist; clearing no strap changes nothing. */
+    suspend fun clearStrap(id: Long): DataResult<Unit>
 }
 
 /** Manual weight log and target weight, per user. */
@@ -148,6 +160,35 @@ interface WorkoutHistoryRepository {
      * [WorkoutHistoryObserver.linkNextSession].
      */
     suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit>
+
+    /**
+     * Stores the record of a generated session with its workout (`GeneratedSessionRecords.build` makes it when the
+     * program runner finishes). Call it for the workout in progress ([WorkoutHistoryObserver.activeWorkoutId], or
+     * [WorkoutHistoryObserver.lastWorkoutId] if the belt has already stopped) or any finished one. It works with the
+     * upload hold: while the workout is held the record waits with it and is part of the workout document when it is
+     * uploaded after [releaseUpload]; [discardFinished] removes it with the workout. Attaching the same record again
+     * changes nothing; a different one replaces it. [DataResult.NotFound] if the workout does not exist.
+     */
+    suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit>
+
+    /**
+     * The session records of the user for one generator ([GeneratedSessionRecord.generatorId]), newest first (by the
+     * start of their workout), for the generators to adapt the next session. A record written by a newer app than this
+     * one (schema version) cannot be read and is skipped. Workouts that were deleted or discarded have no record.
+     */
+    fun sessionRecords(userId: Long, generatorId: String): Flow<List<StoredSessionRecord>>
+
+    /**
+     * The highest heart-rate peak ([WorkoutStats.peakHeartRate]) among the user's finished workouts that started in the
+     * last [withinDays] days (365 by default), or `null`: its value, workout and time. Re-emitted when the workouts change,
+     * not as time passes. The policy that offers it as a new maximum heart rate is not part of this layer.
+     */
+    fun highestHeartRatePeak(userId: Long, withinDays: Int = HEART_RATE_PEAK_DAYS): Flow<HeartRatePeakRecord?>
+
+    companion object {
+        /** Window of the observed heart-rate peak used to detect a maximum heart rate higher than the one in use. */
+        const val HEART_RATE_PEAK_DAYS = 365
+    }
 }
 
 /** Everything the UI needs from the data layer. [TreadZUserData] builds the real one, `InMemoryUserData` the fake. */
@@ -165,14 +206,21 @@ interface UserData {
     /** The start parameters last used for each program and user (local to the device). */
     val startParameters: StartParametersRepository
 
+    /** Resting heart rate measurements of each user and their reference (the profile's resting heart rate). */
+    val restingHeartRates: RestingHeartRateRepository
+
     /**
      * Creates the component that records the treadmill's sessions into [workouts]. It only observes
      * [controller]; it never sends commands. Call [WorkoutHistoryObserver.start] to begin.
+     *
+     * With a [heartRateSource] (the app's `AutomaticHeartRateSource`) the heart rate, its source and the RR intervals of
+     * every sample come from it; without one the heart rate is the console's, as before.
      */
     fun workoutObserver(
         controller: TreadmillController,
         clock: Clock = Clock.System,
         config: WorkoutObserverConfig = WorkoutObserverConfig(),
+        heartRateSource: HeartRateSource? = null,
         onError: (Throwable) -> Unit = {},
     ): WorkoutHistoryObserver
 }

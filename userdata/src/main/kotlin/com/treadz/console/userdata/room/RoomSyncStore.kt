@@ -3,6 +3,9 @@ package com.treadz.console.userdata.room
 import androidx.room.withTransaction
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.FitnessProfiles
+import com.treadz.console.userdata.RestingHeartRateSource
+import com.treadz.console.userdata.RestingHeartRates
+import com.treadz.console.userdata.RestingPoint
 import com.treadz.console.userdata.Validation
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.sync.ApplyResult
@@ -11,6 +14,7 @@ import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.RemoteChanges
 import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.sync.SyncProfile
+import com.treadz.console.userdata.sync.SyncRestingHeartRate
 import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
 import com.treadz.console.userdata.sync.SyncWorkoutData
@@ -32,6 +36,7 @@ internal class RoomSyncStore(
 ) : SyncStore {
     private val users = db.users()
     private val weights = db.weights()
+    private val restingRates = db.restingHeartRates()
     private val workouts = db.workouts()
     private val programs = db.programs()
     private val fitnessTests = db.fitnessTests()
@@ -48,7 +53,8 @@ internal class RoomSyncStore(
         weights.observePendingCount(),
         workouts.observePendingRowIds(),
         hold.workoutIds,
-    ) { a, b, ids, held -> a + b + ids.count { it !in held } }
+        restingRates.observePendingCount(),
+    ) { a, b, ids, held, c -> a + b + c + ids.count { it !in held } }
 
     override suspend fun profile(uuid: String): SyncProfile? = db.withTransaction { users.getByUuid(uuid)?.toSync() }
 
@@ -62,7 +68,13 @@ internal class RoomSyncStore(
             profiles = pendingUsers.map { it.toSync() },
             weights = pendingWeights.map { it.toSync(owner(it.userId).uuid) },
             workouts = pendingWorkouts.map { w -> val o = owner(w.userId!!); w.toSync(o.uuid, o.name) },
+            restingHeartRates = restingRates.pending().map { it.toSync(owner(it.userId).uuid) },
         )
+    }
+
+    override suspend fun restingHeartRates(userUuid: String): List<SyncRestingHeartRate> = db.withTransaction {
+        val user = users.getByUuid(userUuid) ?: return@withTransaction emptyList()
+        restingRates.allForSync(user.id).map { it.toSync(userUuid) }
     }
 
     override suspend fun weightEntries(userUuid: String): List<SyncWeightEntry> = db.withTransaction {
@@ -80,6 +92,7 @@ internal class RoomSyncStore(
             synced.profiles.forEach { users.markSynced(it.uuid, it.version.updatedAtMillis, it.version.deviceId) }
             synced.weights.forEach { weights.markSynced(it.uuid, it.version.updatedAtMillis, it.version.deviceId) }
             synced.workouts.forEach { workouts.markSynced(it.uuid, it.version.updatedAtMillis, it.version.deviceId) }
+            synced.restingHeartRates.forEach { restingRates.markSynced(it.uuid, it.version.updatedAtMillis, it.version.deviceId) }
         }
     }
 
@@ -103,6 +116,7 @@ internal class RoomSyncStore(
             record(outcome)
         }
         changes.weights.forEach { record(applyWeight(it)) }
+        changes.restingHeartRates.forEach { record(applyResting(it)) }
         changes.workouts.forEach { record(applyWorkout(it)) }
         if (users.count() == 0) {
             insertGenericProfile(users, weights, clock, stamper, today(), makeActive = true)
@@ -149,6 +163,7 @@ internal class RoomSyncStore(
         users.markDeleted(local.id, at, version.deviceId)
         users.markSynced(local.uuid, at, version.deviceId)
         weights.markDeletedForUser(local.id, at, version.deviceId)
+        restingRates.markDeletedForUser(local.id, at, version.deviceId)
         workouts.deleteSamplesForUser(local.id)
         workouts.markDeletedForUser(local.id, at, version.deviceId)
         programs.markDeletedForUser(local.id, at, version.deviceId)
@@ -175,6 +190,29 @@ internal class RoomSyncStore(
             }
             remote.version == localVersion -> {
                 if (local.dirty) weights.markSynced(local.uuid, local.updatedAtMillis, local.updatedBy)
+                Outcome.KeptLocal
+            }
+            else -> Outcome.KeptLocal
+        }
+    }
+
+    private suspend fun applyResting(remote: SyncRestingHeartRate): Outcome {
+        val owner = users.getByUuid(remote.userUuid)
+        if (owner == null || owner.deleted) return Outcome.Skipped
+        val local = restingRates.getByUuid(remote.uuid)
+        if (local == null) {
+            if (remote.deleted) return Outcome.Skipped
+            restingRates.insert(remote.toEntity(id = 0, userId = owner.id))
+            return Outcome.Applied
+        }
+        val localVersion = RecordVersion(local.updatedAtMillis, local.updatedBy)
+        return when {
+            remote.version > localVersion -> {
+                restingRates.update(remote.toEntity(id = local.id, userId = owner.id))
+                Outcome.Applied
+            }
+            remote.version == localVersion -> {
+                if (local.dirty) restingRates.markSynced(local.uuid, local.updatedAtMillis, local.updatedBy)
                 Outcome.KeptLocal
             }
             else -> Outcome.KeptLocal
@@ -225,6 +263,8 @@ internal class RoomSyncStore(
         val profile = toProfile()
         // A held result (see [UploadHold]) does not reach the uploaded fitness block either.
         val results = fitnessTests.liveForUser(id).filter { !hold.isTestHeld(it.uuid) }.mapNotNull { readFitnessResult(it.json) }
+        // The reference of the measurements as of the newest one: a function of synchronised data only (see SyncProfile).
+        val resting = if (deleted) null else RestingHeartRates.snapshotBpm(restingRates.liveForUser(id).map { RestingPoint(it.measuredAtMillis, it.bpm) })
         return SyncProfile(
             uuid = uuid,
             version = version(),
@@ -233,7 +273,7 @@ internal class RoomSyncStore(
             sex = profile.sex,
             heightCm = heightCm,
             birthDate = profile.birthDate,
-            restingHeartRateBpm = restingHeartRateBpm,
+            restingHeartRateBpm = resting,
             maxHeartRateBpm = maxHeartRateBpm,
             fitnessLevel = profile.fitnessLevel,
             goal = profile.goal,
@@ -241,6 +281,8 @@ internal class RoomSyncStore(
             createdAtMillis = createdAtMillis,
             maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
             fitness = if (deleted) null else FitnessProfiles.snapshot(results, profile.sex, profile.birthDate),
+            strapAddress = strapAddress,
+            strapName = strapName,
         )
     }
 
@@ -251,7 +293,7 @@ internal class RoomSyncStore(
         sex = sex.name,
         heightCm = heightCm,
         birthEpochDay = birthDate.toEpochDay(),
-        restingHeartRateBpm = restingHeartRateBpm,
+        restingHeartRateBpm = null, // legacy column; the history holds the measurements
         maxHeartRateBpm = maxHeartRateBpm,
         fitnessLevel = fitnessLevel?.name,
         goal = goal?.name,
@@ -264,6 +306,37 @@ internal class RoomSyncStore(
         deleted = deleted,
         dirty = false,
         maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
+        strapAddress = strapAddress,
+        strapName = strapName,
+    )
+
+    private fun RestingHeartRateEntity.toSync(userUuid: String) = SyncRestingHeartRate(
+        uuid = uuid,
+        userUuid = userUuid,
+        version = RecordVersion(updatedAtMillis, updatedBy),
+        deleted = deleted,
+        measuredAtMillis = measuredAtMillis,
+        bpm = bpm,
+        source = enumValues<RestingHeartRateSource>().firstOrNull { it.name == source } ?: RestingHeartRateSource.Manual,
+        lowestMeanBpm = lowestMeanBpm,
+        coverage = coverage,
+        rmssdMs = rmssdMs,
+    )
+
+    private fun SyncRestingHeartRate.toEntity(id: Long, userId: Long) = RestingHeartRateEntity(
+        id = id,
+        userId = userId,
+        uuid = uuid,
+        measuredAtMillis = if (deleted) 0 else measuredAtMillis,
+        bpm = if (deleted) 0 else bpm,
+        source = source.name,
+        lowestMeanBpm = if (deleted) null else lowestMeanBpm,
+        coverage = if (deleted) null else coverage,
+        rmssdMs = if (deleted) null else rmssdMs,
+        updatedAtMillis = version.updatedAtMillis,
+        updatedBy = version.deviceId,
+        deleted = deleted,
+        dirty = false,
     )
 
     private fun WeightEntryEntity.toSync(userUuid: String) = SyncWeightEntry(
@@ -302,6 +375,7 @@ internal class RoomSyncStore(
         stats = toSummary().stats,
         planJson = planJson,
         fitnessTestId = fitnessTestId,
+        sessionRecordJson = sessionRecordJson,
     )
 
     private fun SyncWorkout.toEntity(id: Long, userId: Long) = WorkoutEntity(
@@ -327,5 +401,10 @@ internal class RoomSyncStore(
         programId = readPlan(planJson)?.source?.programId,
         programName = readPlan(planJson)?.source?.programName,
         fitnessTestId = fitnessTestId,
+        peakHeartRateBpm = stats.peakHeartRate?.bpm,
+        peakHeartRateSource = stats.peakHeartRate?.source?.name,
+        peakHeartRateAtMillis = stats.peakHeartRate?.atMillis,
+        sessionRecordJson = sessionRecordJson,
+        generatorId = readPlan(planJson)?.source?.origin?.generatorId ?: readSessionRecord(sessionRecordJson)?.generatorId,
     )
 }

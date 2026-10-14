@@ -1,5 +1,6 @@
 package com.treadz.console.userdata.export
 
+import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.treadmill.BeltStatus
 
 /** CSV export: see [WorkoutExporter] for the column reference. */
@@ -7,8 +8,11 @@ internal object CsvWorkoutWriter {
 
     val COLUMNS = listOf(
         "seq", "timestamp", "elapsed_s", "speed_kmh", "target_speed_kmh", "incline_pct", "distance_m", "kcal",
-        "hr_bpm", "belt_status", "stale", "elevation_gain_m",
+        "hr_bpm", "belt_status", "stale", "elevation_gain_m", "hr_source", "rr_ms",
     )
+
+    /** Separator of the RR intervals inside the single `rr_ms` cell: it is not special in CSV, so the cell is never quoted. */
+    const val RR_SEPARATOR = ';'
 
     fun write(points: List<ExportPoint>): String {
         val out = StringBuilder()
@@ -30,10 +34,17 @@ internal object CsvWorkoutWriter {
                     statusCode(s.beltStatus),
                     if (s.isStale) "true" else "false",
                     Formats.decimal(p.elevationGainMeters, 2).orEmpty(),
+                    s.heartRateSource?.let(::sourceCode).orEmpty(),
+                    s.rrIntervalsMs.joinToString(RR_SEPARATOR.toString()),
                 ),
             )
         }
         return out.toString()
+    }
+
+    fun sourceCode(source: HeartRateSourceKind): String = when (source) {
+        HeartRateSourceKind.DirectStrap -> "direct_strap"
+        HeartRateSourceKind.TreadmillConsole -> "treadmill_console"
     }
 
     fun statusCode(status: BeltStatus): String = when (status) {

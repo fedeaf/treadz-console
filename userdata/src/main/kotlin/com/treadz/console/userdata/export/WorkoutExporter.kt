@@ -37,6 +37,7 @@ import java.util.Locale
  *   coming with speed 0 and the distance still. The paused time is part of the duration.
  * - **Elevation**: the treadmill does not report it, it is computed. Between two samples the climb is
  *   `distance increment x mean incline / 100` meters (never negative increments of distance). The altitude starts at 0.
+ * - **RR intervals**: never dropped with a repeated sample (see above).
  * - **Heart rate**: a missing reading (`null`) or 0 means "no reading" and is left empty / omitted.
  * - Numbers use a dot decimal separator and ASCII digits whatever the device language; time is UTC.
  *
@@ -56,6 +57,8 @@ import java.util.Locale
  * | `belt_status` | `idle`, `starting`, `running`, `paused` or `safety_key_removed` |
  * | `stale` | `true` if the values were not current (frozen data), else `false` |
  * | `elevation_gain_m` | cumulative climb computed from incline and distance |
+ * | `hr_source` | where `hr_bpm` came from: `direct_strap` (strap connected to the app), `treadmill_console`, or empty |
+ * | `rr_ms` | RR intervals (ms between beats) received since the previous row, separated by `;`; empty without a strap. A repeated sample that is dropped passes its intervals to the row that is kept |
  *
  * ## TCX
  * An indoor run: `Activity Sport="Running"` with one `Lap` (`Intensity` Active, `TriggerMethod` Manual) and one

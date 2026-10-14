@@ -3,6 +3,7 @@ package com.treadz.console.userdata.sync
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
+import com.treadz.console.userdata.RestingHeartRateSource
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutSample
@@ -30,6 +31,13 @@ data class SyncProfile(
     val sex: Sex,
     val heightCm: Int,
     val birthDate: LocalDate,
+    /**
+     * The reference of the resting heart rate history ([com.treadz.console.userdata.RestingHeartRates.snapshotBpm]), for
+     * people reading `profile.json`: **read-only**, like [fitness]. It is derived from the measurements when the record is
+     * read from the device and is not applied on download (each device has the measurements themselves). Profile files
+     * written before schema 5 carry the profile's own resting value here: the synchronisation turns it into a manual
+     * measurement when the repository has no measurements file for the user.
+     */
     val restingHeartRateBpm: Int? = null,
     val maxHeartRateBpm: Int? = null,
     val fitnessLevel: FitnessLevel? = null,
@@ -45,6 +53,9 @@ data class SyncProfile(
      * version and never a source of conflicts.
      */
     val fitness: FitnessProfile? = null,
+    /** The user's heart rate strap (see `UserProfile.strapAddress`); part of the profile, so the other devices find the same strap. */
+    val strapAddress: String? = null,
+    val strapName: String? = null,
 )
 
 /** A weight entry as exchanged with other devices. */
@@ -63,6 +74,25 @@ data class SyncWeightEntry(
      * which is also what the schema migration assigns to entries that already exist.
      */
     val createdAtMillis: Long = version.updatedAtMillis,
+)
+
+/**
+ * A resting heart rate measurement as exchanged with other devices (`resting-heart-rate.csv`). Same rules as
+ * [SyncWeightEntry]: last edit wins, a deletion is a tombstone.
+ */
+data class SyncRestingHeartRate(
+    val uuid: String,
+    /** The owner's [SyncProfile.uuid]. */
+    val userUuid: String,
+    val version: RecordVersion,
+    /** Tombstone: the measurement was deleted. The other values are meaningless then. */
+    val deleted: Boolean,
+    val measuredAtMillis: Long,
+    val bpm: Int,
+    val source: RestingHeartRateSource,
+    val lowestMeanBpm: Double? = null,
+    val coverage: Double? = null,
+    val rmssdMs: Double? = null,
 )
 
 /**
@@ -86,6 +116,8 @@ data class SyncWorkout(
     val planJson: String? = null,
     /** The fitness test result that was run in this workout, or `null`. */
     val fitnessTestId: String? = null,
+    /** The record of the generated session (`GeneratedSessionJson` document) run in this workout, or `null`. */
+    val sessionRecordJson: String? = null,
 )
 
 /** A [SyncWorkout] with its per-second samples, as downloaded from another device. */
@@ -97,11 +129,13 @@ data class PendingChanges(
     /** Pending entries, tombstones included. For the whole log of a user use [SyncStore.weightEntries]. */
     val weights: List<SyncWeightEntry>,
     val workouts: List<SyncWorkout>,
+    /** Pending measurements, tombstones included. For the whole history of a user use [SyncStore.restingHeartRates]. */
+    val restingHeartRates: List<SyncRestingHeartRate> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = profiles.isEmpty() && weights.isEmpty() && workouts.isEmpty()
+    val isEmpty: Boolean get() = profiles.isEmpty() && weights.isEmpty() && workouts.isEmpty() && restingHeartRates.isEmpty()
 
     /** Number of pending records. */
-    val count: Int get() = profiles.size + weights.size + workouts.size
+    val count: Int get() = profiles.size + weights.size + workouts.size + restingHeartRates.size
 }
 
 /** Changes read from the remote repository, to be merged into the local data. */
@@ -109,6 +143,7 @@ data class RemoteChanges(
     val profiles: List<SyncProfile> = emptyList(),
     val weights: List<SyncWeightEntry> = emptyList(),
     val workouts: List<SyncWorkoutData> = emptyList(),
+    val restingHeartRates: List<SyncRestingHeartRate> = emptyList(),
 )
 
 /** What [SyncStore.applyRemote] did. */
@@ -128,4 +163,5 @@ data class SyncedRecords(
     val profiles: List<SyncedRef> = emptyList(),
     val weights: List<SyncedRef> = emptyList(),
     val workouts: List<SyncedRef> = emptyList(),
+    val restingHeartRates: List<SyncedRef> = emptyList(),
 )

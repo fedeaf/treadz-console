@@ -36,6 +36,23 @@ data class HeartRateMaxDecision(
 )
 
 /**
+ * A heart-rate peak seen in a workout that is clearly higher than the maximum heart rate in use, see
+ * [HeartRateMaxPolicy.observedPeakOffer].
+ *
+ * @property peakBpm The workout's highest 5-s mean of plausible readings.
+ * @property currentBpm The effective maximum it beats.
+ * @property workoutId The workout it was seen in, when known.
+ */
+data class ObservedPeakOffer(
+    val peakBpm: Int,
+    val currentBpm: Int,
+    val workoutId: Long?,
+    val peakAtMillis: Long,
+) {
+    val differenceBpm: Int get() = peakBpm - currentBpm
+}
+
+/**
  * Which maximum heart rate to use (a pure function, no storage).
  *
  * Priority:
@@ -59,6 +76,41 @@ object HeartRateMaxPolicy {
 
     /** A measured value must differ from the manual one by more than this many bpm for the user to be asked. */
     const val ASK_DIFFERENCE_BPM = 3
+
+    /** An observed peak must be above the effective maximum by more than this many bpm to be offered. */
+    const val OBSERVED_PEAK_MARGIN_BPM = 3
+
+    /**
+     * Whether to offer a heart-rate peak observed in a workout as the new maximum heart rate. A real maximum is a
+     * ceiling: a plausible heart rate above it means the maximum in use is too low (typically the age estimate, which is
+     * often 10-15 bpm off). The UI asks "use X as your maximum heart rate?". **Yes**: store X as the manual maximum
+     * (with its date), so it wins and only a higher peak asks again. **No**: remember when the user answered
+     * ([answeredAtMillis]) so the same peak is not offered again.
+     *
+     * The offer is made when the peak is more than [OBSERVED_PEAK_MARGIN_BPM] above [decision]'s value and newer than
+     * both the user's last answer and, for a manual maximum, the moment it was entered or confirmed (the user set it
+     * knowing that peak). Readings above the maximum + 15 bpm are rejected as impossible while recording, so a maximum
+     * that is far too low rises in steps of at most about 15 bpm.
+     *
+     * @param decision The effective maximum ([resolve]).
+     * @param peakBpm The highest observed peak of the last 365 days, `null` without one.
+     * @param manualSetAtMillis When the manual maximum was entered or last confirmed (epoch ms), `null` if unknown.
+     * @param answeredAtMillis When the user last declined an observed peak (epoch ms), `null` if never.
+     */
+    fun observedPeakOffer(
+        decision: HeartRateMaxDecision,
+        peakBpm: Int?,
+        peakAtMillis: Long?,
+        workoutId: Long? = null,
+        manualSetAtMillis: Long? = null,
+        answeredAtMillis: Long? = null,
+    ): ObservedPeakOffer? {
+        if (peakBpm == null || peakAtMillis == null) return null
+        if (peakBpm <= decision.bpm + OBSERVED_PEAK_MARGIN_BPM) return null
+        if (answeredAtMillis != null && peakAtMillis <= answeredAtMillis) return null
+        if (decision.origin == HeartRateMaxOrigin.Manual && manualSetAtMillis != null && peakAtMillis <= manualSetAtMillis) return null
+        return ObservedPeakOffer(peakBpm, decision.bpm, workoutId, peakAtMillis)
+    }
 
     /**
      * @param manualBpm The value entered in the profile, or `null` when the user has not set one.

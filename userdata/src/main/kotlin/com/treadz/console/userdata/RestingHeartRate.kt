@@ -46,9 +46,9 @@ data class RestingHeartRateInput(
     companion object {
         /**
          * The input for a finished automatic measurement, or `null` when the measurement is not valid (it is not stored).
-         * Its time is the end of the measurement.
+         * Its time is the end of the measurement; the RMSSD is the measurement's own unless given.
          */
-        fun fromResult(result: RestingHeartRateResult, source: RestingHeartRateSource, rmssdMs: Double? = null): RestingHeartRateInput? {
+        fun fromResult(result: RestingHeartRateResult, source: RestingHeartRateSource, rmssdMs: Double? = result.rmssdMs): RestingHeartRateInput? {
             val bpm = result.bpm
             if (!result.valid || bpm == null) return null
             return RestingHeartRateInput(

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.map
 /**
  * The readings of this source as samples for a resting heart-rate measurement: a usable reading gives its bpm; an
  * invalid reading of the strap connected to the app (contact lost) counts as a contact-lost sample, any other invalid
- * reading as a missing one.
+ * reading as a missing one. The RR intervals go along (they give the RMSSD of the measurement).
  */
 fun HeartRateSource.restingSamples(): Flow<RestingSample> = readings.map { r ->
     val bpm = r.bpm?.takeIf { r.validity != HeartRateValidity.Invalid }
@@ -21,7 +21,7 @@ fun HeartRateSource.restingSamples(): Flow<RestingSample> = readings.map { r ->
         r.validity == HeartRateValidity.Valid -> SensorContact.Detected
         else -> SensorContact.NotSupported
     }
-    RestingSample(r.atMillis, bpm, contact)
+    RestingSample(r.atMillis, bpm, contact, r.rrIntervalsMs)
 }
 
 /**

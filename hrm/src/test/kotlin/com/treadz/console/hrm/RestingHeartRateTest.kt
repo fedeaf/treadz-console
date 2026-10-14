@@ -124,6 +124,56 @@ class RestingHeartRateTest {
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    /** Feeds a meter at 1 Hz at 60 bpm, one RR interval per sample from rr(t in seconds) (`null`: none). */
+    private fun feedRr(meter: RestingHeartRateMeter, contact: (Long) -> SensorContact = { SensorContact.Detected }, rr: (Long) -> Int?) {
+        var t = 1_000L
+        while (t <= 180_000) {
+            meter.add(RestingSample(t, 60, contact(t), listOfNotNull(rr(t / 1000))))
+            t += 1_000
+        }
+    }
+
+    @Test
+    fun `RMSSD of the RR intervals of the last 2 minutes`() {
+        val m = RestingHeartRateMeter(0)
+        // The first minute is ignored; then alternating 1000 / 1040 ms: every successive difference is 40 ms.
+        feedRr(m) { s -> if (s < 60) 700 else if (s % 2 == 0L) 1000 else 1040 }
+        val r = m.result(180_000)
+        assertTrue(r.valid)
+        assertEquals(40.0, r.rmssdMs)
+    }
+
+    @Test
+    fun `RMSSD leaves out artifacts and ectopic beats with their differences`() {
+        val m = RestingHeartRateMeter(0)
+        feedRr(m) { s ->
+            when (s) {
+                90L -> 2_500 // out of range
+                120L -> 600 // 40 % shorter than the previous one: ectopic
+                else -> if (s % 2 == 0L) 1000 else 1040
+            }
+        }
+        assertEquals(40.0, m.result(180_000).rmssdMs)
+    }
+
+    @Test
+    fun `no RMSSD without RR intervals, with too few, or from samples without contact`() {
+        val none = RestingHeartRateMeter(0)
+        feedRr(none) { null }
+        assertTrue(none.result(180_000).valid)
+        assertNull(none.result(180_000).rmssdMs)
+
+        val few = RestingHeartRateMeter(0)
+        // Only 50 intervals in the last 2 minutes (seconds 131-180).
+        feedRr(few) { s -> if (s > 130) (if (s % 2 == 0L) 1000 else 1040) else null }
+        assertNull(few.result(180_000).rmssdMs)
+
+        val noContact = RestingHeartRateMeter(0)
+        feedRr(noContact, contact = { t -> if (t > 100_000) SensorContact.NotDetected else SensorContact.Detected }) { s -> if (s % 2 == 0L) 1000 else 1040 }
+        // Only seconds 61-100 count: 40 intervals.
+        assertNull(noContact.result(180_000).rmssdMs)
+    }
+
     @Test
     fun `session ends by itself after 3 minutes`() = runTest {
         val flow = MutableSharedFlow<RestingSample>(extraBufferCapacity = 16)

@@ -13,12 +13,19 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * One heart-rate sample for the resting measurement, from any source (the strap connected to the app or the treadmill
- * console). [bpm] `null` (or 0) means no reading.
+ * console). [bpm] `null` (or 0) means no reading. [rrIntervalsMs] are the RR intervals (ms between beats, oldest first)
+ * that arrived with it: only a strap connected to the app provides them.
  */
-data class RestingSample(val atMillis: Long, val bpm: Int?, val sensorContact: SensorContact = SensorContact.NotSupported)
+data class RestingSample(
+    val atMillis: Long,
+    val bpm: Int?,
+    val sensorContact: SensorContact = SensorContact.NotSupported,
+    val rrIntervalsMs: List<Int> = emptyList(),
+)
 
 /** Rules of the resting heart-rate measurement. Defaults are the decided protocol. */
 data class RestingHeartRateConfig(
@@ -45,6 +52,13 @@ data class RestingHeartRateConfig(
     /** A resting value outside this range is not a resting heart rate (the person was not at rest, or bad data). */
     val minRestingBpm: Int = 30,
     val maxRestingBpm: Int = 120,
+    /** RR intervals outside this range (ms) are artifacts and left out of the RMSSD. */
+    val minRrMs: Int = 300,
+    val maxRrMs: Int = 2_000,
+    /** An RR interval that differs from the previous accepted one by more than this fraction is an artifact or ectopic beat. */
+    val maxRrChange: Double = 0.2,
+    /** The RMSSD needs at least this many accepted RR intervals in the analysed part (about a minute at rest). */
+    val minRrIntervals: Int = 60,
 )
 
 /** Why a resting measurement is not valid. */
@@ -71,6 +85,9 @@ enum class RestingInvalidReason {
  * @property coverage Fraction of the seconds of the last 2 minutes with a valid sample (0-1).
  * @property longestGapSeconds Longest stretch without a valid sample in the last 2 minutes.
  * @property badSamples Artifacts and contact-lost samples in the last 2 minutes.
+ * @property rmssdMs RMSSD (root mean square of successive differences of the RR intervals, ms) of the last 2 minutes,
+ *   rounded to 0.1 ms: a measure of the heart-rate variability. `null` without enough clean RR intervals (no strap
+ *   connected to the app, or too many artifacts); see [RestingHeartRateConfig.minRrIntervals].
  */
 data class RestingHeartRateResult(
     val startedAtMillis: Long,
@@ -83,6 +100,7 @@ data class RestingHeartRateResult(
     val longestGapSeconds: Int,
     val badSamples: Int,
     val samples: Int,
+    val rmssdMs: Double? = null,
 )
 
 /**
@@ -96,6 +114,10 @@ data class RestingHeartRateResult(
  * Validity (all must hold): the measurement lasted 3 minutes; ≥ 90 % of the seconds of the last 2 minutes have a valid
  * sample and no gap is longer than 10 s; at most 10 % of the samples of the last 2 minutes are artifacts or
  * contact-lost; the value is within 30-120 bpm.
+ *
+ * RMSSD: from the RR intervals of the last 2 minutes (not those of samples without skin contact). An interval outside
+ * 300-2000 ms, or more than 20 % away from the previous accepted one, is left out, and so is the difference across it.
+ * With fewer than 60 accepted intervals there is no RMSSD. It does not affect the validity of the measurement.
  */
 class RestingHeartRateMeter(
     val startedAtMillis: Long,
@@ -104,6 +126,9 @@ class RestingHeartRateMeter(
     private class Entry(val t: Long, val bpm: Int?, val bad: Boolean)
 
     private val entries = ArrayList<Entry>()
+
+    /** RR intervals with the time of the sample they came with. */
+    private val rrIntervals = ArrayList<Pair<Long, Int>>()
     private var lastValidT: Long? = null
     private var lastValidBpm: Int? = null
 
@@ -115,6 +140,7 @@ class RestingHeartRateMeter(
         if (entries.isNotEmpty() && t < entries.last().t) return
         val bpm = sample.bpm
         val noContact = sample.sensorContact == SensorContact.NotDetected
+        if (!noContact) sample.rrIntervalsMs.forEach { rrIntervals += t to it }
         if (bpm == null || bpm <= 0) {
             entries += Entry(t, null, bad = noContact)
             return
@@ -163,7 +189,38 @@ class RestingHeartRateMeter(
             longestGapSeconds = (a.longestGapMs / 1000).toInt(),
             badSamples = a.bad,
             samples = a.samples,
+            rmssdMs = rmssd(end)?.let { (it * 10).roundToInt() / 10.0 },
         )
+    }
+
+    /** RMSSD of the RR intervals of the analysed part (end − 2 min, end] (see the class description). */
+    private fun rmssd(end: Long): Double? {
+        val from = maxOf(startedAtMillis, end - config.analysisMs)
+        var previous: Int? = null
+        var accepted = 0
+        var sumSquares = 0.0
+        var differences = 0
+        for ((t, rr) in rrIntervals) {
+            if (t <= from || t > end) continue
+            if (rr < config.minRrMs || rr > config.maxRrMs) {
+                previous = null
+                continue
+            }
+            val p = previous
+            if (p != null && abs(rr - p) > config.maxRrChange * p) {
+                previous = null
+                continue
+            }
+            accepted++
+            if (p != null) {
+                val d = (rr - p).toDouble()
+                sumSquares += d * d
+                differences++
+            }
+            previous = rr
+        }
+        if (accepted < config.minRrIntervals || differences == 0) return null
+        return sqrt(sumSquares / differences)
     }
 
     private class Analysis(val lowest: Double?, val coverage: Double, val longestGapMs: Long, val bad: Int, val samples: Int)

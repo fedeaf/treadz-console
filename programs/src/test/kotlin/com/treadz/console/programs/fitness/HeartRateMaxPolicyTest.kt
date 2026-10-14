@@ -96,4 +96,36 @@ class HeartRateMaxPolicyTest {
         assertEquals(172, d.bpm)
         assertEquals(HeartRateMaxOrigin.Measured, d.origin)
     }
+
+    // ------------------------------------------------------------------ observed peaks
+
+    private fun estimate() = HeartRateMaxPolicy.resolve(null, null, null, estimated)
+
+    @Test
+    fun `an observed peak more than 3 bpm above the maximum in use is offered`() {
+        val offer = HeartRateMaxPolicy.observedPeakOffer(estimate(), peakBpm = 186, peakAtMillis = 50 * day, workoutId = 7)
+        assertEquals(ObservedPeakOffer(186, 180, 7, 50 * day), offer)
+        assertEquals(6, offer!!.differenceBpm)
+        assertNull(HeartRateMaxPolicy.observedPeakOffer(estimate(), peakBpm = 183, peakAtMillis = 50 * day))
+        assertNull(HeartRateMaxPolicy.observedPeakOffer(estimate(), peakBpm = 170, peakAtMillis = 50 * day))
+        assertNull(HeartRateMaxPolicy.observedPeakOffer(estimate(), peakBpm = null, peakAtMillis = null))
+        // Above a measured maximum too.
+        val fromTest = HeartRateMaxPolicy.resolve(null, null, measured(184), estimated)
+        assertEquals(190, HeartRateMaxPolicy.observedPeakOffer(fromTest, 190, 150 * day)?.peakBpm)
+    }
+
+    @Test
+    fun `a declined peak is not offered again, a newer one is`() {
+        assertNull(HeartRateMaxPolicy.observedPeakOffer(estimate(), 190, 50 * day, answeredAtMillis = 60 * day))
+        assertTrue(HeartRateMaxPolicy.observedPeakOffer(estimate(), 190, 70 * day, answeredAtMillis = 60 * day) != null)
+    }
+
+    @Test
+    fun `a manual maximum set after the peak is respected`() {
+        val manual = HeartRateMaxPolicy.resolve(178, 60 * day, null, estimated)
+        assertNull(HeartRateMaxPolicy.observedPeakOffer(manual, 190, 50 * day, manualSetAtMillis = 60 * day))
+        assertEquals(178, HeartRateMaxPolicy.observedPeakOffer(manual, 190, 70 * day, manualSetAtMillis = 60 * day)?.currentBpm)
+        // Unknown manual date: the peak counts as newer.
+        assertTrue(HeartRateMaxPolicy.observedPeakOffer(manual, 190, 50 * day, manualSetAtMillis = null) != null)
+    }
 }

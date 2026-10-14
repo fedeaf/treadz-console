@@ -59,8 +59,11 @@ object IntensityTranslator {
         return REST_VO2 + 0.2 * s + 0.9 * s * inclinePercent / 100.0
     }
 
-    /** Walking at [walkingSpeedKmh] with the incline that gives [vo2] (see the class rules). */
-    fun walking(vo2: Double, walkingSpeedKmh: Double): TreadmillTarget {
+    /**
+     * Walking at [walkingSpeedKmh] with the incline that gives [vo2] (see the class rules). [maxInclinePercent] lowers
+     * the incline limit (the speed then rises sooner, up to [MAX_WALKING_SPEED_KMH]).
+     */
+    fun walking(vo2: Double, walkingSpeedKmh: Double, maxInclinePercent: Double = MAX_WALKING_INCLINE_PERCENT): TreadmillTarget {
         val w = walkingSpeedKmh
         val s = w * 1000.0 / 60.0
         val grade = (vo2 - REST_VO2 - 0.1 * s) / (1.8 * s)
@@ -69,11 +72,11 @@ object IntensityTranslator {
                 val flat = (vo2 - REST_VO2) / 0.1 * 60.0 / 1000.0
                 TreadmillTarget(round1(flat.coerceIn(min(MIN_WALKING_SPEED_KMH, w), w)), 0.0, vo2)
             }
-            grade * 100.0 <= MAX_WALKING_INCLINE_PERCENT -> TreadmillTarget(round1(w), (grade * 100.0).roundToInt().toDouble(), vo2)
+            grade * 100.0 <= maxInclinePercent -> TreadmillTarget(round1(w), (grade * 100.0).roundToInt().toDouble(), vo2)
             else -> {
-                val g = MAX_WALKING_INCLINE_PERCENT / 100.0
+                val g = maxInclinePercent / 100.0
                 val needed = (vo2 - REST_VO2) / (0.1 + 1.8 * g) * 60.0 / 1000.0
-                TreadmillTarget(round1(min(max(needed, w), max(w, MAX_WALKING_SPEED_KMH))), MAX_WALKING_INCLINE_PERCENT, vo2, capped = needed > max(w, MAX_WALKING_SPEED_KMH) + 0.05)
+                TreadmillTarget(round1(min(max(needed, w), max(w, MAX_WALKING_SPEED_KMH))), maxInclinePercent, vo2, capped = needed > max(w, MAX_WALKING_SPEED_KMH) + 0.05)
             }
         }
     }

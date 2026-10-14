@@ -12,7 +12,6 @@ import com.treadz.console.programs.model.HeartRateBasis
 import com.treadz.console.programs.model.HeartRateZone
 import com.treadz.console.programs.model.ProgramStep
 import com.treadz.console.programs.model.Repeat
-import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.personalised.Generation.Companion.fmt
 import com.treadz.console.programs.personalised.Generation.Companion.wire
 import kotlin.math.max
@@ -29,7 +28,10 @@ enum class CouchToFiveKDecision {
     /** The previous session was completed without manual speed reductions and with the heart rate below 85 % HRmax. */
     Advance,
 
-    /** Completed, but the heart rate at the end of a run reached 85 % HRmax (or a safety reduction happened): repeat. */
+    /**
+     * Completed, but the heart rate at the end of a run reached 85 % HRmax (or a safety reduction happened): repeat. The
+     * end of a continuous heart-rate-guided run inside its zone is never too hard.
+     */
     RepeatHardEffort,
 
     /** Completed, but the user lowered the speed by hand during a run: repeat. */
@@ -74,7 +76,8 @@ data class CouchToFiveKSelection(
  *  - without history: session 1;
  *  - previous session completed (every run ran to its end; a stop during the cool-down still counts) without manual
  *    speed reductions in the runs and with the heart rate at the end of every run below 85 % of the maximum (and no
- *    heart-rate safety reduction): the next one. Runs without a heart-rate reading do not block advancing;
+ *    heart-rate safety reduction): the next one. A continuous guided run that ends inside its zone is fine even above
+ *    85 % (zone 3 in % of the reserve can reach it). Runs without a heart-rate reading do not block advancing;
  *  - completed with a manual speed reduction, or with a harder effort than that: the same session again;
  *  - not completed: one session back;
  *  - more than 10 days since the previous session: one more week back (3 sessions); more than 21: two weeks back;
@@ -84,9 +87,10 @@ data class CouchToFiveKSelection(
  * and at least the walking speed + 0.5, then the user's ± adjustment. Walking at the speed asked, else the final speed
  * of the last walking block of the previous session, else 5 km/h.
  *
- * **Heart rate**: runs of 6 min or more are guided in zone 3 (70-80 % HRmax, continuous), starting at the jog speed or
- * where the heart rate settled in the last such run, between the walking speed and the jog speed + 1 km/h (or 75 % of
- * the MAS). Shorter runs keep the jog speed (never faster) with the heart-rate ceiling: their zone is 60-85 % HRmax, so
+ * **Heart rate**: runs of 6 min or more are guided in zone 3 (70-80 % of the heart-rate reserve, see
+ * [ProgramGenerators.reserveZone]; continuous), starting at the jog speed or where the heart rate settled in the last
+ * such run, between a slow jog (walking speed + [MIN_JOG_ABOVE_WALK_KMH]; they stay runs) and the jog speed + 1 km/h
+ * (or 75 % of the MAS). Shorter runs keep the jog speed (never faster) with the heart-rate ceiling: their zone is 60-85 % HRmax, so
  * the speed only comes down when the heart rate goes above 85 % (or above the ceiling, 85 % + 8 bpm), at most to the
  * walking speed. Both give the heart rate at the end of every run in the session record.
  */
@@ -101,6 +105,9 @@ object CouchToFiveK : ProgramGenerator {
     const val JOG_MAS_FRACTION = 0.625
     const val CONTINUOUS_RUN_SECONDS = 360
 
+    /** The slowest jog: the walking speed plus this. Also the lowest speed of a continuous guided run. */
+    const val MIN_JOG_ABOVE_WALK_KMH = 0.5
+
     override val descriptor = GeneratorDescriptor(
         id = ID,
         version = 1,
@@ -113,7 +120,6 @@ object CouchToFiveK : ProgramGenerator {
 
     private const val HOUR_MS = 3_600_000L
     private const val DAY_MS = 86_400_000L
-    private val ZONE_3 = HeartRateZones.STANDARD[2]
     private val SHORT_RUN_ZONE = HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 85)
 
     // ------------------------------------------------------------------ sessions
@@ -234,7 +240,9 @@ object CouchToFiveK : ProgramGenerator {
 
     private fun isHard(runs: List<SessionBlockRecord>, maxBpm: Int): Boolean = runs.any { b ->
         val end = b.endHeartRateBpm
-        (end != null && end >= HARD_END_HEART_RATE_FRACTION * maxBpm) || (b.heartRate?.safetyReductions ?: 0) > 0
+        val hr = b.heartRate
+        val inContinuousZone = end != null && hr != null && hr.mode == HeartRateControlMode.Continuous && end <= hr.zoneHighBpm
+        (end != null && end >= HARD_END_HEART_RATE_FRACTION * maxBpm && !inContinuousZone) || (hr?.safetyReductions ?: 0) > 0
     }
 
     /** The week the app suggests from the VO2max category for the age and sex: Poor/Fair 1, Good 2, Excellent 3, Superior 4. */
@@ -281,7 +289,8 @@ object CouchToFiveK : ProgramGenerator {
         val sel = nextSession(request.history, request.nowMillis, request.startWeek, g.refs.maxHeartRateBpm, suggested)
         val walk = g.walkingSpeed
         val base = max(IntensityTranslator.MIN_RUNNING_SPEED_KMH, JOG_MAS_FRACTION * g.factor * g.refs.masKmh)
-        val jog = Generation.clampSpeed(max(base * (1 + request.jogSpeedAdjustmentPercent / 100.0), walk + 0.5))
+        val jog = Generation.clampSpeed(max(base * (1 + request.jogSpeedAdjustmentPercent / 100.0), walk + MIN_JOG_ABOVE_WALK_KMH))
+        val zone3 by lazy { g.reserveZone(70, 80) }
         val settled = settledRunSpeed(request.history, request.nowMillis)?.let { Generation.clampSpeed(it) }
 
         if (sel.recentSessionWarning) {
@@ -313,8 +322,8 @@ object CouchToFiveK : ProgramGenerator {
                 Block(
                     BlockPhase.Work, BlockEnd.Duration(seg.seconds),
                     BlockTarget.HeartRate(
-                        ZONE_3, HeartRateAdjust.Speed,
-                        minimum = min(walk, start),
+                        zone3, HeartRateAdjust.Speed,
+                        minimum = Generation.clampSpeed(min(walk + MIN_JOG_ABOVE_WALK_KMH, start)),
                         maximum = Generation.clampSpeed(max(start, max(jog + 1.0, 0.75 * g.refs.masKmh))),
                         start = BlockTarget.Absolute(start, inc),
                     ),

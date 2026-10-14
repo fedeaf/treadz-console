@@ -73,8 +73,9 @@ fun hrSummary(
     settled: Double? = null,
     end: Double? = null,
     safetyReductions: Int = 0,
+    zoneHighBpm: Int = 126,
 ) = HeartRateBlockSummary(
-    blockIndex = blockIndex, adjust = adjust, mode = mode, zoneLowBpm = 108, zoneHighBpm = 126,
+    blockIndex = blockIndex, adjust = adjust, mode = mode, zoneLowBpm = 108, zoneHighBpm = zoneHighBpm,
     startValue = 6.0, initialValue = 6.0, endValue = 6.0, settledValue = settled, secondsInZone = 300,
     meanHeartRateBpm = 118.0, endHeartRateBpm = end, adjustments = 2, safetyReductions = safetyReductions,
     manualOverride = false, secondsWithoutHeartRate = 0, source = null,

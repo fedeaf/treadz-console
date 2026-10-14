@@ -90,11 +90,19 @@ class CouchToFiveKTest {
         val run = g.program.steps[1] as Block
         assertEquals(BlockEnd.Duration(1200), run.end)
         val t = run.target as BlockTarget.HeartRate
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 70, 80), t.zone)
+        // No resting heart rate: 70-80 % of the reserve as 80-87 % of the maximum.
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 80, 87), t.zone)
         assertEquals(HeartRateAdjust.Speed, t.adjust)
         assertEquals(BlockTarget.Absolute(7.5, 1.0), t.start)
-        assertEquals(5.0, t.minimum)
+        // The slowest jog (walking 5.0 + 0.5): a run never turns into a walk.
+        assertEquals(5.5, t.minimum)
         assertEquals(9.0, t.maximum)
+        assertTrue(g.notices.any { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${g.notices}")
+
+        val rested = CouchToFiveK.generate(request(profile = measuredProfile(restingBpm = 55), history = listOf(c25kRecord(14, NOW - 2 * DAY - HOUR))))
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 70, 80), ((rested.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
+        // Sessions without continuous runs do not need the resting heart rate.
+        assertTrue(CouchToFiveK.generate(request()).notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing })
     }
 
     @Test
@@ -169,6 +177,19 @@ class CouchToFiveKTest {
         // The record's own maximum is used when it has one.
         val own = c25kRecord(4, NOW - 3 * DAY, endHr = 153.0).copy(maxHeartRateBpm = 190)
         assertEquals(Advance, next(listOf(own)).decision)
+    }
+
+    @Test
+    fun `a continuous run ending inside its zone is not too hard, even above 85 percent`() {
+        fun continuous(end: Double, zoneHigh: Int) = sessionRecord(CouchToFiveK.ID, mapOf("session" to "15", "mode" to "run"), NOW - 3 * DAY, listOf(
+            blockRecord(0, "0", BlockPhase.WarmUp, speed = 5.0),
+            blockRecord(1, "1", BlockPhase.Work, endHr = end, heartRate = hrSummary(1, end = end, zoneHighBpm = zoneHigh)),
+            blockRecord(2, "2", BlockPhase.CoolDown, speed = 5.0),
+        ))
+        // 155 bpm >= 85 % of 180 (153), inside a 143-158 zone: advance.
+        assertEquals(Advance, next(listOf(continuous(155.0, 158))).decision)
+        // Above the zone: too hard.
+        assertEquals(RepeatHardEffort, next(listOf(continuous(155.0, 150))).decision)
     }
 
     @Test

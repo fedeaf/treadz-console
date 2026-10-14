@@ -85,10 +85,11 @@ class GeneratorsTest {
         assertEquals(BlockEnd.Duration(300), (steps[2] as Block).end)
         assertEquals(2700, g.totalDurationSeconds)
         val t = hr(steps[1])
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70), t.zone)
+        // No resting heart rate: 60-70 % of the reserve as 73-80 % of the maximum.
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 73, 80), t.zone)
         assertEquals(HeartRateAdjust.Speed, t.adjust)
-        // 43 % VO2max at a MAS of 12 is 4.5 km/h: raised to the 6 km/h running floor.
-        assertEquals(BlockTarget.Absolute(6.0, 1.0), t.start)
+        // Middle of 131-144 bpm = 76.4 % HRmax -> 60.7 % VO2max -> (25.48 - 3.5) / 38.5 * 12 = 6.9 km/h.
+        assertEquals(BlockTarget.Absolute(6.9, 1.0), t.start)
         assertEquals(5.0, t.minimum)
         assertEquals(9.0, t.maximum)
         assertEquals(BlockTarget.Absolute(6.0, 1.0), abs(steps[0] as Block))
@@ -104,8 +105,8 @@ class GeneratorsTest {
         val g = ProgramGenerators.generate("zone2", request(mode = ExerciseMode.Walk, durationMinutes = 20, walkingSpeedKmh = 5.0))
         val t = hr(g.program.steps[1])
         assertEquals(HeartRateAdjust.Incline, t.adjust)
-        // 43.04 % of 42 = 18.08: (18.08 - 11.83) / 150 = 4.2 %
-        assertEquals(BlockTarget.Absolute(5.0, 4.0), t.start)
+        // 60.66 % of 42 = 25.48: (25.48 - 8.33 - 3.5) / 150 = 9.1 %
+        assertEquals(BlockTarget.Absolute(5.0, 9.0), t.start)
         assertEquals(0.0, t.minimum)
         assertEquals(15.0, t.maximum)
         assertEquals(1200, g.totalDurationSeconds)
@@ -148,7 +149,7 @@ class GeneratorsTest {
         // Too old: ignored.
         val old = run.copy(startedAtMillis = NOW - 100 * DAY, endedAtMillis = NOW - 100 * DAY)
         val g2 = ProgramGenerators.generate("zone2", request(history = listOf(old)))
-        assertEquals(BlockTarget.Absolute(6.0, 1.0), hr(g2.program.steps[1]).start)
+        assertEquals(BlockTarget.Absolute(6.9, 1.0), hr(g2.program.steps[1]).start)
     }
 
     @Test
@@ -212,7 +213,7 @@ class GeneratorsTest {
         val work = rep.blocks[0]
         assertEquals(BlockEnd.Duration(600), work.end)
         val t = hr(work)
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 80, 90), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 87, 93), t.zone)
         assertEquals(BlockTarget.Absolute(10.1, 1.0), t.start)
         assertEquals(8.4, t.minimum)
         assertEquals(11.0, t.maximum)
@@ -275,9 +276,54 @@ class GeneratorsTest {
     fun `intervals 30-30 walk - same incline, brisk and slow speeds`() {
         val g = ProgramGenerators.generate("intervals-30-30", request(mode = ExerciseMode.Walk, walkingSpeedKmh = 5.0))
         val rep = g.program.steps[1] as Repeat
-        // 1.025 * 42 = 43.05 at 6.5 km/h: (43.05 - 3.5 - 10.83) / 195 = 14.7 %
-        assertEquals(BlockTarget.Absolute(6.5, 15.0), abs(rep.blocks[0]))
-        assertEquals(BlockTarget.Absolute(3.5, 15.0), abs(rep.blocks[1]))
+        // 1.025 * 42 = 43.05 needs 14.7 % at 6.5 km/h: the set is limited to 8 % (and 6.5 km/h), so it is capped.
+        assertEquals(BlockTarget.Absolute(6.5, 8.0), abs(rep.blocks[0]))
+        assertEquals(BlockTarget.Absolute(3.5, 8.0), abs(rep.blocks[1]))
+        assertTrue(g.notices.any { it.code == GeneratorNoticeCode.WalkingTargetCapped }, "${g.notices}")
+        // A less fit walker reaches the intensity below 8 % at the brisk speed.
+        val unfit = measuredProfile().copy(fitnessProfile = measuredFitness(vo2max = 24.0, mas = 7.0))
+        val easy = ProgramGenerators.generate("intervals-30-30", request(profile = unfit, mode = ExerciseMode.Walk, walkingSpeedKmh = 5.0))
+        val easyRep = easy.program.steps[1] as Repeat
+        // 1.025 * 24 = 24.6 at 6.5 km/h: (24.6 - 3.5 - 10.83) / 195 = 5.3 %
+        assertEquals(BlockTarget.Absolute(6.5, 5.0), abs(easyRep.blocks[0]))
+        assertTrue(easy.notices.none { it.code == GeneratorNoticeCode.WalkingTargetCapped }, "${easy.notices}")
+    }
+
+    // ------------------------------------------------------------------ heart-rate reserve (Karvonen)
+
+    @Test
+    fun `reserve zones without a resting heart rate become the equivalent percent of the maximum`() {
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 73, 80), ProgramGenerators.reserveZone(60, 70, null))
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 80, 87), ProgramGenerators.reserveZone(70, 80, null))
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 87, 93), ProgramGenerators.reserveZone(80, 90, null))
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 60, 70), ProgramGenerators.reserveZone(60, 70, 55))
+    }
+
+    @Test
+    fun `with a resting heart rate zone 2 and tempo use the heart-rate reserve`() {
+        val rested = request(profile = measuredProfile(restingBpm = 55), durationMinutes = 45)
+        val z2 = ProgramGenerators.generate("zone2", rested)
+        val t = hr(z2.program.steps[1])
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 60, 70), t.zone)
+        // 130-143 bpm, middle 136.5 = 65.2 % of the reserve -> 28.6 ml/kg/min -> 25.1 / 38.5 * 12 = 7.8 km/h.
+        assertEquals(BlockTarget.Absolute(7.8, 1.0), t.start)
+        assertTrue(z2.notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${z2.notices}")
+        assertEquals("heartRateReserve", z2.program.origin!!.inputs["heartRateZoneBasis"])
+        assertTrue(z2.program.description!!.contains("60-70 % of the heart-rate reserve"), z2.program.description)
+
+        val tempo = ProgramGenerators.generate("tempo", rested)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 80, 90), hr((tempo.program.steps[1] as Repeat).blocks[0]).zone)
+    }
+
+    @Test
+    fun `without a resting heart rate the UI is told, but not for zones defined on the maximum`() {
+        val z2 = ProgramGenerators.generate("zone2", request())
+        assertTrue(z2.notices.any { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${z2.notices}")
+        assertEquals("maxHeartRate", z2.program.origin!!.inputs["heartRateZoneBasis"])
+        assertTrue(z2.program.description!!.contains("73-80 % of the maximum heart rate"), z2.program.description)
+        val x4 = ProgramGenerators.generate("norwegian-4x4", request())
+        assertTrue(x4.notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${x4.notices}")
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 85, 95), hr((x4.program.steps[1] as Repeat).blocks[0]).zone)
     }
 
     // ------------------------------------------------------------------ naming and inputs

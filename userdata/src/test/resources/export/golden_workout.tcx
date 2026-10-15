@@ -182,7 +182,7 @@
     </Activity>
   </Activities>
   <Author xsi:type="Application_t">
-    <Name>TreadZ Console</Name>
+    <Name>TreadZ</Name>
     <Build>
       <Version>
         <VersionMajor>0</VersionMajor>

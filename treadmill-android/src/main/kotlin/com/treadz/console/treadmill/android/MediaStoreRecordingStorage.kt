@@ -12,7 +12,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 /**
- * Stores the recordings in the public `Download/TreadZConsole/` folder through MediaStore
+ * Stores the recordings in the public `Download/TreadZ/` folder through MediaStore
  * (no storage permissions on Android 13+). The files are visible from the start (`IS_PENDING`
  * is not used, since it would hide them and expire them if the app dies mid-session) and every line
  * is handed to the system as it is written: an unexpected shutdown does not lose what was recorded.
@@ -87,7 +87,7 @@ class MediaStoreRecordingStorage(context: Context) : RecordingStorage {
     }
 
     companion object {
-        const val RELATIVE_PATH = "Download/TreadZConsole"
+        const val RELATIVE_PATH = "Download/TreadZ"
         private const val EXTENSION = ".jsonl"
         private const val MAX_ATTEMPTS = 5
     }

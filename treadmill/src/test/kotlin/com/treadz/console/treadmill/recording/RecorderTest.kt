@@ -108,7 +108,7 @@ class RecorderTest {
         assertEquals(JsonlWorkoutRecorder.FORMAT_VERSION.toLong(), header["version"])
         @Suppress("UNCHECKED_CAST")
         val app = header["app"] as Map<String, Any?>
-        assertEquals("TreadZ Console", app["name"])
+        assertEquals("TreadZ", app["name"])
         @Suppress("UNCHECKED_CAST")
         val device = header["device"] as Map<String, Any?>
         assertEquals("ChangYow", device["manufacturer"])
@@ -426,14 +426,14 @@ class RecorderTest {
 
     @Test
     fun `DirectoryRecordingStorage writes complete lines and can be read back`(@TempDir dir: File) {
-        val storage = DirectoryRecordingStorage(File(dir, "TreadZConsole"))
+        val storage = DirectoryRecordingStorage(File(dir, "TreadZ"))
         assertFalse(storage.exists("treadz_20261007_183000.jsonl"))
         val f = storage.create("treadz_20261007_183000.jsonl")
         f.appendLine("""{"t":1,"type":"header"}""")
         f.appendLine("""{"t":2,"type":"end"}""")
         f.sync()
         // Not closed yet: the content is already in the file
-        val file = File(dir, "TreadZConsole/treadz_20261007_183000.jsonl")
+        val file = File(dir, "TreadZ/treadz_20261007_183000.jsonl")
         assertEquals(2, RecordingReader.read(file).records.size)
         f.close()
         assertTrue(storage.exists("treadz_20261007_183000.jsonl"))

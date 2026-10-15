@@ -51,7 +51,7 @@ data class SavedExport(
     /** Actual file name (it can differ from the wanted one by a `_2`, `_3`... suffix if the name was taken). */
     val fileName: String,
     val format: ExportFormat,
-    /** Human readable location for a message, e.g. `Download/TreadZConsole/treadz_workout_20261007_134500.csv`. */
+    /** Human readable location for a message, e.g. `Download/TreadZ/treadz_workout_20261007_134500.csv`. */
     val location: String,
     /** String form of the content Uri, usable without Android classes (tests, fakes). */
     val uriString: String,

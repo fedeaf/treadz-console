@@ -413,7 +413,7 @@ class SettingsUiTest {
 
     @Test fun theLastRecordingCanBeShared() {
         val info = RecordingInfo("treadz_20261007_183000.jsonl", 1_000L)
-        app.recorder.status.value = RecordingStatus.Saved(info, "Download/TreadZConsole/treadz_20261007_183000.jsonl")
+        app.recorder.status.value = RecordingStatus.Saved(info, "Download/TreadZ/treadz_20261007_183000.jsonl")
         show(Screen.Settings)
         click("share_last_recording")
         assertEquals("treadz_20261007_183000.jsonl", shared)

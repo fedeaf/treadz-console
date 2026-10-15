@@ -24,7 +24,7 @@ import java.util.Locale
  *     is ExportResult.Failure -> showError(r.error)                           // stable code, the UI translates it
  * }
  * ```
- * [save] writes into `Download/TreadZConsole/` and returns the content Uri. To only generate the bytes (tests, custom
+ * [save] writes into `Download/TreadZ/` and returns the content Uri. To only generate the bytes (tests, custom
  * destination) use [render], which is pure and runs on the JVM.
  *
  * ## Rules (both formats)
@@ -131,7 +131,7 @@ class WorkoutExporter(
     companion object {
         private val FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.ROOT)
 
-        /** The real exporter: saves into `Download/TreadZConsole/` through MediaStore (no permissions needed). */
+        /** The real exporter: saves into `Download/TreadZ/` through MediaStore (no permissions needed). */
         fun create(context: Context, appVersion: String): WorkoutExporter =
             WorkoutExporter(appVersion, MediaStoreExportStorage(context))
     }

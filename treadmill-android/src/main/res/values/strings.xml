@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Foreground service notification. Prefixed to avoid clashing with the app's resources. -->
-    <string name="treadz_service_title">TreadZ Console</string>
+    <string name="treadz_service_title">TreadZ</string>
     <string name="treadz_service_channel">Treadmill connection</string>
     <string name="treadz_service_connection_lost_stopped">Connection lost: the treadmill has stopped by itself</string>
     <string name="treadz_service_connection_lost">Connection lost</string>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">TreadZ Console</string>
+    <string name="app_name">TreadZ</string>
 
     <!-- Connection state -->
     <string name="conn_disconnected">Not connected</string>
@@ -86,7 +86,7 @@
 
     <!-- Permissions -->
     <string name="perm_title">Bluetooth permission needed</string>
-    <string name="perm_body">TreadZ Console needs to find nearby devices and connect to them to talk to your treadmill. It is only used for that.</string>
+    <string name="perm_body">TreadZ needs to find nearby devices and connect to them to talk to your treadmill. It is only used for that.</string>
     <string name="perm_grant">Grant permission</string>
     <string name="perm_denied_title">Bluetooth permission denied</string>
     <string name="perm_denied_body">Without this permission the app cannot find or connect to the treadmill. You can try again, or allow it in the system settings.</string>
@@ -313,7 +313,7 @@
     <string name="export_csv_hint">For a spreadsheet or analysis on a PC</string>
     <string name="export_tcx">TCX</string>
     <string name="export_tcx_hint">For Strava or Garmin Connect</string>
-    <string name="export_saved">Also saved in Download/TreadZConsole/ as %1$s</string>
+    <string name="export_saved">Also saved in Download/TreadZ/ as %1$s</string>
     <string name="export_share_again">Share</string>
     <string name="export_dismiss">Close</string>
     <string name="export_exporting">Preparing the file…</string>
@@ -425,7 +425,8 @@
     <string name="settings_perm_help">Something is missing. You can allow it in the app settings.</string>
     <string name="settings_about_title">About</string>
     <string name="settings_about_version">Version %1$s</string>
-    <string name="settings_recordings_body">Every session is recorded for debugging in the Downloads folder, inside TreadZConsole.</string>
+    <string name="settings_about_license">Free software under the GNU General Public License, version 3 or later. Source code: github.com/fedeaf/treadz-console</string>
+    <string name="settings_recordings_body">Every session is recorded for debugging in the Downloads folder, inside TreadZ.</string>
     <string name="settings_recordings_open">Open Downloads</string>
     <string name="settings_recordings_share">Share last recording</string>
 

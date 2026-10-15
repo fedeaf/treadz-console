@@ -36,7 +36,7 @@ internal class AndroidBackend(context: Context) {
         storage = MediaStoreRecordingStorage(appContext),
         clock = Clock.System,
         config = RecorderConfig(
-            appName = "TreadZ Console",
+            appName = "TreadZ",
             appVersion = appVersion(),
             phoneModel = "${Build.MANUFACTURER} ${Build.MODEL}",
             androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",

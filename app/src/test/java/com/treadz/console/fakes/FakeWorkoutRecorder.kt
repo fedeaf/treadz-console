@@ -13,7 +13,7 @@ class FakeWorkoutRecorder : WorkoutRecorder {
     }
 
     fun showSaved() {
-        status.value = RecordingStatus.Saved(INFO, "Download/TreadZConsole/${INFO.fileName}")
+        status.value = RecordingStatus.Saved(INFO, "Download/TreadZ/${INFO.fileName}")
     }
 
     fun showFailed(reason: String = "No space left on device") {

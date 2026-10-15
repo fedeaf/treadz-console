@@ -1,8 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.roborazzi)
 }
+
+// Release signing comes from a properties file kept outside the repository (storeFile, storePassword, keyAlias,
+// keyPassword). Its path is the TREADZ_SIGNING_PROPERTIES environment variable or, by default,
+// ~/.config/treadz-console/release-signing.properties. Without it the release build is left unsigned.
+val signingProperties: Properties? = (
+    System.getenv("TREADZ_SIGNING_PROPERTIES")
+        ?: "${System.getProperty("user.home")}/.config/treadz-console/release-signing.properties"
+    ).let(::file).takeIf { it.isFile }?.let { f -> Properties().apply { f.inputStream().use(::load) } }
 
 android {
     namespace = "com.treadz.console"
@@ -12,13 +22,25 @@ android {
         applicationId = "com.treadz.console"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        if (signingProperties != null) {
+            create("release") {
+                storeFile = file(signingProperties.getProperty("storeFile"))
+                storePassword = signingProperties.getProperty("storePassword")
+                keyAlias = signingProperties.getProperty("keyAlias")
+                keyPassword = signingProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

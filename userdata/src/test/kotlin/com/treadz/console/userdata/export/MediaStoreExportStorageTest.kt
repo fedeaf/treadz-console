@@ -117,15 +117,15 @@ class MediaStoreExportStorageTest {
 
     private fun contentOf(saved: SavedExport) = FakeMediaProvider.rows.getValue(ContentUris.parseId(saved.uri)).file.readBytes()
 
-    @Test fun `saves into the TreadZConsole download folder and returns the content uri`() {
+    @Test fun `saves into the TreadZ download folder and returns the content uri`() {
         val bytes = "a,b\n1,2\n".toByteArray()
         val saved = storage.save("treadz_workout_20261007_120000.csv", ExportFormat.Csv, bytes)
         assertEquals("treadz_workout_20261007_120000.csv", saved.fileName)
-        assertEquals("Download/TreadZConsole/treadz_workout_20261007_120000.csv", saved.location)
+        assertEquals("Download/TreadZ/treadz_workout_20261007_120000.csv", saved.location)
         assertEquals("content", saved.uri.scheme)
         assertArrayEquals(bytes, contentOf(saved))
         val row = FakeMediaProvider.rows.values.single()
-        assertEquals("Download/TreadZConsole/", row.path)
+        assertEquals("Download/TreadZ/", row.path)
         assertEquals("text/csv", row.mime)
         assertEquals("the file is visible once written", 0, row.pending)
     }

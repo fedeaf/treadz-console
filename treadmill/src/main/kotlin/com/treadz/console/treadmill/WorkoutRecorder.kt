@@ -23,7 +23,7 @@ sealed interface RecordingStatus {
     data object Idle : RecordingStatus
     data class Recording(val info: RecordingInfo) : RecordingStatus
 
-    /** Session finished and saved. [location] is the path shown to the user (e.g. `Download/TreadZConsole/…`). */
+    /** Session finished and saved. [location] is the path shown to the user (e.g. `Download/TreadZ/…`). */
     data class Saved(val info: RecordingInfo, val location: String) : RecordingStatus
     data class Failed(val reason: String) : RecordingStatus
 }

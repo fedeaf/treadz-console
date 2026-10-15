@@ -4,9 +4,9 @@ package com.treadz.console.sync.format
 internal object RepositoryReadme {
 
     val TEXT = """
-# TreadZ Console data
+# TreadZ data
 
-Data of the [TreadZ Console](https://github.com/fedeaf/treadz-console) app, synchronised between the devices that
+Data of the [TreadZ](https://github.com/fedeaf/treadz-console) app, synchronised between the devices that
 use this repository. The app writes here; you can read (and analyse) everything with plain `git`.
 Format version: 1.
 

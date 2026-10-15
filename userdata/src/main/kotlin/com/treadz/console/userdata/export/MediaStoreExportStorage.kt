@@ -8,7 +8,7 @@ import android.provider.MediaStore
 import java.io.IOException
 
 /**
- * Saves exports in the public `Download/TreadZConsole/` folder through MediaStore (no storage permissions on
+ * Saves exports in the public `Download/TreadZ/` folder through MediaStore (no storage permissions on
  * Android 13+), the same folder as the debug recordings.
  *
  * - The file stays hidden (`IS_PENDING`) until it is completely written, so nobody sees a half-written export.
@@ -93,7 +93,7 @@ class MediaStoreExportStorage(context: Context) : ExportStorage {
     }
 
     companion object {
-        const val RELATIVE_PATH = "Download/TreadZConsole"
+        const val RELATIVE_PATH = "Download/TreadZ"
         private const val MAX_ATTEMPTS = 5
     }
 }

@@ -266,7 +266,7 @@ class RestGitHubClient(
 
     private companion object {
         const val API_VERSION = "2022-11-28"
-        const val USER_AGENT = "TreadZConsole-Sync"
+        const val USER_AGENT = "TreadZ-Sync"
         const val PAGE_SIZE = 100
         const val MAX_REPO_PAGES = 10
     }

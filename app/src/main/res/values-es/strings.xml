@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">TreadZ Console</string>
+    <string name="app_name">TreadZ</string>
 
     <!-- Connection state -->
     <string name="conn_disconnected">Sin conexión</string>
@@ -86,7 +86,7 @@
 
     <!-- Permissions -->
     <string name="perm_title">Se necesita permiso de Bluetooth</string>
-    <string name="perm_body">TreadZ Console necesita buscar dispositivos cercanos y conectarse a ellos para hablar con tu cinta. Solo se usa para eso.</string>
+    <string name="perm_body">TreadZ necesita buscar dispositivos cercanos y conectarse a ellos para hablar con tu cinta. Solo se usa para eso.</string>
     <string name="perm_grant">Conceder permiso</string>
     <string name="perm_denied_title">Permiso de Bluetooth denegado</string>
     <string name="perm_denied_body">Sin este permiso la app no puede buscar ni conectarse a la cinta. Puedes intentarlo de nuevo o permitirlo en los ajustes del sistema.</string>
@@ -313,7 +313,7 @@
     <string name="export_csv_hint">Para una hoja de cálculo o para analizarlo en el PC</string>
     <string name="export_tcx">TCX</string>
     <string name="export_tcx_hint">Para Strava o Garmin Connect</string>
-    <string name="export_saved">Guardado también en Download/TreadZConsole/ como %1$s</string>
+    <string name="export_saved">Guardado también en Download/TreadZ/ como %1$s</string>
     <string name="export_share_again">Compartir</string>
     <string name="export_dismiss">Cerrar</string>
     <string name="export_exporting">Preparando el archivo…</string>
@@ -425,7 +425,8 @@
     <string name="settings_perm_help">Falta algún permiso. Puedes permitirlo en los ajustes de la app.</string>
     <string name="settings_about_title">Acerca de</string>
     <string name="settings_about_version">Versión %1$s</string>
-    <string name="settings_recordings_body">Cada sesión se graba para depuración en la carpeta Descargas, dentro de TreadZConsole.</string>
+    <string name="settings_about_license">Software libre bajo la Licencia Pública General de GNU, versión 3 o posterior. Código fuente: github.com/fedeaf/treadz-console</string>
+    <string name="settings_recordings_body">Cada sesión se graba para depuración en la carpeta Descargas, dentro de TreadZ.</string>
     <string name="settings_recordings_open">Abrir Descargas</string>
     <string name="settings_recordings_share">Compartir la última grabación</string>
 

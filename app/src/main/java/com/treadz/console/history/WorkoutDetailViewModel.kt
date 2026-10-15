@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 
 /** What the last export left to tell the user. */
 sealed interface ExportNotice {
-    /** The file was saved (it is in Download/TreadZConsole/) and the share sheet was opened. */
+    /** The file was saved (it is in Download/TreadZ/) and the share sheet was opened. */
     data class Saved(val export: SavedExport) : ExportNotice
 
     data class Failed(val error: ExportError) : ExportNotice

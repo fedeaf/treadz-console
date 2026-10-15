@@ -6,7 +6,7 @@ import java.io.IOException
 
 /**
  * Storage for the recordings, independent of the logic deciding what to record.
- * On Android it is implemented with MediaStore (public `Download/TreadZConsole/` folder); on the PC, a folder.
+ * On Android it is implemented with MediaStore (public `Download/TreadZ/` folder); on the PC, a folder.
  */
 interface RecordingStorage {
     /** `true` if a file with that name already exists (so it is not overwritten and the system does not add spaces to it). */
@@ -18,7 +18,7 @@ interface RecordingStorage {
 }
 
 interface RecordingFile {
-    /** Path shown to the user (e.g. `Download/TreadZConsole/treadz_20261007_183000.jsonl`). */
+    /** Path shown to the user (e.g. `Download/TreadZ/treadz_20261007_183000.jsonl`). */
     val location: String
 
     /** Appends a line (without the line break) and hands it to the operating system: an app shutdown does not lose it. */

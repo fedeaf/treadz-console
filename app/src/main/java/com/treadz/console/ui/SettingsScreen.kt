@@ -263,6 +263,12 @@ private fun AboutSection(versionName: String, actions: SettingsActions) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            stringResource(R.string.settings_about_license),
+            Modifier.testTag("about_license"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(stringResource(R.string.settings_recordings_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         BigOutlinedButton(
             stringResource(R.string.settings_recordings_open),

@@ -14,6 +14,6 @@ class InMemoryExportStorage : ExportStorage {
     }
 
     companion object {
-        const val RELATIVE_PATH = "Download/TreadZConsole"
+        const val RELATIVE_PATH = "Download/TreadZ"
     }
 }

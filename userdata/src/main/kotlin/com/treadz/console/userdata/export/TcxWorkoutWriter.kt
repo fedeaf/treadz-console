@@ -23,7 +23,7 @@ internal object TcxWorkoutWriter {
     private const val NS_XSI = "http://www.w3.org/2001/XMLSchema-instance"
     private const val NS_TPX = "http://www.garmin.com/xmlschemas/ActivityExtension/v2"
     private const val SCHEMA_LOCATION = "$NS http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"
-    private const val APP_NAME = "TreadZ Console"
+    private const val APP_NAME = "TreadZ"
 
     /** HeartRateInBeatsPerMinute_t accepts 1..255. */
     private val VALID_HEART_RATE = 1..255

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="treadz_service_title">TreadZ Console</string>
+    <string name="treadz_service_title">TreadZ</string>
     <string name="treadz_service_channel">Conexión con la cinta</string>
     <string name="treadz_service_connection_lost_stopped">Conexión perdida: la cinta se ha parado sola</string>
     <string name="treadz_service_connection_lost">Conexión perdida</string>

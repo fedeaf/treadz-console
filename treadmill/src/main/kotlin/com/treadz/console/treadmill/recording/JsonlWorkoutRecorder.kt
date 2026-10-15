@@ -17,7 +17,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 data class RecorderConfig(
-    val appName: String = "TreadZ Console",
+    val appName: String = "TreadZ",
     val appVersion: String = "dev",
     /** Phone/tablet model (e.g. `Build.MODEL`), to know which device made the recording. */
     val phoneModel: String? = null,

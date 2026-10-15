@@ -262,7 +262,7 @@ class WorkoutExporterTest {
             (WorkoutExporter("1.22.3-debug", InMemoryExportStorage(), ZoneOffset.UTC).render(goldenDetail(), ExportFormat.Tcx) as ExportResult.Success).value.content,
             Charsets.UTF_8,
         )
-        assertTrue("<Name>TreadZ Console</Name>" in xml)
+        assertTrue("<Name>TreadZ</Name>" in xml)
         assertTrue("<VersionMajor>1</VersionMajor>" in xml)
         assertTrue("<VersionMinor>22</VersionMinor>" in xml)
         assertTrue("<BuildMajor>3</BuildMajor>" in xml)
@@ -336,7 +336,7 @@ class WorkoutExporterTest {
         val e = WorkoutExporter("0.1.0", storage, ZoneOffset.UTC)
         val r = e.save(goldenDetail(), ExportFormat.Tcx) as ExportResult.Success
         assertEquals("treadz_workout_20261007_120000.tcx", r.value.fileName)
-        assertEquals("Download/TreadZConsole/treadz_workout_20261007_120000.tcx", r.value.location)
+        assertEquals("Download/TreadZ/treadz_workout_20261007_120000.tcx", r.value.location)
         assertArrayEquals(render(goldenDetail(), ExportFormat.Tcx).content, storage.files.getValue(r.value.fileName))
     }
 

@@ -106,6 +106,22 @@ class TrainingFlowsUiTest {
         assertTrue(exists("start_button") || exists("home_screen"))
     }
 
+    @Test fun aStoppedProgramCanBeDiscardedWhileTheBeltSlowsDown() {
+        idleBelt()
+        show(Screen.Programs, Screen.ProgramStart("standard-intervals"))
+        click("start_program_button")
+        rig.advance(200)
+        click("stop_button")
+        rig.advance(200)
+        // The belt is still slowing down after the STOP.
+        app.controller.showState { it.copy(status = BeltStatus.Idle, speedKmh = 3.0) }
+        rig.advance(100)
+        rule.waitForIdle()
+        rule.onNodeWithTag("discard_button").assertIsDisplayed()
+        rule.onNodeWithTag("done_button").assertIsDisplayed()
+        rule.onNodeWithTag("stop_button").assertIsDisplayed()
+    }
+
     @Test fun theStepButtonsDuringAProgramMarkAManualChange() {
         idleBelt()
         show(Screen.Programs, Screen.ProgramStart("standard-pyramid"))

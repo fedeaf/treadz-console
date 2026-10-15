@@ -7,6 +7,7 @@ import com.treadz.console.treadmill.CommandResult
 data class FitnessSubject(
     val ageYears: Int,
     val sex: Sex,
+    /** Not used by the walking heart-rate test, which accepts 0 (unknown). */
     val weightKg: Double,
     val hrMaxBpm: Int,
 )
@@ -131,6 +132,12 @@ data class FitnessTestProgress(
     val heartRateBandHighBpm: Int? = null,
     /** Ebbeling: the safety stop limit (85 % of the user's maximum). */
     val heartRateLimitBpm: Int? = null,
+    /**
+     * Speed and incline may be changed with the app's controls without spoiling the test: the cool-down. They go through
+     * [FitnessTestRunner.adjustByHand]. (The console buttons are also accepted in the walking test's warm-up, where the
+     * app offers the ramp start instead.)
+     */
+    val manualChangesAllowed: Boolean = false,
     /** Ebbeling: the speed will not change any more (nor can the user change it: from here a change invalidates the test). */
     val speedLocked: Boolean = false,
     /** Ebbeling stage 2. */

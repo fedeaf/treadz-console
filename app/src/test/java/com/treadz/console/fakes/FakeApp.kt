@@ -2,6 +2,7 @@ package com.treadz.console.fakes
 
 import android.content.Intent
 import com.treadz.console.AppDependencies
+import com.treadz.console.mainViewModel
 import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
 import com.treadz.console.programs.engine.ProgramRunner
@@ -96,7 +97,8 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
-    val viewModel: MainViewModel by lazy { MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, mainClock) }
+    /** Built like the activity builds it. */
+    val viewModel: MainViewModel by lazy { mainViewModel(mainClock) }
 
     /** A new navigation state, as when the app opens (create it after setting up the profiles). */
     fun newNavigation(): NavigationViewModel = NavigationViewModel(userData.profiles)

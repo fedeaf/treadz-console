@@ -5,6 +5,7 @@ import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.ControllerObserver
 import com.treadz.console.treadmill.control.Rig
 import com.treadz.console.treadmill.control.T0
@@ -14,6 +15,7 @@ import com.treadz.console.treadmill.simulator.SimulatedTreadmill
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -80,8 +82,8 @@ class RecorderTest {
         assertFalse(' ' in recording.info.fileName)
         assertEquals(1, rig.storage.fileNames.size)
 
-        assertEquals(CommandResult.Success, rig.controller.setSpeed(3.0))
-        assertEquals(CommandResult.Success, rig.controller.setIncline(4.0))
+        assertEquals(CommandResult.Success, withContext(CommandOrigin.App) { rig.controller.setSpeed(3.0) })
+        assertEquals(CommandResult.Success, withContext(CommandOrigin.HeartRateControl) { rig.controller.setIncline(4.0) })
         delay(8_000)
         // Incremental writing: there are already complete, valid lines in the file while the session is open
         val midway = rig.storage.parsed(recording.info.fileName)
@@ -89,7 +91,7 @@ class RecorderTest {
         assertFalse(rig.storage.isClosed(recording.info.fileName))
         assertTrue(rig.recorder.status.value is RecordingStatus.Recording)
 
-        assertEquals(CommandResult.Success, rig.controller.stop())
+        assertEquals(CommandResult.Success, withContext(CommandOrigin.Notification) { rig.controller.stop() })
         delay(8_000)
 
         val saved = rig.recorder.status.value as RecordingStatus.Saved
@@ -152,6 +154,11 @@ class RecorderTest {
         assertEquals(
             listOf("start", "setSpeed", "setIncline", "stop"),
             session.ofType("command").map { it["name"] }.filter { it != "requestControl" },
+        )
+        // Who issued each command, when the caller said so.
+        assertEquals(
+            listOf(null, "app", "hr_control", "notification"),
+            session.ofType("command").filter { it["name"] != "requestControl" }.map { it["origin"] },
         )
         assertEquals(
             listOf("Success", "Success", "Success", "Success"),

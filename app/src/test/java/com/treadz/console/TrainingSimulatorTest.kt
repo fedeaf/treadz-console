@@ -27,6 +27,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,6 +99,15 @@ class TrainingSimulatorTest {
         delay(1_000)
         assertNotNull("stored during the cool-down", rig.userData.fitnessTests.get(id))
         assertNotNull(rig.fitnessRunner.progress.value.result)
+
+        // In the cool-down the controls are free again, and a change is kept.
+        assertTrue(rig.training.controls.value.speed && rig.training.controls.value.incline)
+        assertNull(rig.training.controls.value.note)
+        assertEquals(CommandResult.Success, rig.training.commands.setSpeed(3.5))
+        assertEquals(CommandResult.Success, rig.training.commands.setIncline(2.0))
+        delay(10_000)
+        assertEquals(3.5, rig.sim.currentSpeedKmh, 0.001)
+        assertEquals(2.0, rig.sim.currentInclinePercent, 0.001)
 
         rig.awaitTrue(message = "the end of the test") { rig.fitnessRunner.progress.value.phase == FitnessTestPhase.Finished }
         delay(1_000)

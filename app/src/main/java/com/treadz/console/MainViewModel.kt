@@ -25,6 +25,7 @@ import com.treadz.console.treadmill.DiscoveredTreadmill
 import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.ftms.TransportException
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.lifecycle.AppLifecycle
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -470,7 +472,7 @@ class MainViewModel(
         local.update { it.copy(startInProgress = true, startFailure = null) }
         viewModelScope.launch {
             val result = try {
-                controller.start()
+                withContext(CommandOrigin.App) { controller.start() }
             } finally {
                 local.update { it.copy(startInProgress = false) }
             }

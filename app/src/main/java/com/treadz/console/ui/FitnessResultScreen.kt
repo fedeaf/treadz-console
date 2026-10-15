@@ -290,7 +290,8 @@ private fun Figures(result: FitnessTestResult) {
         StatTile(
             stringResource(R.string.result_subject),
             stringResource(R.string.result_subject_value, result.inputs.ageYears), tile,
-            note = stringResource(R.string.value_kg, Format.weight(result.inputs.weightKg)),
+            // The walking heart-rate test may run without a weight (0 = unknown).
+            note = if (result.inputs.weightKg > 0) stringResource(R.string.value_kg, Format.weight(result.inputs.weightKg)) else null,
         )
     }
 }

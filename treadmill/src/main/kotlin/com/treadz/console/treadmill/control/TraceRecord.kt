@@ -62,11 +62,13 @@ sealed interface TraceRecord {
 
     data class Event(override val atMillis: Long, val event: TreadmillEvent) : TraceRecord
 
+    /** [origin]: who issued it ([CommandOrigin] of the caller's coroutine context), when known. */
     data class CommandIssued(
         override val atMillis: Long,
         val id: Long,
         val name: String,
         val args: Map<String, Any?>,
+        val origin: CommandOrigin? = null,
     ) : TraceRecord
 
     data class CommandFinished(

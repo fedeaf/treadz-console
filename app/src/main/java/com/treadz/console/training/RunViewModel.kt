@@ -189,13 +189,13 @@ class RunViewModel(
         adjustRampStart(null, kotlin.math.round(current) + direction)
     }
 
-    /** Closes the result: the main screen shows the live data again. */
-    /** Throws away the workout of the program / test that has just ended and closes its result. */
+    /** Throws away the workout of the program / test that has just ended (or is ending) and closes its result. */
     fun discard() {
         local.update { Local() }
         training.discardFinishedWorkout()
     }
 
+    /** Closes the result: the main screen shows the live data again. */
     fun dismiss() {
         local.update { Local() }
         training.dismissResult()

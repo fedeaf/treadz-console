@@ -16,6 +16,7 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.SafetyClamp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -183,10 +185,12 @@ class ProgramRunner(
         }
         launchRun()
 
-        val result = when (action) {
-            StartAction.None -> CommandResult.Success
-            StartAction.Resume -> controller.resume()
-            StartAction.Start -> controller.start()
+        val result = withContext(CommandOrigin.Program) {
+            when (action) {
+                StartAction.None -> CommandResult.Success
+                StartAction.Resume -> controller.resume()
+                StartAction.Start -> controller.start()
+            }
         }
 
         synchronized(lock) {
@@ -232,7 +236,7 @@ class ProgramRunner(
             emit(ProgramEvent.Paused(clock.nowMillis(), programSeconds(), blockIndex))
             publish()
         }
-        val result = controller.pause()
+        val result = withContext(CommandOrigin.App) { controller.pause() }
         synchronized(lock) {
             busy = false
             if (result != CommandResult.Success && runState == RunState.Paused) failedCommand("pause", result) else checkInterruptions()
@@ -253,7 +257,7 @@ class ProgramRunner(
             epoch++
             publish()
         }
-        val result = controller.resume()
+        val result = withContext(CommandOrigin.App) { controller.resume() }
         synchronized(lock) {
             busy = false
             if (runState == RunState.Starting) {
@@ -294,10 +298,12 @@ class ProgramRunner(
             epoch++
             publish()
         }
-        val result = when (action) {
-            StartAction.None -> CommandResult.Success
-            StartAction.Resume -> controller.resume()
-            StartAction.Start -> controller.start()
+        val result = withContext(CommandOrigin.Program) {
+            when (action) {
+                StartAction.None -> CommandResult.Success
+                StartAction.Resume -> controller.resume()
+                StartAction.Start -> controller.start()
+            }
         }
         synchronized(lock) {
             busy = false
@@ -357,7 +363,7 @@ class ProgramRunner(
             epoch++
             publish()
         }
-        val result = if (speed != null) controller.setSpeed(value) else controller.setIncline(value)
+        val result = withContext(CommandOrigin.App) { if (speed != null) controller.setSpeed(value) else controller.setIncline(value) }
         synchronized(lock) {
             if (result == CommandResult.Success) {
                 if (runState == RunState.Running || runState == RunState.Paused) {
@@ -446,7 +452,7 @@ class ProgramRunner(
                 publish()
             }
         }
-        val result = controller.stop()
+        val result = withContext(CommandOrigin.App) { controller.stop() }
         if (!alreadyEnding) synchronized(lock) { finish(RunOutcome.StoppedByUser, null, result) }
         resultOf(result)
     }.await()
@@ -504,7 +510,8 @@ class ProgramRunner(
     private sealed interface Step {
         data object Done : Step
         data class Wait(val ms: Long) : Step
-        data class Apply(val blockIndex: Int, val speedKmh: Double, val inclinePercent: Double, val epoch: Long) : Step
+        /** [origin]: the block itself, or the heart-rate control correcting it. */
+        data class Apply(val blockIndex: Int, val speedKmh: Double, val inclinePercent: Double, val epoch: Long, val origin: CommandOrigin) : Step
         data object EndProgram : Step
     }
 
@@ -557,7 +564,10 @@ class ProgramRunner(
             }
         }
         publish()
-        if (needsApply) return Step.Apply(blockIndex, targetSpeed ?: block.speedKmh, targetIncline ?: block.inclinePercent, epoch)
+        if (needsApply) {
+            val origin = if (hrApplyPending) CommandOrigin.HeartRateControl else CommandOrigin.Program
+            return Step.Apply(blockIndex, targetSpeed ?: block.speedKmh, targetIncline ?: block.inclinePercent, epoch, origin)
+        }
         val remaining = (block.end as? BlockEnd.Duration)?.let { it.seconds * 1000L - blockElapsedMs }
         Step.Wait(if (remaining != null) min(config.tickMs, remaining) else config.tickMs)
     }
@@ -578,13 +588,13 @@ class ProgramRunner(
         val knownTarget = controller.state.value.targetSpeedKmh
         val speedDiffers = knownTarget == null || abs(knownTarget - step.speedKmh) > config.speedToleranceKmh
         if (speedDiffers) {
-            if (!commandSucceeded("setSpeed", controller.setSpeed(step.speedKmh), step.epoch)) return
+            if (!commandSucceeded("setSpeed", withContext(step.origin) { controller.setSpeed(step.speedKmh) }, step.epoch)) return
             sentSpeed = step.speedKmh
         }
 
         val s2 = controller.state.value
         if (abs(s2.inclinePercent - step.inclinePercent) >= config.inclineTolerancePercent) {
-            if (!commandSucceeded("setIncline", controller.setIncline(step.inclinePercent), step.epoch)) return
+            if (!commandSucceeded("setIncline", withContext(step.origin) { controller.setIncline(step.inclinePercent) }, step.epoch)) return
             sentIncline = step.inclinePercent
         }
 
@@ -616,7 +626,7 @@ class ProgramRunner(
     /** The last block is over: stop the belt (or hand over) and finish. Runs in the driver or in a user action. */
     private suspend fun completeProgram() {
         val endAction = synchronized(lock) { options.endAction }
-        val result = if (endAction == EndAction.StopBelt) controller.stop() else null
+        val result = if (endAction == EndAction.StopBelt) withContext(CommandOrigin.Program) { controller.stop() } else null
         synchronized(lock) { finish(RunOutcome.Completed, endAction, result) }
     }
 

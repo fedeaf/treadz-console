@@ -528,48 +528,60 @@ private fun ProgramFinished(
                 )
             }
         }
-        FinishedBar(ui, controls, actions, abandoned = progress.outcome == com.treadz.console.programs.engine.RunOutcome.Abandoned)
+        // The app always ends a program by stopping the belt: only an abandoned one goes on by hand.
+        FinishedBar(ui, controls, actions, continuesByHand = progress.outcome == com.treadz.console.programs.engine.RunOutcome.Abandoned)
     }
 }
 
 /**
  * "Done" at the end of a program or test. While the belt is still moving (an abandoned program leaves it running, a
- * stopped one is still slowing down) STOP stays next to it, and the live controls are one tap away.
+ * stopped one is still slowing down) STOP stays next to it, and the live controls are one tap away. The workout can be
+ * discarded as soon as it is stopped, also while the belt is slowing down. When the session [continuesByHand] (an
+ * abandoned program) its workout is offered for discarding when it ends.
  */
 @Composable
-fun FinishedBar(ui: MainUiState, controls: ControlActions, actions: RunActions, abandoned: Boolean = false) {
+fun FinishedBar(ui: MainUiState, controls: ControlActions, actions: RunActions, continuesByHand: Boolean = false) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (ui.beltActive) {
-            if (abandoned) {
-                Text(stringResource(R.string.finished_belt_running), Modifier.testTag("finished_belt_note"), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        if (ui.beltActive && continuesByHand) {
+            Text(stringResource(R.string.finished_belt_running), Modifier.testTag("finished_belt_note"), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 BigButton(stringResource(R.string.action_done), actions.onDismiss, Modifier.weight(1f).testTag("done_button"))
-                if (ui.stopUnreachable) {
-                    StopUnreachable(Modifier.weight(1f))
-                } else {
-                    StopButton(controls.onStop, textSize = 34.sp, modifier = Modifier.weight(1f).height(72.dp))
-                }
+                FinishedBarStop(ui, controls, Modifier.weight(1f))
             }
-        } else if (ui.finishedWorkout != null) {
-            // The workout has been recorded: it can still be thrown away.
-            var confirming by rememberSaveable { mutableStateOf(false) }
+        } else if (ui.beltActive || ui.finishedWorkout != null) {
+            // The workout has been recorded (or is being closed while the belt slows down): it can still be thrown away.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                BigOutlinedButton(stringResource(R.string.action_discard), { confirming = true }, Modifier.weight(1f).testTag("discard_button"), destructive = true)
+                DiscardWorkoutButton(actions.onDiscard, Modifier.weight(1f))
                 BigButton(stringResource(R.string.action_done), actions.onDismiss, Modifier.weight(2f).testTag("done_button"))
             }
-            if (confirming) {
-                DiscardWorkoutDialog(
-                    onConfirm = {
-                        confirming = false
-                        actions.onDiscard()
-                    },
-                    onDismiss = { confirming = false },
-                )
-            }
+            if (ui.beltActive) FinishedBarStop(ui, controls, Modifier.fillMaxWidth())
         } else {
             BigButton(stringResource(R.string.action_done), actions.onDismiss, Modifier.fillMaxWidth().testTag("done_button"))
         }
+    }
+}
+
+@Composable
+private fun FinishedBarStop(ui: MainUiState, controls: ControlActions, modifier: Modifier) {
+    if (ui.stopUnreachable) {
+        StopUnreachable(modifier)
+    } else {
+        StopButton(controls.onStop, textSize = 34.sp, modifier = modifier.height(72.dp))
+    }
+}
+
+@Composable
+private fun DiscardWorkoutButton(onDiscard: () -> Unit, modifier: Modifier) {
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    BigOutlinedButton(stringResource(R.string.action_discard), { confirming = true }, modifier.testTag("discard_button"), destructive = true)
+    if (confirming) {
+        DiscardWorkoutDialog(
+            onConfirm = {
+                confirming = false
+                onDiscard()
+            },
+            onDismiss = { confirming = false },
+        )
     }
 }
 

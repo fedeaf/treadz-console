@@ -178,6 +178,39 @@ class MaxHeartRateWalkScenariosTest {
     }
 
     @Test
+    fun `the app's controls work in the cool-down without spoiling the test, not before`() = runTest {
+        val rig = started()
+        delay(20_000)
+        assertFalse(rig.progress.manualChangesAllowed, "the warm-up offers the ramp start instead")
+        assertTrue(rig.runner.adjustByHand(4.6, null) is FitnessActionResult.NotAllowed)
+
+        delay(130_000) // ramp
+        assertEquals(FitnessTestPhase.Incremental, rig.progress.phase)
+        assertFalse(rig.progress.manualChangesAllowed)
+        assertTrue(rig.runner.adjustByHand(6.0, null) is FitnessActionResult.NotAllowed)
+        assertEquals(5.5, rig.sim.currentSpeedKmh, 0.01)
+
+        delay(190_000)
+        assertEquals(FitnessActionResult.Success, rig.runner.exhausted())
+        assertEquals(FitnessTestPhase.CoolDown, rig.progress.phase)
+        delay(10_000)
+        val before = rig.progress.result
+        assertTrue(rig.progress.manualChangesAllowed)
+        assertEquals(FitnessActionResult.Success, rig.runner.adjustByHand(4.0, null))
+        assertEquals(FitnessActionResult.Success, rig.runner.adjustByHand(null, 3.0))
+        delay(20_000)
+        assertEquals(4.0, rig.sim.currentSpeedKmh, 0.01, "not undone by the cool-down")
+        assertEquals(3.0, rig.sim.currentInclinePercent, 0.01)
+        assertEquals(FitnessTestPhase.CoolDown, rig.progress.phase)
+        rig.runner.stop()
+        rig.awaitFinished()
+        val r = rig.result
+        assertEquals(before?.validity, r.validity)
+        assertEquals(FitnessEndReason.Exhausted, r.endReason)
+        assertTrue(FitnessTestFlag.ManualChange !in r.flags, "${r.flags}")
+    }
+
+    @Test
     fun `STOP after 3 minutes of ramp counts as exhaustion`() = runTest {
         val rig = started()
         delay(120_000 + 13 * 60_000L)
@@ -222,6 +255,20 @@ class MaxHeartRateWalkScenariosTest {
         rig.runner.stop()
         assertEquals(6.0, rig.walk.startSpeedKmh)
         assertEquals(4.0, rig.walk.startInclinePercent)
+    }
+
+    @Test
+    fun `it needs no weight, unlike the tests that estimate the VO2max`() = runTest {
+        val rig = started(parameters = MaxHeartRateWalkParameters(SUBJECT.copy(weightKg = 0.0)))
+        assertEquals(FitnessTestPhase.WarmUp, rig.progress.phase)
+        rig.runner.stop()
+        assertEquals(0.0, rig.result.inputs.weightKg)
+        assertEquals(rig.result, FitnessTestJson.decode(FitnessTestJson.encode(rig.result)))
+
+        val other = FitnessRig(this, walker())
+        other.connect(warmSeconds = 10)
+        val refused = other.runner.startEbbeling(EbbelingParameters(SUBJECT.copy(weightKg = 0.0)))
+        assertEquals(FitnessRefusal.InvalidSubject, (refused as FitnessActionResult.NotAllowed).refusal)
     }
 
     @Test

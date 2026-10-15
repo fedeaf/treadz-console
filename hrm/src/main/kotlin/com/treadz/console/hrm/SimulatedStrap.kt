@@ -17,7 +17,8 @@ import kotlin.math.roundToInt
 
 /**
  * A simulated heart-rate strap (fake [HrmTransport]) for tests and for running the app without a strap. It behaves
- * like a chest strap such as the Coospo H9Z:
+ * like a chest strap such as the Coospo H9Z, but with a single connection (the most restrictive case: the H9Z itself
+ * serves the app and the console at the same time):
  *
  *  - It accepts **one connection**: while [heldByConsole] is true (the treadmill console has it) it does not
  *    advertise and connections fail, which the monitor must treat as "not found yet".

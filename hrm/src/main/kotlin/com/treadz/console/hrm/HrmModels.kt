@@ -63,8 +63,8 @@ data class DiscoveredStrap(
 
 /**
  * Connection to the user's strap. There are no error states: a strap that cannot be found is simply searched for
- * again (the treadmill console may be holding it: a strap accepts one connection only and stops advertising while it
- * has one; that is normal and must not produce messages).
+ * again (the treadmill console may be holding it: some straps accept one connection only and stop advertising while
+ * they have one; that is normal and must not produce messages).
  */
 sealed interface StrapConnectionState {
     /** No strap is wanted (no address set). */

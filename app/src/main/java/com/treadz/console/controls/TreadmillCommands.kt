@@ -2,6 +2,8 @@ package com.treadz.console.controls
 
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.TreadmillController
+import com.treadz.console.treadmill.control.CommandOrigin
+import kotlinx.coroutines.withContext
 
 /**
  * Where the manual controls send their commands. Normally straight to the [TreadmillController]; while a training
@@ -16,13 +18,13 @@ interface TreadmillCommands {
     suspend fun stop(): CommandResult
 }
 
-/** The plain case: every command goes directly to the controller. */
+/** The plain case: every command goes directly to the controller (recorded as the user's). */
 class ControllerCommands(private val controller: TreadmillController) : TreadmillCommands {
-    override suspend fun setSpeed(kmh: Double) = controller.setSpeed(kmh)
-    override suspend fun setIncline(percent: Double) = controller.setIncline(percent)
-    override suspend fun pause() = controller.pause()
-    override suspend fun resume() = controller.resume()
-    override suspend fun stop() = controller.stop()
+    override suspend fun setSpeed(kmh: Double) = withContext(CommandOrigin.App) { controller.setSpeed(kmh) }
+    override suspend fun setIncline(percent: Double) = withContext(CommandOrigin.App) { controller.setIncline(percent) }
+    override suspend fun pause() = withContext(CommandOrigin.App) { controller.pause() }
+    override suspend fun resume() = withContext(CommandOrigin.App) { controller.resume() }
+    override suspend fun stop() = withContext(CommandOrigin.App) { controller.stop() }
 }
 
 /** What kind of session drives the belt. */

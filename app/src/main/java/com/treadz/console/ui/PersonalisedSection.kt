@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,11 +100,15 @@ private fun SavedSessionRow(generatorId: String, session: SavedSessionState, act
                 Modifier.testTag("saved_title_${session.programId}"),
                 style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                RowButton(stringResource(R.string.saved_repeat), { actions.onOpen(session.programId) }, Modifier.testTag("repeat_${session.programId}"))
-                RowButton(stringResource(R.string.saved_regenerate), { actions.onRegenerate(generatorId, session.programId) }, Modifier.testTag("regenerate_${session.programId}"))
-                RowButton(stringResource(R.string.saved_duplicate), { actions.onDuplicate(session.programId) }, Modifier.testTag("duplicate_program_${session.programId}"))
-                RowButton(stringResource(R.string.action_delete), { actions.onDelete(session.programId) }, Modifier.testTag("delete_program_${session.programId}"), destructive = true)
+            // On a phone the buttons are narrower, so the four actions take fewer lines.
+            val wide = LocalLayout.current.wide
+            val padding = if (wide) ButtonDefaults.ContentPadding else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            val gap = if (wide) 8.dp else 6.dp
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(gap), verticalArrangement = Arrangement.spacedBy(gap)) {
+                RowButton(stringResource(R.string.saved_repeat), { actions.onOpen(session.programId) }, Modifier.testTag("repeat_${session.programId}"), contentPadding = padding)
+                RowButton(stringResource(R.string.saved_regenerate), { actions.onRegenerate(generatorId, session.programId) }, Modifier.testTag("regenerate_${session.programId}"), contentPadding = padding)
+                RowButton(stringResource(R.string.saved_duplicate), { actions.onDuplicate(session.programId) }, Modifier.testTag("duplicate_program_${session.programId}"), contentPadding = padding)
+                RowButton(stringResource(R.string.action_delete), { actions.onDelete(session.programId) }, Modifier.testTag("delete_program_${session.programId}"), destructive = true, contentPadding = padding)
             }
         }
     }

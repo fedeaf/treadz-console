@@ -1097,6 +1097,7 @@ class FtmsTreadmillController(
      * new command, so a failed stop can be retried.
      */
     private suspend fun joinOrRun(name: String, priority: Boolean, body: suspend () -> CommandResult): CommandResult {
+        val origin = currentCoroutineContext()[CommandOrigin]
         var joinedId = 0L
         val deferred = synchronized(lock) {
             val existing = inFlight[name]
@@ -1104,14 +1105,14 @@ class FtmsTreadmillController(
                 joinedId = nextCommandId++
                 existing
             } else {
-                launchCommand(name, emptyMap(), priority, body).also { created ->
+                launchCommand(name, emptyMap(), priority, origin, body).also { created ->
                     inFlight[name] = created
                     created.invokeOnCompletion { synchronized(lock) { if (inFlight[name] === created) inFlight.remove(name) } }
                 }
             }
         }
         if (joinedId == 0L) return deferred.await()
-        trace(TraceRecord.CommandIssued(now(), joinedId, name, mapOf("joinedInFlight" to true)))
+        trace(TraceRecord.CommandIssued(now(), joinedId, name, mapOf("joinedInFlight" to true), origin))
         val result = deferred.await()
         trace(TraceRecord.CommandFinished(now(), joinedId, name, result))
         return result
@@ -1122,7 +1123,7 @@ class FtmsTreadmillController(
         args: Map<String, Any?>,
         priority: Boolean,
         body: suspend () -> CommandResult,
-    ): CommandResult = launchCommand(name, args, priority, body).await()
+    ): CommandResult = launchCommand(name, args, priority, currentCoroutineContext()[CommandOrigin], body).await()
 
     /**
      * Registers a command (id, trace, and for a stop/pause the preemption of whatever is being verified) at the moment
@@ -1132,6 +1133,7 @@ class FtmsTreadmillController(
         name: String,
         args: Map<String, Any?>,
         priority: Boolean,
+        origin: CommandOrigin?,
         body: suspend () -> CommandResult,
     ): Deferred<CommandResult> {
         val id = synchronized(lock) {
@@ -1142,7 +1144,7 @@ class FtmsTreadmillController(
             }
             id
         }
-        trace(TraceRecord.CommandIssued(now(), id, name, args))
+        trace(TraceRecord.CommandIssued(now(), id, name, args, origin))
         return scope.async {
             val result = try {
                 commandMutex.withLock {

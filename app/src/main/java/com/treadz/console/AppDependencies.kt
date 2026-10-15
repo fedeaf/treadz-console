@@ -26,6 +26,7 @@ import com.treadz.console.treadmill.RecordingInfo
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.WorkoutRecorder
 import com.treadz.console.treadmill.android.TreadZTreadmill
+import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.lifecycle.AppLifecycle
 import com.treadz.console.userdata.TreadZUserData
 import com.treadz.console.userdata.UserData
@@ -81,6 +82,13 @@ interface AppDependencies {
     /** Today's date in the device time zone. Injectable so tests and screenshots are deterministic. */
     fun today(): LocalDate
 }
+
+/**
+ * The main ViewModel wired to everything it uses. The activity builds it here (and so do the tests), so none of its
+ * optional collaborators (synchronisation, training, strap) can be left out by mistake.
+ */
+fun AppDependencies.mainViewModel(clock: Clock = Clock.System): MainViewModel =
+    MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, clock)
 
 /** [scope] lives as long as the process: the runners and the workout history observer run in it. */
 class RealDependencies(private val context: Context, private val scope: CoroutineScope) : AppDependencies {

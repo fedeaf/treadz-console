@@ -13,6 +13,7 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.SafetyClamp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import kotlin.math.abs
@@ -181,7 +183,7 @@ class FitnessTestRunner(
             }
             val p = create(resultId ?: idFactory(), controller.limits.value)
                 ?: return FitnessActionResult.NotAllowed(FitnessRefusal.LimitsTooLow, "The safety limits do not allow this test")
-            if (!validSubject(p.subject)) {
+            if (!validSubject(p.subject, p.testType)) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.InvalidSubject, "Age, weight or maximum heart rate out of range")
             }
             protocol = p
@@ -193,10 +195,12 @@ class FitnessTestRunner(
         }
         launchRun()
 
-        val result = when (beltAction) {
-            BeltAction.None -> CommandResult.Success
-            BeltAction.Resume -> controller.resume()
-            BeltAction.Start -> controller.start()
+        val result = withContext(CommandOrigin.FitnessTest) {
+            when (beltAction) {
+                BeltAction.None -> CommandResult.Success
+                BeltAction.Resume -> controller.resume()
+                BeltAction.Start -> controller.start()
+            }
         }
 
         synchronized(lock) {
@@ -268,6 +272,41 @@ class FitnessTestRunner(
     }
 
     /**
+     * A change of speed and/or incline with the app's controls while [FitnessTestProgress.manualChangesAllowed]
+     * (the cool-down): handled like a change with the console buttons, so it never spoils the test,
+     * and sent to the treadmill. Refused ([FitnessRefusal.WrongState]) in any other phase.
+     */
+    suspend fun adjustByHand(speedKmh: Double?, inclinePercent: Double?): FitnessActionResult {
+        val speed: Double?
+        val incline: Double?
+        synchronized(lock) {
+            val p = protocol
+            if (p == null || !running || starting || stopping || p.isFinished) {
+                return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
+            }
+            if (!p.manualChangesAllowed) return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "Manual changes would spoil the test now")
+            if (speedKmh?.isFinite() == false || inclinePercent?.isFinite() == false || (speedKmh == null && inclinePercent == null)) {
+                return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "Nothing to change")
+            }
+            speed = speedKmh?.let(::clampSpeed)
+            incline = inclinePercent?.let(::clampIncline)
+            // What the user chose is what the treadmill will have: the run loop must not send it again nor undo it.
+            speed?.let { appliedSpeed = it }
+            incline?.let { appliedIncline = it }
+            p.manualChange(testTime(), speed, incline)
+            epoch++
+            drainEvents(p)
+            publish()
+        }
+        val result = withContext(CommandOrigin.App) {
+            val s = speed?.let { controller.setSpeed(it) } ?: CommandResult.Success
+            if (s == CommandResult.Success) incline?.let { controller.setIncline(it) } ?: s else s
+        }
+        wake()
+        return if (result == CommandResult.Success) FitnessActionResult.Success else FitnessActionResult.CommandFailed(result)
+    }
+
+    /**
      * Walking heart-rate test, during the warm-up: changes the ramp start speed and/or incline (`null` keeps a value).
      * Clamped to 3-7.5 km/h, 0-15 % and the caps; the warm-up speeds follow (unless changed by hand in the current
      * warm-up minute). Refused ([FitnessRefusal.WrongState]) in any other phase or test.
@@ -319,7 +358,7 @@ class FitnessTestRunner(
                 publish()
             }
         }
-        val result = controller.stop()
+        val result = withContext(CommandOrigin.App) { controller.stop() }
         if (!duringStart) synchronized(lock) { finishRun(coolDownCompleted = false) }
         if (result == CommandResult.Success) FitnessActionResult.Success else FitnessActionResult.CommandFailed(result)
     }.await()
@@ -328,7 +367,8 @@ class FitnessTestRunner(
 
     private fun launchRun() {
         runJob?.cancel()
-        runJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        // Everything the run loop sends is the protocol's (the Ebbeling speed chosen in the app included).
+        runJob = scope.launch(CommandOrigin.FitnessTest, start = CoroutineStart.UNDISPATCHED) {
             launch(start = CoroutineStart.UNDISPATCHED) { controller.events.collect(::onControllerEvent) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.state.collect(::onTreadmillState) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.connection.collect { onConnection() } }
@@ -539,8 +579,10 @@ class FitnessTestRunner(
     private fun clampIncline(percent: Double): Double =
         SafetyClamp.incline(percent, controller.capabilities.value?.incline ?: SafetyClamp.DEFAULT_INCLINE_RANGE, controller.limits.value)
 
-    private fun validSubject(s: FitnessSubject) =
-        s.ageYears in 10..100 && s.weightKg in 25.0..280.0 && s.hrMaxBpm in 100..240
+    /** The walking heart-rate test measures no VO2max: it does not need the weight. */
+    private fun validSubject(s: FitnessSubject, type: FitnessTestType) =
+        s.ageYears in 10..100 && s.hrMaxBpm in 100..240 &&
+            (type == FitnessTestType.MaxHeartRateWalk || s.weightKg in 25.0..280.0)
 
     private fun inputsOf(p: FitnessProtocol) = FitnessTestInputs(
         ageYears = p.subject.ageYears,

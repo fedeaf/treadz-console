@@ -28,7 +28,8 @@ import kotlinx.coroutines.launch
  * Rules:
  *  - While the strap is connected to the app it is the only source, even when its reading is not usable (contact lost:
  *    the reading is [HeartRateValidity.Invalid]). Falling back to the console then could pick up somebody else's strap
- *    paired with the console (two users), and the user's own strap cannot be on the console while the app holds it.
+ *    paired with the console (two users). Some straps serve the app and the console at the same time (a Coospo H9Z
+ *    does), so the console showing a heart rate says nothing about whose strap it is.
  *  - A strap reading with contact detected is [HeartRateValidity.Valid]; without contact support it is
  *    [HeartRateValidity.Unconfirmed]; 0 bpm or contact not detected is invalid.
  *  - The console reading is used as it is ([ControllerHeartRateSource]): 0 or stale data means no heart rate.

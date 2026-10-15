@@ -19,7 +19,6 @@ import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.TreadmillController
-import com.treadz.console.userdata.GenericProfile
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
@@ -280,8 +279,8 @@ class FitnessStartViewModel(
         val subject = FitnessSubject(
             ageYears = state.ageYears,
             sex = if (user.sex == Sex.Male) FitnessSex.Male else FitnessSex.Female,
-            // The walking heart-rate test measures no VO2max, so the weight does not matter to it; the runner still asks for a plausible one.
-            weightKg = state.weight?.weightKg ?: if (walk) GenericProfile.WEIGHT_KG else 0.0,
+            // The walking heart-rate test measures no VO2max: without a weight it gets 0 (unknown), which it accepts.
+            weightKg = state.weight?.weightKg ?: 0.0,
             hrMaxBpm = hrMax,
         )
         val incline = if (walk) Decimals.parse(state.inclineText) ?: return else 0.0

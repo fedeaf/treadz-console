@@ -11,6 +11,8 @@ import com.treadz.console.programs.model.HeartRateBasis
 import com.treadz.console.programs.model.HeartRateZone
 import com.treadz.console.programs.model.Repeat
 import com.treadz.console.treadmill.BeltStatus
+import com.treadz.console.treadmill.control.CommandOrigin
+import com.treadz.console.treadmill.control.TraceRecord
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Heart-rate-guided blocks on the simulator with its physiological heart-rate model (rest 60, max 180, VO2max 45), with
@@ -91,6 +94,8 @@ class HeartRateControlScenariosTest {
     @Test
     fun `continuous incline control while walking keeps the speed`() = runTest {
         val rig = HeartRateRig(this)
+        val commands = CopyOnWriteArrayList<TraceRecord.CommandIssued>()
+        rig.controller.addObserver { if (it is TraceRecord.CommandIssued) commands += it }
         rig.connect()
         val plan = planOf(
             timed(120, 5.0, 0.0, BlockPhase.WarmUp),
@@ -112,6 +117,12 @@ class HeartRateControlScenariosTest {
         assertTrue(ups.isNotEmpty())
         assertTrue(ups.first().programSeconds - 120 >= 90, "no upward correction in the first 90 s: ${ups.first()}")
         assertTrue(ups.all { it.toValue - it.fromValue in 1.0..2.0 }, "$ups")
+
+        // The recording tells the heart-rate control's commands from the program's.
+        val byControl = commands.filter { it.origin == CommandOrigin.HeartRateControl }
+        assertEquals(rig.eventsOf<ProgramEvent.HeartRateAdjusted>().size, byControl.size, "$byControl")
+        assertTrue(byControl.all { it.name == "setIncline" }, "$byControl")
+        assertTrue(commands.filter { it.name == "start" || it.args["requestedKmh"] == 4.0 }.all { it.origin == CommandOrigin.Program }, "$commands")
     }
 
     @Test
@@ -244,8 +255,11 @@ class HeartRateControlScenariosTest {
         rig.awaitTrue(message = "control acts again") { rig.eventsOf<ProgramEvent.HeartRateAdjusted>().size > n }
         assertTrue(checkNotNull(rig.progress.targetSpeedKmh) < 11.0)
 
-        // The app's own controls switch it off too.
+        // The app's own controls switch it off too (and are recorded as the user's).
+        val commands = CopyOnWriteArrayList<TraceRecord.CommandIssued>()
+        rig.controller.addObserver { if (it is TraceRecord.CommandIssued) commands += it }
         assertEquals(RunnerResult.Success, rig.runner.adjustSpeed(9.0))
+        assertEquals(CommandOrigin.App, commands.first { it.args["requestedKmh"] == 9.0 }.origin)
         assertEquals(HeartRateControlState.OffByManualChange, rig.progress.heartRateControl?.state)
         rig.awaitBlock(2)
         assertNull(rig.progress.heartRateControl, "the cool-down is not heart-rate guided")

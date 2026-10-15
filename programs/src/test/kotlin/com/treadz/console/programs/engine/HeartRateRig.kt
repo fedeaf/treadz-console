@@ -28,7 +28,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Simulated treadmill + simulated strap + controller + automatic heart-rate source + program runner, on the virtual
  * time of a [TestScope]. One body ([body], a heart-rate model evaluated once per simulated second by the treadmill) feeds
- * either the console or the strap: a strap holds one connection, so while the app has it the console reports 0.
+ * either the console or the strap: the simulated strap holds one connection, so while the app has it the console
+ * reports 0 (real straps may serve both; this keeps the two sources apart).
  *
  * [scripted] replaces the physiological model with a fixed curve (bpm as a function of the simulated second).
  */

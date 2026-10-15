@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.FailureCode
 import com.treadz.console.treadmill.TreadmillController
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.notification.NotificationMessage
 import com.treadz.console.treadmill.notification.ServiceNotificationMapper
 import com.treadz.console.treadmill.notification.ServiceNotificationModel
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Foreground service (`connectedDevice` type) that keeps the process, the BLE connection and the
@@ -152,7 +154,7 @@ class TreadZService : Service() {
         }
         scope.launch {
             val result = try {
-                controller.stop()
+                withContext(CommandOrigin.Notification) { controller.stop() }
             } catch (e: Exception) {
                 Log.e(TAG, "stop() from the notification failed", e)
                 CommandResult.NotVerified(FailureCode.InternalError, "stop() threw: $e")

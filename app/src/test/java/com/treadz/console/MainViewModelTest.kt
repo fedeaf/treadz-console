@@ -45,6 +45,14 @@ class MainViewModelTest {
     private val vm get() = app.viewModel
     private val ui get() = vm.uiState.value
 
+    /** Built like the activity builds it, it is wired to the active user's strap (missing once, in C1). */
+    @Test fun builtLikeTheActivityItFollowsTheActiveUsersStrap() {
+        val userId = kotlinx.coroutines.runBlocking { app.userData.profiles.activeUserId()!! }
+        kotlinx.coroutines.runBlocking { app.userData.profiles.setStrap(userId, "AA:BB:CC:DD:EE:01", "H9Z 1") }
+        assertEquals("AA:BB:CC:DD:EE:01", ui.strap.address)
+        assertEquals(listOf("AA:BB:CC:DD:EE:01"), app.strapMonitor.useCalls.filterNotNull().distinct())
+    }
+
     @Test fun startOnlyWhenConnectedAndIdle() {
         assertFalse(ui.canStart)
         controller.showConnected()

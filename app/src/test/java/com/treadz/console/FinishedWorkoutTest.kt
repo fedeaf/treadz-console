@@ -2,6 +2,7 @@ package com.treadz.console
 
 import com.treadz.console.fakes.MainDispatcherRule
 import com.treadz.console.fakes.TrainingRig
+import com.treadz.console.training.ObserverSessionLinks
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
@@ -102,11 +103,44 @@ class FinishedWorkoutTest {
         assertEquals(1, workouts().size)
     }
 
+    @Test fun discardWhileTheBeltSlowsDownDeletesTheWorkoutWhenItEnds() {
+        runFor(5)
+        // STOP was pressed and the belt is stopping: "Discard" is pressed before the workout is closed.
+        app.controller.state.value = TreadmillState(status = BeltStatus.Idle, speedKmh = 3.0, updatedAtMillis = rig.scheduler.currentTime)
+        training.discardFinishedWorkout()
+        assertEquals("still recorded until it ends", 1, workouts().size)
+        stopBelt()
+        assertNull("nothing left to offer", training.finishedWorkout.value)
+        assertTrue(workouts().isEmpty())
+    }
+
+    @Test fun discardBeforeTheEndWinsOverAnEarlierDone() {
+        runFor(5)
+        app.controller.state.value = TreadmillState(status = BeltStatus.Idle, speedKmh = 3.0, updatedAtMillis = rig.scheduler.currentTime)
+        training.dismissResult()
+        training.discardFinishedWorkout()
+        stopBelt()
+        assertTrue(workouts().isEmpty())
+    }
+
     @Test fun doneOnAnAbandonedProgramWithTheBeltRunningStillOffersTheWorkoutAtTheEnd() {
         runFor(5)
         training.dismissResult() // the belt keeps running: the session goes on by hand
         stopBelt()
         assertNotNull(training.finishedWorkout.value)
+    }
+
+    /** The workout a generated session record is attached to: the one being recorded, else the one just ended. */
+    @Test fun sessionLinksPointAtTheCurrentOrLastWorkout() {
+        val links = ObserverSessionLinks(observer)
+        runFor(3)
+        val first = workouts().single().id
+        assertEquals(first, links.currentWorkoutId())
+        stopBelt()
+        assertEquals("the one that has just ended", first, links.currentWorkoutId())
+        runFor(3)
+        val second = workouts().first { it.id != first }.id
+        assertEquals(second, links.currentWorkoutId())
     }
 
     @Test fun aNewSessionKeepsTheWorkoutStillWaitingForAnAnswer() {

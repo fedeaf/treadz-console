@@ -175,6 +175,9 @@ internal abstract class FitnessProtocol(
      */
     open fun adjustSpeedByApp(t: Long, speedKmh: Double): Double? = null
 
+    /** A manual change now does not break the test ([FitnessTestProgress.manualChangesAllowed]). Default: cool-down. */
+    open val manualChangesAllowed: Boolean get() = phase == FitnessTestPhase.CoolDown
+
     /** "Exhausted" button. Returns false when it does not apply. */
     open fun exhausted(t: Long): Boolean = false
 
@@ -385,6 +388,7 @@ internal abstract class FitnessProtocol(
             heartRateBpm = reading.bpm,
             heartRateValidity = reading.validity,
             canEndTest = isEffortPhase,
+            manualChangesAllowed = manualChangesAllowed,
             endReason = endReason,
             result = result,
         )

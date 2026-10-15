@@ -87,6 +87,7 @@ internal object RecordSerializer {
             }
             is TraceRecord.CommandIssued -> {
                 m["type"] = "command"; m["id"] = r.id; m["name"] = r.name; m["args"] = r.args
+                r.origin?.let { m["origin"] = it.traceName }
             }
             is TraceRecord.CommandFinished -> {
                 m["type"] = "command_result"; m["id"] = r.id; m["name"] = r.name

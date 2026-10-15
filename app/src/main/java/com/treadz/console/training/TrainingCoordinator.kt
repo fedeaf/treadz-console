@@ -31,6 +31,7 @@ import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.FailureCode
 import com.treadz.console.treadmill.TreadmillController
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.WorkoutLink
@@ -50,6 +51,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /** How a start (of a program or of a fitness test) ended. */
@@ -141,6 +143,14 @@ class TrainingCoordinator(
     @Volatile
     private var keepWhenEnded: Long? = null
 
+    /** The fitness test result of the workout in progress, if any. */
+    @Volatile
+    private var inProgressTestId: String? = null
+
+    /** The workout in progress was discarded before it ended (the belt was still slowing down after a STOP). */
+    @Volatile
+    private var discardWhenEnded: Long? = null
+
     /** Test results the user discarded: a late save must not bring them back. */
     private val discardedTests: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -208,9 +218,17 @@ class TrainingCoordinator(
         _finishedWorkout.value?.let { keep(it) }
     }
 
-    /** Deletes the finished workout and its fitness test result; while its upload is held it leaves no trace. */
+    /**
+     * Deletes the finished workout and its fitness test result; while its upload is held it leaves no trace. While the
+     * belt is still slowing down after a STOP (the workout has not ended yet) the result is closed now and the workout
+     * is deleted as soon as it ends.
+     */
     fun discardFinishedWorkout() {
-        val workout = _finishedWorkout.value ?: return
+        val workout = _finishedWorkout.value
+        if (workout == null) {
+            discardWhenEnded(inProgressId ?: return)
+            return
+        }
         if (!_finishedWorkout.compareAndSet(workout, null)) return
         workout.fitnessTestId?.let { discardedTests += it }
         programResultSeen.value = true
@@ -219,6 +237,21 @@ class TrainingCoordinator(
             userData.workouts.discardFinished(workout.workoutId)
             workout.fitnessTestId?.let { userData.fitnessTests.releaseUpload(it) }
         }
+    }
+
+    private fun discardWhenEnded(workoutId: Long) {
+        inProgressTestId?.let { discardedTests += it }
+        discardWhenEnded = workoutId
+        if (keepWhenEnded == workoutId) keepWhenEnded = null
+        programResultSeen.value = true
+        testResultSeen.value = true
+        // ended() may have offered it in the meantime (it sets the offer, then looks at the flag): discard it now.
+        if (_finishedWorkout.value?.workoutId == workoutId) discardOffered(workoutId)
+    }
+
+    private fun discardOffered(workoutId: Long) {
+        if (discardWhenEnded == workoutId) discardWhenEnded = null
+        if (_finishedWorkout.value?.workoutId == workoutId) discardFinishedWorkout()
     }
 
     private fun keep(workout: FinishedWorkout) {
@@ -245,6 +278,7 @@ class TrainingCoordinator(
                 }
                 workout.fitnessTestId?.let { userData.fitnessTests.holdUpload(it) }
             }
+            inProgressTestId = workout?.fitnessTestId
             // Until ended() has decided, "Done" still refers to the workout that is closing.
             if (previous != null && previous.id != workout?.id) ended(previous)
             inProgressId = workout?.id
@@ -254,6 +288,17 @@ class TrainingCoordinator(
     private suspend fun ended(workout: WorkoutSummary) {
         val summary = userData.workouts.detail(workout.id)?.summary
         val testId = summary?.fitnessTestId ?: workout.fitnessTestId
+        if (discardWhenEnded == workout.id) {
+            discardWhenEnded = null
+            testId?.let { discardedTests += it }
+            if (summary == null || summary.isInProgress) {
+                release(workout.id, testId)
+            } else {
+                userData.workouts.discardFinished(workout.id)
+                testId?.let { userData.fitnessTests.releaseUpload(it) }
+            }
+            return
+        }
         val keptAlready = keepWhenEnded == workout.id
         if (keptAlready) keepWhenEnded = null
         // Dropped by the history (the belt never moved), or kept with "Done" before it ended.
@@ -262,6 +307,8 @@ class TrainingCoordinator(
             return
         }
         _finishedWorkout.value = FinishedWorkout(summary.id, summary.stats.durationSeconds, summary.stats.distanceMeters, testId)
+        // Discarded while this was running (see discardWhenEnded).
+        if (discardWhenEnded == workout.id) discardOffered(workout.id)
     }
 
     // ------------------------------------------------------------------ starting
@@ -392,30 +439,42 @@ class TrainingCoordinator(
 
     private fun testActive() = fitnessRunner.progress.value.phase.isActive()
 
+    private fun testManualAllowed() = fitnessRunner.progress.value.let { it.phase.isActive() && it.manualChangesAllowed }
+
     private inner class RoutedCommands : TreadmillCommands {
-        override suspend fun setSpeed(kmh: Double): CommandResult = when {
-            programActive() -> programRunner.adjustSpeed(kmh).toCommandResult()
-            testActive() -> fitnessRunner.adjustSpeed(kmh).toCommandResult()
-            else -> controller.setSpeed(kmh)
+        override suspend fun setSpeed(kmh: Double): CommandResult = withContext(CommandOrigin.App) {
+            when {
+                programActive() -> programRunner.adjustSpeed(kmh).toCommandResult()
+                testManualAllowed() -> fitnessRunner.adjustByHand(kmh, null).toCommandResult()
+                testActive() -> fitnessRunner.adjustSpeed(kmh).toCommandResult()
+                else -> controller.setSpeed(kmh)
+            }
         }
 
-        override suspend fun setIncline(percent: Double): CommandResult = when {
-            programActive() -> programRunner.adjustIncline(percent).toCommandResult()
-            // A test never changes the incline by hand.
-            testActive() -> CommandResult.NotAllowed(FailureCode.BeltNotRunning, "The incline is locked during a fitness test")
-            else -> controller.setIncline(percent)
+        override suspend fun setIncline(percent: Double): CommandResult = withContext(CommandOrigin.App) {
+            when {
+                programActive() -> programRunner.adjustIncline(percent).toCommandResult()
+                testManualAllowed() -> fitnessRunner.adjustByHand(null, percent).toCommandResult()
+                // Otherwise a test never changes the incline by hand.
+                testActive() -> CommandResult.NotAllowed(FailureCode.BeltNotRunning, "The incline is locked during a fitness test")
+                else -> controller.setIncline(percent)
+            }
         }
 
-        override suspend fun pause(): CommandResult = when {
-            programActive() -> programRunner.pause().toCommandResult()
-            testActive() -> CommandResult.NotAllowed(FailureCode.BeltNotRunning, "A fitness test cannot be paused")
-            else -> controller.pause()
+        override suspend fun pause(): CommandResult = withContext(CommandOrigin.App) {
+            when {
+                programActive() -> programRunner.pause().toCommandResult()
+                testActive() -> CommandResult.NotAllowed(FailureCode.BeltNotRunning, "A fitness test cannot be paused")
+                else -> controller.pause()
+            }
         }
 
-        override suspend fun resume(): CommandResult = when {
-            programActive() -> programRunner.resume().toCommandResult()
-            testActive() -> CommandResult.NotAllowed(FailureCode.NothingToResume, "A fitness test cannot be paused")
-            else -> controller.resume()
+        override suspend fun resume(): CommandResult = withContext(CommandOrigin.App) {
+            when {
+                programActive() -> programRunner.resume().toCommandResult()
+                testActive() -> CommandResult.NotAllowed(FailureCode.NothingToResume, "A fitness test cannot be paused")
+                else -> controller.resume()
+            }
         }
 
         /** STOP always reaches the treadmill: if the runner says nothing is active (it just ended), the controller stops the belt. */
@@ -427,12 +486,13 @@ class TrainingCoordinator(
                 val result = fitnessRunner.stop()
                 if (!(result is FitnessActionResult.NotAllowed && result.refusal == FitnessRefusal.NotActive)) return result.toCommandResult()
             }
-            return controller.stop()
+            return withContext(CommandOrigin.App) { controller.stop() }
         }
     }
 
     private companion object {
         fun controlsOf(program: ProgramProgress, test: FitnessTestProgress): SessionControls = when {
+            test.phase.isActive() && test.manualChangesAllowed -> SessionControls(SessionKind.FitnessTest, pause = false)
             test.phase.isActive() -> {
                 val speed = test.testType == FitnessTestType.EbbelingWalk && test.phase == FitnessTestPhase.Stage1 && !test.speedLocked
                 SessionControls(

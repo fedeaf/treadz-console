@@ -303,6 +303,7 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
     }
 
     private val speedOnly = SessionControls(SessionKind.FitnessTest, speed = true, incline = false, pause = false, note = com.treadz.console.controls.ControlsNote.TestSpeedOnly)
+    private val coolDown = SessionControls(SessionKind.FitnessTest, pause = false)
     private val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = com.treadz.console.controls.ControlsNote.TestLocked)
 
     @Test fun g01_ebbeling_stage1_speed_may_change() = guide("g01_stage1", TrainingFixtures.ebbelingStage1(), speedOnly)
@@ -317,7 +318,8 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
 
     @Test fun g06_max_test_top_speed() = guide("g06_max_cap", TrainingFixtures.maxIncremental(capReached = true), locked)
 
-    @Test fun g07_max_test_cool_down() = guide("g07_cool_down", TrainingFixtures.coolDown(DemoPrograms.maxTest(startedAtMillis = 1_000_000)), locked)
+    /** The cool-down allows manual changes: speed and incline with − / +. */
+    @Test fun g07_max_test_cool_down() = guide("g07_cool_down", TrainingFixtures.coolDown(DemoPrograms.maxTest(startedAtMillis = 1_000_000)), coolDown)
 
     @Test fun g08_result_after_max_test() = guide("g08_finished_max", TrainingFixtures.finished(DemoPrograms.maxTest(startedAtMillis = 1_000_000, masKmh = 12.5, peakBpm = 188)), locked)
 

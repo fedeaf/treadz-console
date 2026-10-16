@@ -22,6 +22,7 @@ import com.treadz.console.treadmill.notification.NotificationMessage
 import com.treadz.console.treadmill.notification.ServiceNotificationMapper
 import com.treadz.console.treadmill.notification.ServiceNotificationModel
 import com.treadz.console.treadmill.notification.StopRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,8 +43,9 @@ import kotlinx.coroutines.withContext
  *
  * The notification (public on the lock screen) carries a STOP action while the belt is not idle, so the belt can be
  * stopped with the screen off or while the app shows another screen, and an Exit action while the belt is idle
- * (disconnect, remove the notification and close the app). Never both at once. The action calls
- * [TreadmillController.stop] (never the Control Point directly) and, if the stop cannot be verified, the notification
+ * (disconnect, remove the notification and close the app). Never both at once. The action goes through the app's STOP
+ * route if it set one ([TreadZTreadmill.routeNotificationStop]; it ends the program or test in progress), otherwise it
+ * calls [TreadmillController.stop] (never the Control Point directly) and, if the stop cannot be verified, the notification
  * says so and a high-priority alert asks the user to press the console's STOP or pull the safety key. What the
  * notification says is decided by [ServiceNotificationMapper] (pure logic, tested in `:treadmill`).
  *
@@ -141,11 +143,12 @@ class TreadZService : Service() {
     }
 
     /**
-     * The STOP action: asks the controller to stop the belt. A second tap while the first stop is still being
-     * verified does nothing (the controller would also join them into a single command).
+     * The STOP action: asks the app's STOP route (or else the controller) to stop the belt. A second tap while the first
+     * stop is still being verified does nothing (the controller would also join them into a single command).
      */
     private fun stopFromNotification() {
         val controller = controller ?: return
+        val routed = backend?.notificationStop
         if (!stopRequest.compareAndSet(StopRequest.None, StopRequest.InFlight) &&
             !stopRequest.compareAndSet(StopRequest.Failed, StopRequest.InFlight)
         ) {
@@ -154,7 +157,7 @@ class TreadZService : Service() {
         }
         scope.launch {
             val result = try {
-                withContext(CommandOrigin.Notification) { controller.stop() }
+                stopBelt(controller, routed)
             } catch (e: Exception) {
                 Log.e(TAG, "stop() from the notification failed", e)
                 CommandResult.NotVerified(FailureCode.InternalError, "stop() threw: $e")
@@ -162,6 +165,20 @@ class TreadZService : Service() {
             Log.i(TAG, "STOP from the notification: $result")
             stopRequest.value = StopRequest.afterResult(result)
         }
+    }
+
+    /** Through the app's route when there is one; should that route fail, straight to the controller. */
+    private suspend fun stopBelt(controller: TreadmillController, routed: (suspend () -> CommandResult)?): CommandResult {
+        if (routed != null) {
+            try {
+                return routed()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "The app's STOP route failed: stopping the belt directly", e)
+            }
+        }
+        return withContext(CommandOrigin.Notification) { controller.stop() }
     }
 
     /**

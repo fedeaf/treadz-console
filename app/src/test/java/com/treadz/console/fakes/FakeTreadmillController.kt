@@ -13,9 +13,11 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.ValueRange
+import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.ftms.TransportException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,6 +117,9 @@ class FakeTreadmillController : TreadmillController {
     var resumeCalls = 0
     var stopCalls = 0
 
+    /** Who asked for each stop ([CommandOrigin] of the caller's context), in order. */
+    val stopOrigins = mutableListOf<CommandOrigin?>()
+
     /** Every speed / incline command received, in order. */
     val speedCommands = mutableListOf<Double>()
     val inclineCommands = mutableListOf<Double>()
@@ -149,6 +154,7 @@ class FakeTreadmillController : TreadmillController {
 
     override suspend fun stop(): CommandResult {
         stopCalls++
+        stopOrigins += currentCoroutineContext()[CommandOrigin]
         if (stopResult is CommandResult.Success) state.value = state.value.copy(status = BeltStatus.Idle, speedKmh = 0.0, targetSpeedKmh = null)
         return alertIfNotExecuted("stop", stopResult)
     }

@@ -16,6 +16,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import com.treadz.console.fakes.FakeApp
+import com.treadz.console.fakes.FakeWorkoutRecorder
 import com.treadz.console.fakes.FakeTreadmillController
 import com.treadz.console.fakes.InMemorySettingsStore
 import com.treadz.console.fakes.createProfile
@@ -409,6 +410,15 @@ class SettingsUiTest {
         assertEquals(1, openedDownloads)
         // No recording yet: nothing to share.
         rule.onNodeWithTag("share_last_recording").assertDoesNotExist()
+    }
+
+    @Test fun withoutRecordingsTheAboutSectionOffersNothingAboutThem() {
+        app = FakeApp(recorder = FakeWorkoutRecorder(enabled = false))
+        show(Screen.Settings)
+        rule.onNodeWithTag("about_version").assertTextContains(BuildConfig.VERSION_NAME, substring = true)
+        rule.onNodeWithTag("open_downloads").assertDoesNotExist()
+        rule.onNodeWithTag("share_last_recording").assertDoesNotExist()
+        rule.onNodeWithText("Every session is recorded", substring = true).assertDoesNotExist()
     }
 
     @Test fun theLastRecordingCanBeShared() {

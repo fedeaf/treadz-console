@@ -88,8 +88,6 @@ GitHub repository.
 
 - Layouts for phones (portrait) and tablets (landscape), designed to be used while walking or running.
 - English and Spanish. Dark and light themes.
-- Every session is also recorded in full in `Download/TreadZ/` (JSON Lines) for debugging, and can be shared from
-  Settings.
 
 ## Compatibility
 
@@ -111,6 +109,9 @@ Requirements: JDK 21 and the Android SDK (compile SDK 37).
 ```bash
 ./gradlew :app:assembleDebug
 ```
+
+A debug build also records every session in full (raw Bluetooth traffic, decoded data and every command sent) in
+`Download/TreadZ/` as JSON Lines, and Settings can share the last recording. Release builds record nothing.
 
 Tests (pure Kotlin modules on the JVM, Android modules with Robolectric):
 

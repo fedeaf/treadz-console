@@ -2,10 +2,12 @@ package com.treadz.console.treadmill.android
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.util.Log
 import com.treadz.console.hrm.HrmTraceFields
 import com.treadz.console.hrm.android.TreadZHeartRate
+import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.control.ControllerConfig
@@ -32,32 +34,44 @@ internal class AndroidBackend(context: Context) {
         SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.e(TAG, "Unhandled error", e) },
     )
 
-    val recorder = JsonlWorkoutRecorder(
-        storage = MediaStoreRecordingStorage(appContext),
-        clock = Clock.System,
-        config = RecorderConfig(
-            appName = "TreadZ",
-            appVersion = appVersion(),
-            phoneModel = "${Build.MANUFACTURER} ${Build.MODEL}",
-            androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-        ),
-    )
+    /**
+     * The debug recording of every session (`.jsonl` files in `Download/TreadZ/`). Only debug (debuggable) builds
+     * record: a release build has no recorder and writes no file.
+     */
+    val recorder: JsonlWorkoutRecorder? = if (isDebuggable()) {
+        JsonlWorkoutRecorder(
+            storage = MediaStoreRecordingStorage(appContext),
+            clock = Clock.System,
+            config = RecorderConfig(
+                appName = "TreadZ",
+                appVersion = appVersion(),
+                phoneModel = "${Build.MANUFACTURER} ${Build.MODEL}",
+                androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            ),
+        )
+    } else {
+        null
+    }
 
     private val inner = FtmsTreadmillController(
         transport = AndroidBleTransport(appContext),
         scope = scope,
         clock = Clock.System,
         config = ControllerConfig(),
-        observers = listOf(recorder),
+        observers = listOfNotNull(recorder),
     )
 
-    /** What the UI sees: the controller, closing the recording when the user disconnects. */
-    val controller: TreadmillController = RecordingController(inner, recorder)
+    /** What the UI sees: the controller, closing the recording (if any) when the user disconnects. */
+    val controller: TreadmillController = recorder?.let { RecordingController(inner, it) } ?: inner
+
+    /** Where the notification's STOP goes instead of the controller ([TreadZTreadmill.routeNotificationStop]). */
+    @Volatile
+    var notificationStop: (suspend () -> CommandResult)? = null
 
     /** Visibility, exit and the background policy; its decisions drive the foreground service below. */
     val lifecycle = AppLifecycleManager(controller, inner, scope)
 
-    /** The strap connected to the app (if the app uses one): its traffic goes into the session recording. */
+    /** The strap connected to the app (if the app uses one): its traffic goes into the session recording, if any. */
     private val heartRate = TreadZHeartRate.monitor(appContext)
 
     init {
@@ -81,9 +95,11 @@ internal class AndroidBackend(context: Context) {
             }
         }
         // Raw packets, readings and connection changes of the strap, in the same session file as the treadmill's.
-        heartRate.addObserver { record ->
-            val (type, fields) = HrmTraceFields.of(record)
-            recorder.onTrace(TraceRecord.External(record.atMillis, type, fields))
+        recorder?.let { recorder ->
+            heartRate.addObserver { record ->
+                val (type, fields) = HrmTraceFields.of(record)
+                recorder.onTrace(TraceRecord.External(record.atMillis, type, fields))
+            }
         }
     }
 
@@ -94,6 +110,8 @@ internal class AndroidBackend(context: Context) {
             Log.e(TAG, "Could not close the app's task", e)
         }
     }
+
+    private fun isDebuggable(): Boolean = appContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     private fun appVersion(): String = try {
         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "?"

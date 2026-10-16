@@ -264,6 +264,7 @@ fun TreadZRoot(
                                 onOpenDownloads = actions.onOpenDownloads,
                                 onShareRecording = recording?.let { saved -> { actions.onShare(saved.info) } },
                             ),
+                            recordingsEnabled = ui.recordingsEnabled,
                         )
                     }
 

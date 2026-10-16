@@ -43,6 +43,8 @@ data class MainUiState(
     val recording: RecordingStatus = RecordingStatus.Idle,
     /** Final recording notice (saved or failed) the user has not closed yet. */
     val recordingNotice: RecordingStatus? = null,
+    /** Sessions are recorded for debugging (debug builds only): Settings offers the recordings. */
+    val recordingsEnabled: Boolean = true,
     val darkTheme: Boolean = true,
     /** Who is training. `null` while loading or when nobody is selected: the treadmill cannot be started then. */
     val activeUser: UserProfile? = null,

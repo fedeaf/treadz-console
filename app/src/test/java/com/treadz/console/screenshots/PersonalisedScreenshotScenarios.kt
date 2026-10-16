@@ -520,7 +520,7 @@ abstract class PersonalisedScreenshotScenarios(private val prefix: String) {
                 status = BeltStatus.Running, speedKmh = test.actualSpeedKmh, targetSpeedKmh = test.targetSpeedKmh,
                 inclinePercent = test.actualInclinePercent, heartRateBpm = test.heartRateBpm, updatedAtMillis = 1_000,
             ),
-            activeUser = ana, session = locked,
+            activeUser = ana, session = if (test.manualChangesAllowed) SessionControls(SessionKind.FitnessTest, pause = false) else locked,
         )
         host(name) { FitnessRunScreen(ui, run, ControlActions(), RunActions()) }
     }

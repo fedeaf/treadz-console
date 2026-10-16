@@ -342,9 +342,10 @@ class FitnessTestRunner(
 
     /**
      * STOP: stops the belt. During the test the result is invalid; during the cool-down the result stands and the
-     * cool-down is cut short. While the belt is still starting, the start is cancelled and no test is recorded.
+     * cool-down is cut short. While the belt is still starting, the start is cancelled and no test is recorded. [origin]
+     * is who asked for it (the app's STOP or the notification's), for the recording.
      */
-    suspend fun stop(): FitnessActionResult = scope.async {
+    suspend fun stop(origin: CommandOrigin = CommandOrigin.App): FitnessActionResult = scope.async {
         val duringStart: Boolean
         synchronized(lock) {
             val p = protocol ?: return@async FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is active")
@@ -358,7 +359,7 @@ class FitnessTestRunner(
                 publish()
             }
         }
-        val result = withContext(CommandOrigin.App) { controller.stop() }
+        val result = withContext(origin) { controller.stop() }
         if (!duringStart) synchronized(lock) { finishRun(coolDownCompleted = false) }
         if (result == CommandResult.Success) FitnessActionResult.Success else FitnessActionResult.CommandFailed(result)
     }.await()

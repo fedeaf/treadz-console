@@ -24,6 +24,7 @@ import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.FailureCode
 import com.treadz.console.treadmill.TreadmillState
+import com.treadz.console.treadmill.control.CommandOrigin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -185,13 +186,40 @@ class TrainingCoordinatorTest {
         assertEquals(RunOutcome.StoppedByUser, app.programRunner.progress.value.outcome)
     }
 
-    @Test fun theNotificationsStopIsAnExternalStopForTheRunner() {
+    @Test fun theNotificationsStopEndsAProgramThroughTheRunner() {
+        restingBelt()
+        startPyramid()
+        controller.showRunning()
+        rig.advance(1_000)
+        val stopsBefore = controller.stopCalls
+
+        assertEquals(CommandResult.Success, rig.call { training.stopFromNotification() })
+        rig.advance(1_000)
+
+        val progress = app.programRunner.progress.value
+        assertEquals(RunState.Finished, progress.state)
+        assertEquals(RunOutcome.StoppedByUser, progress.outcome)
+        assertEquals(stopsBefore + 1, controller.stopCalls)
+        assertEquals(CommandOrigin.Notification, controller.stopOrigins.last())
+        assertEquals(SessionKind.Program, training.visible.value)
+    }
+
+    @Test fun withoutASessionTheNotificationsStopGoesStraightToTheController() {
+        controller.showRunning()
+
+        assertEquals(CommandResult.Success, rig.call { training.stopFromNotification() })
+
+        assertEquals(1, controller.stopCalls)
+        assertEquals(CommandOrigin.Notification, controller.stopOrigins.single())
+    }
+
+    @Test fun aStopFromOutsideTheAppInterruptsTheProgram() {
         restingBelt()
         startPyramid()
         controller.showRunning()
         rig.advance(1_000)
 
-        // What the notification does: the controller directly.
+        // The console's STOP: the belt stops without the app asking.
         rig.call { controller.stop() }
         rig.advance(1_000)
 
@@ -305,13 +333,30 @@ class TrainingCoordinatorTest {
         assertEquals(SessionKind.None, training.visible.value)
     }
 
-    @Test fun theNotificationsStopEndsATestAsInvalidAndTheResultIsStillStored() {
+    @Test fun theNotificationsStopEndsATestThroughTheRunner() {
         restingBelt()
         assertEquals(StartOutcome.Started, startEbbeling())
         controller.showState { it.copy(status = BeltStatus.Running, speedKmh = 4.8, targetSpeedKmh = 4.8, heartRateBpm = 100, updatedAtMillis = rig.scheduler.currentTime) }
         rig.advance(30_000)
 
-        // The notification stops the belt through the controller, not through the coordinator.
+        assertEquals(CommandResult.Success, rig.call { training.stopFromNotification() })
+        rig.advance(1_000)
+
+        val progress = app.fitnessRunner.progress.value
+        assertEquals(FitnessTestPhase.Finished, progress.phase)
+        assertTrue(FitnessTestFlag.StoppedByUser in progress.result!!.flags)
+        assertEquals(1, controller.stopCalls)
+        assertEquals(CommandOrigin.Notification, controller.stopOrigins.single())
+        assertNotNull(runBlocking { app.userData.fitnessTests.get(progress.result!!.id) })
+    }
+
+    @Test fun aStopFromOutsideTheAppEndsATestAsInvalidAndTheResultIsStillStored() {
+        restingBelt()
+        assertEquals(StartOutcome.Started, startEbbeling())
+        controller.showState { it.copy(status = BeltStatus.Running, speedKmh = 4.8, targetSpeedKmh = 4.8, heartRateBpm = 100, updatedAtMillis = rig.scheduler.currentTime) }
+        rig.advance(30_000)
+
+        // The console's STOP: the belt stops without the app asking.
         rig.call { controller.stop() }
         rig.advance(2_000)
 

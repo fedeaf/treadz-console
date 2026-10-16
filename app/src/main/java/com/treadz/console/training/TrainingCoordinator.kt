@@ -100,7 +100,7 @@ interface SessionLinks {
  * **Routing.** While a program runs (from its start until it ends) every in-app command goes through [ProgramRunner]
  * (STOP, pause, resume, speed and incline adjustments); while a test runs, through [FitnessTestRunner] (STOP; the speed
  * of Ebbeling stage 1; nothing else is allowed). Outside of both, commands go straight to the controller. The notification's
- * STOP calls the controller directly: the runners treat that as the belt changing externally.
+ * STOP takes the same route ([stopFromNotification]), so it ends a program or test as the app's STOP does.
  */
 class TrainingCoordinator(
     private val controller: TreadmillController,
@@ -477,17 +477,26 @@ class TrainingCoordinator(
             }
         }
 
-        /** STOP always reaches the treadmill: if the runner says nothing is active (it just ended), the controller stops the belt. */
-        override suspend fun stop(): CommandResult {
-            if (programActive()) {
-                val result = programRunner.stop()
-                if (!(result is RunnerResult.NotAllowed && result.refusal == Refusal.NotActive)) return result.toCommandResult()
-            } else if (testActive()) {
-                val result = fitnessRunner.stop()
-                if (!(result is FitnessActionResult.NotAllowed && result.refusal == FitnessRefusal.NotActive)) return result.toCommandResult()
-            }
-            return withContext(CommandOrigin.App) { controller.stop() }
+        override suspend fun stop(): CommandResult = routedStop(CommandOrigin.App)
+    }
+
+    /**
+     * The notification's STOP: through the program or test in progress, like the app's STOP, so a program ends as
+     * stopped by the user (not interrupted) and a test as the STOP rules of the test say; otherwise straight to the
+     * controller. Recorded with [CommandOrigin.Notification].
+     */
+    suspend fun stopFromNotification(): CommandResult = routedStop(CommandOrigin.Notification)
+
+    /** STOP always reaches the treadmill: if the runner says nothing is active (it just ended), the controller stops the belt. */
+    private suspend fun routedStop(origin: CommandOrigin): CommandResult {
+        if (programActive()) {
+            val result = programRunner.stop(origin)
+            if (!(result is RunnerResult.NotAllowed && result.refusal == Refusal.NotActive)) return result.toCommandResult()
+        } else if (testActive()) {
+            val result = fitnessRunner.stop(origin)
+            if (!(result is FitnessActionResult.NotAllowed && result.refusal == FitnessRefusal.NotActive)) return result.toCommandResult()
         }
+        return withContext(origin) { controller.stop() }
     }
 
     private companion object {

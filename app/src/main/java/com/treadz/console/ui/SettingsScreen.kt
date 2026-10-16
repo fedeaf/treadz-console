@@ -52,6 +52,8 @@ fun SettingsScreen(
     versionName: String,
     actions: SettingsActions,
     modifier: Modifier = Modifier,
+    /** Debug builds record every session: the about section then offers the recordings. */
+    recordingsEnabled: Boolean = true,
 ) {
     val layout = LocalLayout.current
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -68,7 +70,7 @@ fun SettingsScreen(
                     Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    OtherSections(state, permissions, versionName, actions)
+                    OtherSections(state, permissions, versionName, recordingsEnabled, actions)
                 }
             }
         } else {
@@ -77,21 +79,21 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 SyncSection(state, actions.sync)
-                OtherSections(state, permissions, versionName, actions)
+                OtherSections(state, permissions, versionName, recordingsEnabled, actions)
             }
         }
     }
 }
 
 @Composable
-private fun OtherSections(state: SettingsUiState, permissions: PermissionsUi, versionName: String, actions: SettingsActions) {
+private fun OtherSections(state: SettingsUiState, permissions: PermissionsUi, versionName: String, recordingsEnabled: Boolean, actions: SettingsActions) {
     UsersSection(actions)
     DevicesSection(actions)
     TreadmillSection(state, actions)
     AppearanceSection(state, actions)
     LanguageSection(state, actions)
     PermissionsSection(permissions, actions)
-    AboutSection(versionName, actions)
+    AboutSection(versionName, recordingsEnabled, actions)
 }
 
 /** A titled card of the settings. */
@@ -254,7 +256,7 @@ private fun PermissionRow(label: String, granted: Boolean, tag: String) {
 }
 
 @Composable
-private fun AboutSection(versionName: String, actions: SettingsActions) {
+private fun AboutSection(versionName: String, recordingsEnabled: Boolean, actions: SettingsActions) {
     SettingsSection(stringResource(R.string.settings_about_title), Modifier.testTag("settings_about")) {
         Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text(
@@ -269,18 +271,20 @@ private fun AboutSection(versionName: String, actions: SettingsActions) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(stringResource(R.string.settings_recordings_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        BigOutlinedButton(
-            stringResource(R.string.settings_recordings_open),
-            actions.onOpenDownloads,
-            Modifier.fillMaxWidth().testTag("open_downloads"),
-        )
-        actions.onShareRecording?.let { share ->
+        if (recordingsEnabled) {
+            Text(stringResource(R.string.settings_recordings_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             BigOutlinedButton(
-                stringResource(R.string.settings_recordings_share),
-                share,
-                Modifier.fillMaxWidth().testTag("share_last_recording"),
+                stringResource(R.string.settings_recordings_open),
+                actions.onOpenDownloads,
+                Modifier.fillMaxWidth().testTag("open_downloads"),
             )
+            actions.onShareRecording?.let { share ->
+                BigOutlinedButton(
+                    stringResource(R.string.settings_recordings_share),
+                    share,
+                    Modifier.fillMaxWidth().testTag("share_last_recording"),
+                )
+            }
         }
     }
 }

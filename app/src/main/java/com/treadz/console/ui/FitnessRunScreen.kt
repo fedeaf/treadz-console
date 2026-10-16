@@ -85,7 +85,7 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                     InstructionPanel(test, Modifier.weight(1f).fillMaxWidth())
                     Row(Modifier.weight(1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
                         SpeedFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
-                        InclineFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
+                        InclineFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
                         HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
                     }
                     RampStartPanel(test, actions)
@@ -103,9 +103,15 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                 // On a phone the ramp start controls come first: they only exist during the warm-up and the figures would push them off screen.
                 RampStartPanel(test, actions)
                 SpeedFigure(ui, test, controls, sizes, Modifier.fillMaxWidth().heightIn(min = 120.dp))
-                Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                    InclineFigure(test, sizes, Modifier.weight(1f).fillMaxSize())
-                    HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
+                if (test.manualChangesAllowed) {
+                    // The incline with − / + needs the whole width, like the speed.
+                    InclineFigure(ui, test, controls, sizes, Modifier.fillMaxWidth().heightIn(min = 120.dp))
+                    HeartRateFigure(test, run, sizes, Modifier.fillMaxWidth().height(120.dp))
+                } else {
+                    Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
+                        InclineFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
+                        HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
+                    }
                 }
                 controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
                 TestInfo(test, run)
@@ -184,10 +190,14 @@ private fun InstructionPanel(test: FitnessTestProgress, modifier: Modifier) {
     }
 }
 
-/** The speed: with − / + while the Ebbeling speed may still change, otherwise a figure with the target. */
+/**
+ * The speed: with − / + while the Ebbeling speed may still change and during the cool-down (manual changes allowed),
+ * otherwise a figure with the target.
+ */
 @Composable
 private fun SpeedFigure(ui: MainUiState, test: FitnessTestProgress, controls: ControlActions, sizes: LiveSizes, modifier: Modifier) {
-    val adjustable = ui.session.speed && test.testType == FitnessTestType.EbbelingWalk && test.phase == FitnessTestPhase.Stage1 && !test.speedLocked
+    val ebbelingSpeed = test.testType == FitnessTestType.EbbelingWalk && test.phase == FitnessTestPhase.Stage1 && !test.speedLocked
+    val adjustable = ui.session.speed && (ebbelingSpeed || test.manualChangesAllowed)
     val target = test.targetSpeedKmh?.takeIf { abs(it - test.actualSpeedKmh) >= 0.05 }
     if (adjustable) {
         AdjustPanel(
@@ -221,8 +231,31 @@ private fun SpeedFigure(ui: MainUiState, test: FitnessTestProgress, controls: Co
     }
 }
 
+/** The incline: with − / + during the cool-down (manual changes allowed), otherwise a figure with the target. */
 @Composable
-private fun InclineFigure(test: FitnessTestProgress, sizes: LiveSizes, modifier: Modifier) {
+private fun InclineFigure(ui: MainUiState, test: FitnessTestProgress, controls: ControlActions, sizes: LiveSizes, modifier: Modifier) {
+    if (ui.session.incline && test.manualChangesAllowed) {
+        AdjustPanel(
+            label = stringResource(R.string.metric_incline),
+            unit = stringResource(R.string.unit_incline),
+            value = Format.incline(test.actualInclinePercent),
+            target = ui.targetIncline?.takeIf { abs(it - test.actualInclinePercent) >= 0.05 }?.let { stringResource(R.string.control_target, Format.incline(it)) },
+            busy = ui.controls.inclineInFlight,
+            enabled = ui.canAdjustIncline,
+            dimmed = ui.treadmill.isStale,
+            lessDescription = stringResource(R.string.control_incline_less),
+            moreDescription = stringResource(R.string.control_incline_more),
+            onLessPress = { controls.onInclinePress(-1) },
+            onMorePress = { controls.onInclinePress(+1) },
+            onRelease = controls.onInclineRelease,
+            onLessStep = { controls.onInclineStep(-1) },
+            onMoreStep = { controls.onInclineStep(+1) },
+            sizes = sizes,
+            tag = "incline",
+            modifier = modifier,
+        )
+        return
+    }
     MetricCard(
         label = stringResource(R.string.metric_incline),
         value = Format.incline(test.actualInclinePercent),

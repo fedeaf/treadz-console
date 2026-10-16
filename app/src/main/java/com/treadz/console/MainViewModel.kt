@@ -180,6 +180,7 @@ class MainViewModel(
             recordingNotice = recording.takeIf {
                 (it is RecordingStatus.Saved || it is RecordingStatus.Failed) && it != local.dismissedRecording
             },
+            recordingsEnabled = recorder.enabled,
             darkTheme = local.darkTheme,
             activeUser = extras.user,
             unassignedWorkoutCount = extras.unassigned,
@@ -194,7 +195,7 @@ class MainViewModel(
                 heartRate = LiveHeartRate(treadmill.heartRateBpm, if (treadmill.heartRateBpm != null) HeartRateSourceKind.TreadmillConsole else null),
             ),
         )
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme))
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, MainUiState(darkTheme = local.value.darkTheme, recordingsEnabled = recorder.enabled))
 
     private var scanJob: Job? = null
     private var connectJob: Job? = null

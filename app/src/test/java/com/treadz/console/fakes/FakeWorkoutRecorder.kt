@@ -5,7 +5,8 @@ import com.treadz.console.treadmill.RecordingStatus
 import com.treadz.console.treadmill.WorkoutRecorder
 import kotlinx.coroutines.flow.MutableStateFlow
 
-class FakeWorkoutRecorder : WorkoutRecorder {
+/** [enabled] `false` stands for a release build, which records nothing. */
+class FakeWorkoutRecorder(override val enabled: Boolean = true) : WorkoutRecorder {
     override val status = MutableStateFlow<RecordingStatus>(RecordingStatus.Idle)
 
     fun showRecording() {

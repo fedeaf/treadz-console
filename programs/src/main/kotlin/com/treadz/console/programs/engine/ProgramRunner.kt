@@ -437,9 +437,10 @@ class ProgramRunner(
 
     /**
      * Stops the belt and ends the program ([RunOutcome.StoppedByUser]). Valid in any active state; it ends the
-     * program even if the stop command fails (then the result says so and the controller raises its alert).
+     * program even if the stop command fails (then the result says so and the controller raises its alert). [origin] is
+     * who asked for it (the app's STOP or the notification's), for the recording.
      */
-    suspend fun stop(): RunnerResult = scope.async {
+    suspend fun stop(origin: CommandOrigin = CommandOrigin.App): RunnerResult = scope.async {
         val alreadyEnding: Boolean
         synchronized(lock) {
             if (runState == RunState.Idle || runState == RunState.Finished) return@async RunnerResult.NotAllowed(Refusal.NotActive, "No active program")
@@ -452,7 +453,7 @@ class ProgramRunner(
                 publish()
             }
         }
-        val result = withContext(CommandOrigin.App) { controller.stop() }
+        val result = withContext(origin) { controller.stop() }
         if (!alreadyEnding) synchronized(lock) { finish(RunOutcome.StoppedByUser, null, result) }
         resultOf(result)
     }.await()

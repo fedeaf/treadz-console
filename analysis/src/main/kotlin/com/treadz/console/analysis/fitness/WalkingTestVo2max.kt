@@ -91,10 +91,7 @@ object WalkingTestVo2max {
         val speed = sumS / covered
         val incline = sumG / covered
         val running = Acsm.isRunning(speed)
-        val mPerMin = 1000.0 / 60.0
-        val meanS = speed * mPerMin
-        val meanSG = sumSG / covered * mPerMin / 100.0
-        val vo2 = if (running) Acsm.REST_VO2 + 0.2 * meanS + 0.9 * meanSG else Acsm.REST_VO2 + 0.1 * meanS + 1.8 * meanSG
+        val vo2 = Acsm.vo2OfMeans(speed, sumSG / covered)
         return WalkingTestVo2maxEstimate(vo2, speed, incline, running, true, covered)
     }
 }

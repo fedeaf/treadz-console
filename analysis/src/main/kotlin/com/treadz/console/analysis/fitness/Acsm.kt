@@ -41,6 +41,18 @@ object Acsm {
         return (vo2 - REST_VO2 - 0.1 * s) / (1.8 * s)
     }
 
+    /**
+     * The equation ([isRunning] by [meanSpeedKmh]) applied to time-weighted means: it is linear in S and S·G, so the
+     * mean oxygen demand of a stretch is the equation of the mean speed and of the mean product speed × incline
+     * ([meanSpeedTimesInclinePercent], km/h × %).
+     */
+    fun vo2OfMeans(meanSpeedKmh: Double, meanSpeedTimesInclinePercent: Double): Double {
+        val mPerMin = 1000.0 / 60.0
+        val meanS = meanSpeedKmh * mPerMin
+        val meanSG = meanSpeedTimesInclinePercent * mPerMin / 100.0
+        return if (isRunning(meanSpeedKmh)) REST_VO2 + 0.2 * meanS + 0.9 * meanSG else REST_VO2 + 0.1 * meanS + 1.8 * meanSG
+    }
+
     /** Running speed (km/h) that gives [vo2] at [grade] (a fraction), from the running equation. */
     fun runningSpeedFor(vo2: Double, grade: Double): Double = (vo2 - REST_VO2) / (0.2 + 0.9 * grade) * 60.0 / 1000.0
 

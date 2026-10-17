@@ -30,8 +30,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -133,8 +135,10 @@ class ProfileEditorViewModel(
                     fitnessTests.heartRateMax(profileId),
                     restingHeartRates?.reference(profileId) ?: flowOf(null),
                     profiles.profile(profileId),
-                ) { profile, hrMax, resting, user ->
-                    FitnessSummary(profile, hrMax, user?.let { UserZones.compute(it, profile, hrMax, resting?.bpm, today()) })
+                    // The zones follow the level being edited, not only the saved one.
+                    state.map { it.form.fitnessLevel }.distinctUntilChanged(),
+                ) { profile, hrMax, resting, user, level ->
+                    FitnessSummary(profile, hrMax, user?.let { UserZones.compute(it.copy(fitnessLevel = level), profile, hrMax, resting?.bpm, today()) })
                 }
                     .collect { summary -> state.update { it.copy(fitness = summary) } }
             }

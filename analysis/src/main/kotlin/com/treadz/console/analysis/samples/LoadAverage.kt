@@ -55,10 +55,7 @@ object LoadAverage {
         val incline = sumG / c
         val running = Acsm.isRunning(speed)
         // Linear in S and S·G: the mean of the equation is the equation of the means of S and S·G.
-        val mPerMin = 1000.0 / 60.0
-        val meanS = speed * mPerMin
-        val meanSG = sumSG / c * mPerMin / 100.0
-        val vo2 = if (running) Acsm.REST_VO2 + 0.2 * meanS + 0.9 * meanSG else Acsm.REST_VO2 + 0.1 * meanS + 1.8 * meanSG
+        val vo2 = Acsm.vo2OfMeans(speed, sumSG / c)
         return MeanLoad(speed, incline, running, vo2, covered)
     }
 }

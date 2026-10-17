@@ -57,8 +57,8 @@ import kotlin.math.roundToInt
  *  6. **Heart-rate recovery** (as usually measured, from the end of the exercise: Cole CR et al. N Engl J Med.
  *     1999;341(18):1351-1357): the effort is the one that reached the highest mean heart rate of 30 s; the recovery
  *     starts when its load drops, and its value at 60 and 120 s is the mean heart rate of the last 30 s of the effort
- *     minus the mean of 5 s around each mark. *Assumption*: it is only measured when the load drops during that peak
- *     window or at most 30 s after it, to ≤ 60 % of the net oxygen demand of the minute before, and stays there 15-60 s
+ *     minus the mean of 5 s around each mark. *Assumption*: it is only measured when the load drops between 60 s before
+ *     that peak window (the heart rate lags behind the load) and 30 s after it, to ≤ 60 % of the net oxygen demand of the minute before, and stays there 15-60 s
  *     later; otherwise a steady effort would be mistaken for a recovery. The context (belt moving or stopped, mean VO2 of
  *     the recovery) lets the trends compare only equal cases.
  *  7. **Session α1** (strap RR only): windows of 120 s every 10 s ([com.treadz.console.analysis.thresholds.Alpha1Windows],

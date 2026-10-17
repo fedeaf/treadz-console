@@ -135,6 +135,11 @@ data class AnalysisRules(
      */
     val recoveryLoadDropFraction: Double = 0.6,
     val recoveryMaxDropDelaySeconds: Int = 30,
+    /**
+     * The drop is also searched up to this long before the peak window: after a short hard effort the heart rate keeps
+     * rising for a while once the load drops, so its highest 30 s can come after the end of the effort.
+     */
+    val recoveryMaxHeartRateLagSeconds: Int = 60,
 
     /** Session α1: a window counts only if the belt moved during this share of it. */
     val alpha1MinMovingFraction: Double = 0.8,

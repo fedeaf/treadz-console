@@ -44,11 +44,13 @@ internal object RecoverySection {
             return if (n >= minCovered) s / n else null
         }
 
-        // The end of the effort: the first second of the peak window, or shortly after it, where the load drops.
+        // The end of the effort: the first second where the load drops, from a little before the peak window (the heart
+        // rate can keep rising after the effort ends) to shortly after it.
+        val firstCandidate = maxOf(1, windowStart - rules.recoveryMaxHeartRateLagSeconds)
         val lastCandidate = minOf(size - 1, windowStart + w - 1 + rules.recoveryMaxDropDelaySeconds)
         var drop = -1
         var dataAfter = false
-        for (k in windowStart + 1..lastCandidate) {
+        for (k in firstCandidate..lastCandidate) {
             if (!tl.covered[k]) continue
             val before = meanNet(k - 60, k - 1, 30) ?: continue
             if (before < rules.recoveryMinNetVo2) continue

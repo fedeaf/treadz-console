@@ -1,5 +1,6 @@
 package com.treadz.console.performance
 
+import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.trends.AbsoluteVo2
 import com.treadz.console.analysis.trends.AbsoluteVo2Point
 import com.treadz.console.analysis.trends.DatedValue
@@ -69,13 +70,16 @@ data class PerformanceTrends(
 
     val hasLoad: Boolean get() = workoutsWithTrimp > 0
 
-    /** VO2max of the latest test minus the one before it; `null` with fewer than two tests. */
+    /** VO2max of the latest test minus the one before it, lower bounds left out; `null` with fewer than two such tests. */
     val vo2maxChange: Double?
-        get() = tests.vo2max.takeLast(2).takeIf { it.size == 2 }?.let { (before, last) -> last.value - before.value }
+        get() = tests.vo2max.filter { !it.isLowerBound }.takeLast(2).takeIf { it.size == 2 }?.let { (before, last) -> last.value - before.value }
 
-    /** VT1 of the latest test with one minus the one before it (bpm); `null` with fewer than two. */
+    /**
+     * VT1 of the latest test with one minus the one before it (bpm), counting only the tests whose thresholds reach the
+     * profile (not low quality); `null` with fewer than two.
+     */
     val vt1Change: Double?
-        get() = tests.thresholds.mapNotNull { it.vt1Bpm }.takeLast(2).takeIf { it.size == 2 }?.let { (before, last) -> last - before }
+        get() = tests.thresholds.filter { it.quality != ThresholdQuality.Low }.mapNotNull { it.vt1Bpm }.takeLast(2).takeIf { it.size == 2 }?.let { (before, last) -> last - before }
 
     /** Absolute VO2 (L/min) of the latest test minus the one before it; `null` with fewer than two. */
     val absoluteVo2Change: Double?
@@ -121,14 +125,16 @@ object PerformanceTrendsCalculator {
     fun compute(analyses: List<DatedWorkoutAnalysis>, inputs: PerformanceInputs, todayEpochDay: Long): PerformanceTrends {
         val dated = analyses.map { it.dated }
         val firstShownWeek = EpochDays.weekStart(todayEpochDay) - 7L * (Windows.WEEKS - 1)
-        val weekDays = LoadTrends.daily(dated, todayEpochDay, fromEpochDay = firstShownWeek)
+        val firstLoadDay = todayEpochDay - Windows.LOAD_DAYS + 1
+        // One run of the model for both windows.
+        val days = LoadTrends.daily(dated, todayEpochDay, fromEpochDay = minOf(firstLoadDay, firstShownWeek))
         return PerformanceTrends(
             todayEpochDay = todayEpochDay,
             tests = TestTrends.series(inputs.tests),
             fitnessIndex = FitnessIndexTrends.compute(dated),
             decoupling = DecouplingTrends.compute(dated),
-            loadDays = LoadTrends.daily(dated, todayEpochDay, fromEpochDay = todayEpochDay - Windows.LOAD_DAYS + 1),
-            loadWeeks = LoadTrends.weekly(weekDays),
+            loadDays = days.filter { it.epochDay >= firstLoadDay },
+            loadWeeks = LoadTrends.weekly(days.filter { it.epochDay >= firstShownWeek }),
             zoneWeeks = ZoneDistributionTrends.weekly(dated, todayEpochDay).filter { it.weekStartEpochDay >= firstShownWeek },
             recovery = RecoveryTrends.byContext(dated),
             restingMean = MeasurementTrends.trailingMean(inputs.restingHeartRate),

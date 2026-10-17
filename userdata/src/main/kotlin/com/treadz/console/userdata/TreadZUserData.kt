@@ -96,6 +96,12 @@ object TreadZUserData {
             }
             try {
                 data.workoutAnalysisRecalculator.recalculate()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Derived data only: keepUpToDate below runs it again on its first emission.
+            }
+            try {
                 data.workoutAnalysisRecalculator.keepUpToDate()
             } catch (e: CancellationException) {
                 throw e

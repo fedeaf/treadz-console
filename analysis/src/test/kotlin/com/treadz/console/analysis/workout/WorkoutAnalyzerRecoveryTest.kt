@@ -94,6 +94,21 @@ class WorkoutAnalyzerRecoveryTest {
     }
 
     @Test
+    fun `recovery is found when the heart rate keeps rising for long after the effort`() {
+        // Hard effort until 600 s; the heart rate rises 50 s more (lag), so its highest 30 s lie wholly after the drop.
+        val hr = { t: Int ->
+            when {
+                t < 600 -> 120 + t / 20 // 149 at the end
+                t < 650 -> 150 + (t - 600) / 10 // up to 154
+                else -> 154 - (t - 650) / 2
+            }
+        }
+        val r = analyse(session(800, speed = { if (it < 600) 10.0 else 0.0 }, heartRate = hr)).recovery.value!!
+        assertEquals(WorkoutFixtures.T0 + 600_000L, r.peakEndMillis)
+        assertEquals(148.667, r.peakHeartRateBpm, 1e-3)
+    }
+
+    @Test
     fun `recovery is measured although the strap was connected late`() {
         // No heart rate during the first 400 s (global coverage 33 %), then a clean effort and recovery.
         val hr = { t: Int -> if (t < 400) null else effortThenRecovery(t) }

@@ -107,7 +107,8 @@ internal class RoomAnalysisSource(private val db: UserDataDatabase) : AnalysisSo
 
     override suspend fun store(record: AnalysisRecord): Boolean = db.withTransaction {
         // A workout deleted or discarded while it was analysed has no row to belong to.
-        if (db.workouts().get(record.workoutId) == null) return@withTransaction false
+        val workout = db.workouts().get(record.workoutId)
+        if (workout == null || workout.deleted || workout.userId == null) return@withTransaction false
         db.workoutAnalysis().upsert(record.toEntity())
         true
     }

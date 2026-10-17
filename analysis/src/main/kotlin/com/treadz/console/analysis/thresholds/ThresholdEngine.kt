@@ -1,10 +1,8 @@
 package com.treadz.console.analysis.thresholds
 
 import com.treadz.console.analysis.fitness.Acsm
-import com.treadz.console.analysis.rr.CleanedRr
 import com.treadz.console.analysis.rr.Dfa
 import com.treadz.console.analysis.rr.RrCleaning
-import com.treadz.console.analysis.samples.LoadAverage
 import com.treadz.console.analysis.samples.RrInterval
 import com.treadz.console.analysis.samples.WorkoutSample
 import kotlin.math.abs
@@ -185,7 +183,7 @@ data class ThresholdRules(
  *
  * 1. **RR cleaning** ([RrCleaning]): outside 300-2000 ms or more than 20 % from the local median of 11 beats is an
  *    artifact, replaced by interpolation; the share of artifacts is counted per window.
- * 2. **Windows** of 120 s every 10 s, entirely inside the incremental phase. α1 by DFA over 4-16 beats ([Dfa]). A window
+ * 2. **Windows** ([Alpha1Windows]) of 120 s every 10 s, entirely inside the incremental phase. α1 by DFA over 4-16 beats ([Dfa]). A window
  *    is valid with ≥ 100 beats and ≤ 5 % artifacts (3-5 % counts but lowers the quality, step 5). Its heart rate is
  *    60 000 / its mean corrected RR, its load the time-weighted mean of the samples.
  * 3. **Regression of α1 against the heart rate** on the falling stretch: from the last valid window with α1 > 1.0 to the
@@ -221,7 +219,7 @@ object ThresholdEngine {
 
         val times = LongArray(input.rr.size) { input.rr[it].timeMillis }
         val cleaned = RrCleaning.clean(input.rr.map { it.rrMs })
-        val windows = windows(times, cleaned, input, rules)
+        val windows = Alpha1Windows.compute(times, cleaned, input.samples, start, end, rules)
         val valid = windows.indices.filter { windows[it].valid }
         val stretch = stretch(windows, valid, input.maxHeartRateBpm, rules)
         if (stretch.size < rules.minStretchWindows) {
@@ -275,53 +273,6 @@ object ThresholdEngine {
     }
 
     // ------------------------------------------------------------------ steps
-
-    private fun windows(times: LongArray, cleaned: CleanedRr, input: ThresholdInput, rules: ThresholdRules): List<Alpha1Window> {
-        val length = rules.windowSeconds * 1000L
-        val step = rules.stepSeconds * 1000L
-        val out = ArrayList<Alpha1Window>()
-        var s = input.incrementalStartMillis
-        while (s + length <= input.incrementalEndMillis) {
-            val e = s + length
-            val from = firstAfter(times, s)
-            val to = firstAfter(times, e)
-            val beats = to - from
-            var artifacts = 0
-            var sum = 0.0
-            for (i in from until to) {
-                if (cleaned.artifact[i]) artifacts++
-                sum += cleaned.rrMs[i]
-            }
-            val fraction = if (beats > 0) artifacts.toDouble() / beats else 1.0
-            val valid = beats >= rules.minBeats && fraction <= rules.maxArtifactFraction + 1e-12
-            val alpha = if (valid) Dfa.alpha1(cleaned.rrMs, from, to) else null
-            val load = LoadAverage.over(input.samples, s, e)
-            out += Alpha1Window(
-                startMillis = s,
-                endMillis = e,
-                beats = beats,
-                artifactFraction = fraction,
-                valid = valid && alpha != null,
-                alpha1 = alpha,
-                heartRateBpm = if (beats > 0) 60_000.0 / (sum / beats) else null,
-                speedKmh = load?.speedKmh,
-                inclinePercent = load?.inclinePercent,
-            )
-            s += step
-        }
-        return out
-    }
-
-    /** Index of the first beat with time > [t]. */
-    private fun firstAfter(times: LongArray, t: Long): Int {
-        var lo = 0
-        var hi = times.size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (times[mid] <= t) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
 
     /** The falling stretch (indices into windows, time order) among the [valid] ones. */
     internal fun stretch(windows: List<Alpha1Window>, valid: List<Int>, maxHr: Int, rules: ThresholdRules): List<Int> {

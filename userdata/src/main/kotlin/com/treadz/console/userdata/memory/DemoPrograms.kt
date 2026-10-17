@@ -11,12 +11,12 @@ import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.fitness.MaxTestMeasurements
 import com.treadz.console.programs.fitness.MinuteRecord
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.SpeedAdjustment
 import com.treadz.console.programs.fitness.StageRecord
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.programs.fitness.Vo2MaxMethod
-import com.treadz.console.programs.fitness.Vo2MaxNorms
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase

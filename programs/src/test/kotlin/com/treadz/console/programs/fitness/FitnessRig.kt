@@ -1,5 +1,6 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.control.Clock

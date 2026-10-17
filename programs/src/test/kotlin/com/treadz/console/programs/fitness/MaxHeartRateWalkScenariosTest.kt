@@ -1,5 +1,6 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.engine.HeartRateRig
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.SafetyLimits

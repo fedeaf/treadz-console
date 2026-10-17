@@ -1,4 +1,4 @@
-package com.treadz.console.programs.fitness
+package com.treadz.console.analysis.fitness
 
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -54,20 +54,6 @@ object FitnessFormulas {
         return 15.1 + 21.8 * v - 0.327 * hr - 0.263 * v * age + 0.00504 * hr * age + 5.98 * s
     }
 
-    // ------------------------------------------------------------------ maximal heart-rate walking test
-
-    /**
-     * Speed increase that raises the oxygen demand of walking as much as [gradeStepPercent] more grade, at [speedKmh]
-     * and [gradePercent], with the ACSM walking equation VO2 = 3.5 + 0.1·S + 1.8·S·G (S in m/min, G a fraction):
-     * ΔS = 1.8·S·ΔG / (0.1 + 1.8·G). Rounded to 0.1 km/h, at least 0.1. At 5.5 km/h and 18 %: +0.2 km/h per 1 %.
-     */
-    fun walkingSpeedStepForGrade(speedKmh: Double, gradePercent: Double, gradeStepPercent: Double = 1.0): Double {
-        val s = speedKmh * 1000.0 / 60.0
-        val g = gradePercent / 100.0
-        val ds = 1.8 * s * (gradeStepPercent / 100.0) / (0.1 + 1.8 * g)
-        return maxOf(0.1, round1(ds * 60.0 / 1000.0))
-    }
-
     // ------------------------------------------------------------------ maximal incremental test
 
     /**
@@ -87,7 +73,7 @@ object FitnessFormulas {
      * Standard error assumed for the VO2max derived from the MAS, ml·kg⁻¹·min⁻¹. Not a published figure for this
      * exact protocol: it reflects the ~7-8 % between-person variation of running economy at typical VO2max values
      * (45-55). **This is an assumption, not a measured value** (the user approved it on 2026-10-08, together with the
-     * rest of the weighting of [FitnessProfileCalculator]). Used only to weigh the tests against each other in the
+     * rest of the weighting of the fitness profile). Used only to weigh the tests against each other in the
      * fitness profile: with it a maximal test weighs about 1.5 times an Ebbeling test of the same age.
      */
     const val MAS_VO2MAX_SEE = 4.0

@@ -16,7 +16,7 @@ import com.treadz.console.programs.fitness.FitnessSubject
 import com.treadz.console.programs.fitness.FitnessTestFlag
 import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestType
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.StartOutcome
 import com.treadz.console.treadmill.BeltStatus

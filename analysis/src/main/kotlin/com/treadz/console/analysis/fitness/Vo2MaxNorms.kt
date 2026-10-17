@@ -1,4 +1,4 @@
-package com.treadz.console.programs.fitness
+package com.treadz.console.analysis.fitness
 
 /** VO2max categories of the Cooper Institute tables, best first. */
 enum class Vo2MaxCategory { Superior, Excellent, Good, Fair, Poor }

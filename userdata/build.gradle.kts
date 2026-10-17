@@ -39,6 +39,7 @@ ksp {
 }
 
 dependencies {
+    api(project(":analysis"))
     api(project(":treadmill"))
     // Program, plan and fitness-test models and their JSON documents (pure Kotlin, like :treadmill).
     api(project(":programs"))

@@ -1,8 +1,8 @@
 package com.treadz.console.programs.heartrate
 
+import com.treadz.console.analysis.heartrate.HeartRateBands
 import com.treadz.console.programs.model.HeartRateBasis
 import com.treadz.console.programs.model.HeartRateZone
-import kotlin.math.roundToInt
 
 /**
  * The user's heart-rate references for heart-rate-guided blocks.
@@ -30,20 +30,17 @@ object HeartRateZones {
 
     /** The zone in bpm for [profile]: % of the maximum, or of the reserve (Karvonen) when asked and possible. */
     fun toBpm(zone: HeartRateZone, profile: HeartRateProfile): HeartRateZoneBpm {
-        val rest = profile.usableRestingBpm
-        return if (zone.basis == HeartRateBasis.HeartRateReserve && rest != null) {
-            val reserve = profile.maxBpm - rest
-            HeartRateZoneBpm(
-                (rest + reserve * zone.lowPercent / 100.0).roundToInt(),
-                (rest + reserve * zone.highPercent / 100.0).roundToInt(),
-                HeartRateBasis.HeartRateReserve,
-            )
-        } else {
-            HeartRateZoneBpm(
-                (profile.maxBpm * zone.lowPercent / 100.0).roundToInt(),
-                (profile.maxBpm * zone.highPercent / 100.0).roundToInt(),
-                HeartRateBasis.MaxHeartRate,
-            )
-        }
+        val range = HeartRateBands.toBpm(
+            maxBpm = profile.maxBpm,
+            restingBpm = profile.usableRestingBpm,
+            ofReserve = zone.basis == HeartRateBasis.HeartRateReserve,
+            lowPercent = zone.lowPercent,
+            highPercent = zone.highPercent,
+        )
+        return HeartRateZoneBpm(
+            range.lowBpm,
+            range.highBpm,
+            if (range.usedReserve) HeartRateBasis.HeartRateReserve else HeartRateBasis.MaxHeartRate,
+        )
     }
 }

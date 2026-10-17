@@ -1,9 +1,10 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.SelfRatedFitness
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
 import com.treadz.console.programs.fitness.MasEstimate
-import com.treadz.console.programs.fitness.Sex
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -19,23 +20,6 @@ class IntensityTest {
     )
 
     // ------------------------------------------------------------------ estimation without tests
-
-    @Test
-    fun `Jackson 1990 BMI equation with the published coefficients`() {
-        // 56.363 + 1.921*4 - 0.381*40 - 0.754*24.6914 + 10.987 = 41.177
-        assertEquals(41.177, IntensityEstimator.jacksonVo2max(4, 40, 80.0 / (1.8 * 1.8), Sex.Male), 0.001)
-        // 56.363 + 1.921*1 - 0.381*30 - 0.754*22.0386 = 30.237
-        assertEquals(30.237, IntensityEstimator.jacksonVo2max(1, 30, 60.0 / (1.65 * 1.65), Sex.Female), 0.001)
-        assertEquals(10.987, IntensityEstimator.jacksonVo2max(3, 35, 25.0, Sex.Male) - IntensityEstimator.jacksonVo2max(3, 35, 25.0, Sex.Female), 1e-9)
-    }
-
-    @Test
-    fun `self-rated level maps to the activity rating, unknown is conservative`() {
-        assertEquals(1, IntensityEstimator.physicalActivityRating(SelfRatedFitness.Beginner))
-        assertEquals(4, IntensityEstimator.physicalActivityRating(SelfRatedFitness.Intermediate))
-        assertEquals(6, IntensityEstimator.physicalActivityRating(SelfRatedFitness.Advanced))
-        assertEquals(1, IntensityEstimator.physicalActivityRating(null))
-    }
 
     @Test
     fun `without tests VO2max is estimated, MAS is VO2max over 3_5 and both are flagged`() {
@@ -102,18 +86,6 @@ class IntensityTest {
     }
 
     // ------------------------------------------------------------------ ACSM translator
-
-    @Test
-    fun `ACSM equations give the known values`() {
-        // 5 km/h = 83.33 m/min, 10 %: 3.5 + 8.333 + 15.0
-        assertEquals(26.833, IntensityTranslator.walkingVo2(5.0, 10.0), 0.001)
-        // 10 km/h = 166.67 m/min, 1 %: 3.5 + 33.333 + 1.5
-        assertEquals(38.333, IntensityTranslator.runningVo2(10.0, 1.0), 0.001)
-        // Flat walking at 4.8 km/h (80 m/min): 3.5 + 8.0
-        assertEquals(11.5, IntensityTranslator.walkingVo2(4.8, 0.0), 1e-9)
-        // 12 km/h (200 m/min) flat: 3.5 + 40
-        assertEquals(43.5, IntensityTranslator.runningVo2(12.0, 0.0), 1e-9)
-    }
 
     @Test
     fun `walking keeps the comfortable speed and solves the incline`() {

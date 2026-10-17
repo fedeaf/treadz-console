@@ -12,7 +12,7 @@ import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.fitness.MaxHeartRateWalkMeasurements
 import com.treadz.console.programs.fitness.MaxHeartRateWalkParameters
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.FitnessResults
 import com.treadz.console.training.FitnessStartViewModel

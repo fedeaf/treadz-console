@@ -226,16 +226,16 @@ private fun effortReason(result: FitnessTestResult, effort: EffortAssessment): S
 }
 
 @Composable
-private fun categoryColor(category: com.treadz.console.programs.fitness.Vo2MaxCategory): Color = when (category) {
-    com.treadz.console.programs.fitness.Vo2MaxCategory.Superior, com.treadz.console.programs.fitness.Vo2MaxCategory.Excellent -> MaterialTheme.extra.ok
-    com.treadz.console.programs.fitness.Vo2MaxCategory.Good -> MaterialTheme.colorScheme.primary
-    com.treadz.console.programs.fitness.Vo2MaxCategory.Fair -> MaterialTheme.extra.warning
-    com.treadz.console.programs.fitness.Vo2MaxCategory.Poor -> MaterialTheme.colorScheme.error
+private fun categoryColor(category: com.treadz.console.analysis.fitness.Vo2MaxCategory): Color = when (category) {
+    com.treadz.console.analysis.fitness.Vo2MaxCategory.Superior, com.treadz.console.analysis.fitness.Vo2MaxCategory.Excellent -> MaterialTheme.extra.ok
+    com.treadz.console.analysis.fitness.Vo2MaxCategory.Good -> MaterialTheme.colorScheme.primary
+    com.treadz.console.analysis.fitness.Vo2MaxCategory.Fair -> MaterialTheme.extra.warning
+    com.treadz.console.analysis.fitness.Vo2MaxCategory.Poor -> MaterialTheme.colorScheme.error
 }
 
 @Composable
-private fun com.treadz.console.programs.fitness.Sex.label(): String = stringResource(
-    if (this == com.treadz.console.programs.fitness.Sex.Male) R.string.sex_male_plural else R.string.sex_female_plural,
+private fun com.treadz.console.analysis.fitness.Sex.label(): String = stringResource(
+    if (this == com.treadz.console.analysis.fitness.Sex.Male) R.string.sex_male_plural else R.string.sex_female_plural,
 )
 
 @OptIn(ExperimentalLayoutApi::class)

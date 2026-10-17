@@ -9,6 +9,7 @@ kotlin {
 }
 
 dependencies {
+    api(project(":analysis"))
     api(project(":treadmill"))
     api(project(":hrm"))
     api(libs.kotlinx.coroutines.core)

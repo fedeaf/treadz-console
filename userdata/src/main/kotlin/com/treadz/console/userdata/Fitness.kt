@@ -12,7 +12,7 @@ import java.time.LocalDate
 import java.time.Period
 import java.time.ZoneId
 import java.time.ZoneOffset
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 
 /** A stored fitness test result of a user. */
 data class FitnessTestRecord(

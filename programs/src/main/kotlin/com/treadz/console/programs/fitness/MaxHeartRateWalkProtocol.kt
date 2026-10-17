@@ -1,5 +1,7 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.Acsm
+import com.treadz.console.analysis.fitness.FitnessFormulas
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
 import com.treadz.console.programs.heartrate.PlausibilityConfig
 import kotlin.math.abs
@@ -18,7 +20,7 @@ import kotlin.math.roundToInt
  *
  * **Ramp**: starts at 5.5 km/h and 5 % (fixed defaults, changeable before the start or during the warm-up), +1 % every
  * minute. Once the incline reaches 18 % (or the user's incline limit, or the treadmill maximum), every minute the speed
- * rises by the equivalent of +1 % of grade ([FitnessFormulas.walkingSpeedStepForGrade], computed once at the cap: +0.2
+ * rises by the equivalent of +1 % of grade ([Acsm.walkingSpeedStepForGrade], computed once at the cap: +0.2
  * km/h at 5.5 km/h). If the speed cap (treadmill or user limit) is reached too, the load is held there
  * ([MaxHeartRateWalkMeasurements.capReached], [FitnessTestFlag.SpeedCapReached]).
  *
@@ -147,7 +149,7 @@ internal class MaxHeartRateWalkProtocol(
         overrideSpeed = null
         overrideIncline = null
         capStage = max(0, ceil((inclineCapPercent - rampIncline) / config.walkTestInclineIncrementPercent - 1e-9).toInt())
-        speedStep = FitnessFormulas.walkingSpeedStepForGrade(rampSpeed, inclineCapPercent, config.walkTestInclineIncrementPercent)
+        speedStep = Acsm.walkingSpeedStepForGrade(rampSpeed, inclineCapPercent, config.walkTestInclineIncrementPercent)
     }
 
     private fun rampUpdate(t: Long) {
@@ -281,7 +283,7 @@ internal class MaxHeartRateWalkProtocol(
             startInclinePercent = rampIncline,
             inclineIncrementPercent = config.walkTestInclineIncrementPercent,
             inclineCapPercent = inclineCapPercent,
-            speedIncrementKmh = if (start != null) speedStep else FitnessFormulas.walkingSpeedStepForGrade(rampSpeed, inclineCapPercent, config.walkTestInclineIncrementPercent),
+            speedIncrementKmh = if (start != null) speedStep else Acsm.walkingSpeedStepForGrade(rampSpeed, inclineCapPercent, config.walkTestInclineIncrementPercent),
             speedCapKmh = speedCapKmh,
             stageSeconds = config.stageSeconds,
             capReached = capReached,

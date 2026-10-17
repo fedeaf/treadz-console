@@ -16,7 +16,7 @@ import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
 import com.treadz.console.programs.fitness.SteadyStateStatus
-import com.treadz.console.programs.fitness.Vo2MaxCategory
+import com.treadz.console.analysis.fitness.Vo2MaxCategory
 import com.treadz.console.programs.model.BlockPhase
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.plan.IntensityParameter

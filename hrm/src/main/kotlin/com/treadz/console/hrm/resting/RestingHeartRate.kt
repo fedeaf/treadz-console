@@ -1,5 +1,7 @@
 package com.treadz.console.hrm.resting
 
+import com.treadz.console.analysis.rr.RmssdRules
+import com.treadz.console.analysis.rr.RrIntervals
 import com.treadz.console.hrm.SensorContact
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -13,7 +15,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 /**
  * One heart-rate sample for the resting measurement, from any source (the strap connected to the app or the treadmill
@@ -52,13 +53,8 @@ data class RestingHeartRateConfig(
     /** A resting value outside this range is not a resting heart rate (the person was not at rest, or bad data). */
     val minRestingBpm: Int = 30,
     val maxRestingBpm: Int = 120,
-    /** RR intervals outside this range (ms) are artifacts and left out of the RMSSD. */
-    val minRrMs: Int = 300,
-    val maxRrMs: Int = 2_000,
-    /** An RR interval that differs from the previous accepted one by more than this fraction is an artifact or ectopic beat. */
-    val maxRrChange: Double = 0.2,
-    /** The RMSSD needs at least this many accepted RR intervals in the analysed part (about a minute at rest). */
-    val minRrIntervals: Int = 60,
+    /** RR filter and minimum of accepted intervals of the RMSSD (60, about a minute at rest, in the analysed part). */
+    val rmssd: RmssdRules = RmssdRules(),
 )
 
 /** Why a resting measurement is not valid. */
@@ -87,7 +83,7 @@ enum class RestingInvalidReason {
  * @property badSamples Artifacts and contact-lost samples in the last 2 minutes.
  * @property rmssdMs RMSSD (root mean square of successive differences of the RR intervals, ms) of the last 2 minutes,
  *   rounded to 0.1 ms: a measure of the heart-rate variability. `null` without enough clean RR intervals (no strap
- *   connected to the app, or too many artifacts); see [RestingHeartRateConfig.minRrIntervals].
+ *   connected to the app, or too many artifacts); see [RestingHeartRateConfig.rmssd].
  */
 data class RestingHeartRateResult(
     val startedAtMillis: Long,
@@ -196,31 +192,8 @@ class RestingHeartRateMeter(
     /** RMSSD of the RR intervals of the analysed part (end − 2 min, end] (see the class description). */
     private fun rmssd(end: Long): Double? {
         val from = maxOf(startedAtMillis, end - config.analysisMs)
-        var previous: Int? = null
-        var accepted = 0
-        var sumSquares = 0.0
-        var differences = 0
-        for ((t, rr) in rrIntervals) {
-            if (t <= from || t > end) continue
-            if (rr < config.minRrMs || rr > config.maxRrMs) {
-                previous = null
-                continue
-            }
-            val p = previous
-            if (p != null && abs(rr - p) > config.maxRrChange * p) {
-                previous = null
-                continue
-            }
-            accepted++
-            if (p != null) {
-                val d = (rr - p).toDouble()
-                sumSquares += d * d
-                differences++
-            }
-            previous = rr
-        }
-        if (accepted < config.minRrIntervals || differences == 0) return null
-        return sqrt(sumSquares / differences)
+        val window = rrIntervals.filter { (t, _) -> t > from && t <= end }.map { it.second }
+        return RrIntervals.rmssd(window, config.rmssd)
     }
 
     private class Analysis(val lowest: Double?, val coverage: Double, val longestGapMs: Long, val bad: Int, val samples: Int)

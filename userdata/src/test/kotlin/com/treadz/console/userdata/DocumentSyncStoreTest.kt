@@ -314,7 +314,7 @@ class DocumentSyncStoreTest {
         val remote = SyncProfile(
             "u-remote", RecordVersion(T0 + 1_000, "dev-b"), false, "Beto", Sex.Male, 180, LocalDate.of(1980, 1, 1),
             maxHeartRateBpm = 190, createdAtMillis = T0, maxHeartRateSetAtMillis = T0 + 500,
-            fitness = com.treadz.console.programs.fitness.FitnessProfileCalculator.compute(listOf(ebbelingResult()), T0, 40, com.treadz.console.programs.fitness.Sex.Male),
+            fitness = com.treadz.console.programs.fitness.FitnessProfileCalculator.compute(listOf(ebbelingResult()), T0, 40, com.treadz.console.analysis.fitness.Sex.Male),
         )
         data.sync.applyRemote(RemoteChanges(profiles = listOf(remote)))
         val beto = data.profiles.profiles.first().single()

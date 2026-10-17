@@ -1,5 +1,6 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.FitnessFormulas
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.treadmill.TreadmillState
 import kotlin.math.max

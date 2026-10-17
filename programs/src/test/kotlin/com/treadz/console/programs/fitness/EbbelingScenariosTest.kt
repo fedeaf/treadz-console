@@ -1,5 +1,8 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.programs.fitness.FitnessRig.Companion.START
 import com.treadz.console.programs.fitness.FitnessRig.Companion.STOP_PAUSE
 import com.treadz.console.treadmill.BeltStatus

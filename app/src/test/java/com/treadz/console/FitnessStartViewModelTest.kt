@@ -6,7 +6,7 @@ import com.treadz.console.programs.fitness.FitnessRefusal
 import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.training.FitnessStartViewModel
 import com.treadz.console.training.StartOutcome
 import com.treadz.console.training.TestBlocker

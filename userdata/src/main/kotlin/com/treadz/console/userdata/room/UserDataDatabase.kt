@@ -18,6 +18,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 5. Heart rate data: the source and RR intervals of each sample, the heart rate peak, the generated session record and
  *    the generator id of each workout, the strap of each user and the table `resting_heart_rates` (the resting heart
  *    rate history). See [Migration4To5].
+ * 6. The cache of the per-workout analysis: table `workout_analysis` (derived data, never synchronised). See
+ *    [Migration5To6].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -37,6 +39,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FitnessTestEntity::class,
         StartParametersEntity::class,
         RestingHeartRateEntity::class,
+        WorkoutAnalysisEntity::class,
     ],
     version = UserDataDatabase.VERSION,
     exportSchema = true,
@@ -49,9 +52,10 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun fitnessTests(): FitnessTestDao
     abstract fun startParameters(): StartParametersDao
     abstract fun restingHeartRates(): RestingHeartRateDao
+    abstract fun workoutAnalysis(): WorkoutAnalysisDao
 
     companion object {
-        const val VERSION = 5
+        const val VERSION = 6
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -61,7 +65,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId))
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6())
     }
 }
 
@@ -226,5 +230,24 @@ internal class Migration4To5(private val deviceId: String) : Migration(4, 5) {
     private companion object {
         /** `RestingHeartRates.legacyMeasurementUuid` for every profile, in SQL. */
         const val RESTING_UUID_PREFIX = "resting-"
+    }
+}
+
+/**
+ * Version 5 to 6 (the cache of the per-workout analysis). Only adds the empty table `workout_analysis`: every existing
+ * row is kept as it is, nothing is flagged `dirty` (the analyses are derived data and are never synchronised), and the
+ * analyses are computed in the background by the recalculation (`WorkoutAnalysisRecalculator`) the first time the app
+ * runs. The statement is the one of the exported version-6 schema.
+ */
+internal class Migration5To6 : Migration(5, 6) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workout_analysis` (`workoutId` INTEGER NOT NULL, `algorithmVersion` INTEGER NOT NULL, " +
+                "`fingerprint` TEXT NOT NULL, `computedAtMillis` INTEGER NOT NULL, `json` TEXT NOT NULL, `trimp` REAL, `fitnessIndex` REAL, " +
+                "`decouplingPercent` REAL, `longSteadyZone2` INTEGER NOT NULL, `recoveryDrop60Bpm` REAL, `recoveryDrop120Bpm` REAL, " +
+                "`recoveryContext` TEXT, PRIMARY KEY(`workoutId`), " +
+                "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
     }
 }

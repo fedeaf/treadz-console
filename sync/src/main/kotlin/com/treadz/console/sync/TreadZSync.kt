@@ -58,6 +58,7 @@ object TreadZSync {
         val engine = SyncEngine(
             client, store, programs, fitnessTests, stateStore, Clock.System,
             recalculation = TreadZUserData.get(context).fitnessRecalculator,
+            analysisRecalculation = TreadZUserData.get(context).workoutAnalysisRecalculator,
         )
         val service = DefaultSyncService(
             client = client,

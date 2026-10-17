@@ -28,7 +28,7 @@ object TreadZUserData {
     @Volatile
     private var instance: SyncableUserData? = null
 
-    /** Runs the recalculation of the stored fitness test results once, off the main thread, when the data layer is created. */
+    /** Runs the recalculations of derived data (fitness test results, workout analyses), off the main thread, from when the data layer is created. */
     private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun get(context: Context): UserData = syncable(context)
@@ -84,6 +84,8 @@ object TreadZUserData {
         val data = RoomUserData(db, Clock.System, ZoneId.systemDefault(), deviceId = deviceId)
         // Migration-like: results stored by an older version get their derived values (VO2max of the walking test,
         // thresholds) from their workouts. Once per result; the synchronisation repeats it when a pull brings data.
+        // Then the workout analyses are brought up to date (they depend on those results) and kept so: after every change
+        // of the data they are computed from (a workout ends, a pull, a local edit), debounced.
         background.launch {
             try {
                 data.fitnessRecalculator.recalculate()
@@ -91,6 +93,14 @@ object TreadZUserData {
                 throw e
             } catch (e: Exception) {
                 // A failure leaves the results as they were; the next start or synchronisation tries again.
+            }
+            try {
+                data.workoutAnalysisRecalculator.recalculate()
+                data.workoutAnalysisRecalculator.keepUpToDate()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Derived data only: the next start tries again.
             }
         }
         return data

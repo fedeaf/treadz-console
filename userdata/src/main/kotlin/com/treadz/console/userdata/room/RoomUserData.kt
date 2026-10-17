@@ -12,6 +12,9 @@ import com.treadz.console.userdata.RestingHeartRateRepository
 import com.treadz.console.userdata.StartParametersRepository
 import com.treadz.console.userdata.SyncableUserData
 import com.treadz.console.userdata.WeightRepository
+import com.treadz.console.userdata.StoredWorkoutAnalysisRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisRepository
 import com.treadz.console.userdata.WorkoutHistoryRepository
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.ProgramDocumentStore
@@ -47,6 +50,9 @@ internal class RoomUserData(
     override val startParameters: StartParametersRepository = RoomStartParametersRepository(db, stamper)
     override val restingHeartRates: RestingHeartRateRepository = RoomRestingHeartRateRepository(db, clock, stamper)
     override val fitnessRecalculator: FitnessRecalculator = StoredResultsRecalculator(RoomRecalculationSource(db, fitnessTestRepository))
+    override val workoutAnalysis: WorkoutAnalysisRepository = RoomWorkoutAnalysisRepository(db, zone)
+    override val workoutAnalysisRecalculator: WorkoutAnalysisRecalculator =
+        StoredWorkoutAnalysisRecalculator(RoomAnalysisSource(db), zone, clock::nowMillis, analysisChanges(db))
     override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper, uploadHold)
     override val programDocuments: ProgramDocumentStore = RoomProgramDocuments(db)
     override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db, uploadHold)

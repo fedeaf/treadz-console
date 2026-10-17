@@ -16,7 +16,20 @@ import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.programs.plan.StartParameters
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.AnalysisCandidate
+import com.treadz.console.userdata.AnalysisRecord
+import com.treadz.console.userdata.AnalysisSource
+import com.treadz.console.userdata.AnalysisUserInputs
 import com.treadz.console.userdata.DataResult
+import com.treadz.console.userdata.DatedWorkoutAnalysis
+import com.treadz.console.userdata.PerformanceInputs
+import com.treadz.console.userdata.PerformanceInputsMapper
+import com.treadz.console.userdata.SampleSignature
+import com.treadz.console.userdata.StoredWorkoutAnalysis
+import com.treadz.console.userdata.StoredWorkoutAnalysisRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisJson
+import com.treadz.console.userdata.WorkoutAnalysisRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisRepository
 import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.FitnessRecalculator
 import com.treadz.console.userdata.LinkedWorkout
@@ -97,7 +110,20 @@ class InMemoryUserData(
         val startParams: Map<Pair<Long, String>, StartParameters> = emptyMap(),
         val resting: List<RestingHeartRateMeasurement> = emptyList(),
         val sessionRecords: Map<Long, GeneratedSessionRecord> = emptyMap(),
+        /** The cached analyses by workout id, stored as their JSON document like the real implementation. */
+        val analyses: Map<Long, StoredAnalysis> = emptyMap(),
         val nextId: Long = 1,
+    )
+
+    private class StoredAnalysis(val algorithmVersion: Int, val fingerprint: String, val computedAtMillis: Long, val json: String)
+
+    /** What the analyses are computed from (the workouts in progress are left out), to tell when to recalculate. */
+    private data class AnalysisInputsView(
+        val finishedWorkouts: List<Triple<Long, Long?, Long>>,
+        val weights: List<WeightEntry>,
+        val tests: List<FitnessTestRecord>,
+        val resting: List<RestingHeartRateMeasurement>,
+        val profiles: List<UserProfile>,
     )
 
     private val lock = Any()
@@ -653,6 +679,92 @@ class InMemoryUserData(
                 fitnessTests.save(userId, result)
             }
         },
+    )
+
+    override val workoutAnalysis: WorkoutAnalysisRepository = object : WorkoutAnalysisRepository {
+        private fun StoredAnalysis.decoded() = WorkoutAnalysisJson.decode(json)
+
+        override fun analysis(workoutId: Long): Flow<StoredWorkoutAnalysis?> = data.map { d ->
+            if (d.workouts.none { it.id == workoutId }) null
+            else d.analyses[workoutId]?.let { StoredWorkoutAnalysis(workoutId, it.decoded(), it.computedAtMillis) }
+        }.distinctUntilChanged()
+
+        override fun analyses(userId: Long): Flow<List<DatedWorkoutAnalysis>> = data.map { d ->
+            d.workouts.filter { it.userId == userId && !it.isInProgress }
+                .sortedWith(compareBy({ it.startedAtMillis }, { it.id }))
+                .mapNotNull { w ->
+                    d.analyses[w.id]?.let {
+                        DatedWorkoutAnalysis(w.id, w.startedAtMillis, PerformanceInputsMapper.epochDay(w.startedAtMillis, zone), it.decoded())
+                    }
+                }
+        }.distinctUntilChanged()
+
+        override fun performanceInputs(userId: Long): Flow<PerformanceInputs> = data.map { d ->
+            PerformanceInputsMapper.of(
+                d.fitness.filter { it.userId == userId }.map { it.result },
+                d.resting.filter { it.userId == userId },
+                d.weights.filter { it.userId == userId },
+                zone,
+            )
+        }.distinctUntilChanged()
+    }
+
+    private val analysisSource = object : AnalysisSource {
+        override suspend fun pruneOrphans() {
+            synchronized(lock) {
+                val d = data.value
+                val owned = d.workouts.filter { it.userId != null }.map { it.id }.toSet()
+                if (d.analyses.keys.any { it !in owned }) data.value = d.copy(analyses = d.analyses.filterKeys { it in owned })
+            }
+        }
+
+        override suspend fun candidates(): List<AnalysisCandidate> = synchronized(lock) {
+            val d = data.value
+            d.workouts.filter { !it.isInProgress && it.userId != null }
+                .sortedWith(compareByDescending<WorkoutSummary> { it.startedAtMillis }.thenByDescending { it.id })
+                .map { w ->
+                    val samples = workoutSamples[w.id].orEmpty()
+                    val stored = d.analyses[w.id]
+                    AnalysisCandidate(
+                        w.id, w.userId!!, w.startedAtMillis,
+                        SampleSignature(samples.size, samples.minOfOrNull { it.timestampMillis }, samples.maxOfOrNull { it.timestampMillis }),
+                        stored?.algorithmVersion, stored?.fingerprint,
+                    )
+                }
+        }
+
+        override suspend fun inputs(userId: Long): AnalysisUserInputs? = synchronized(lock) {
+            val d = data.value
+            val profile = d.profiles.firstOrNull { it.id == userId } ?: return null
+            AnalysisUserInputs(
+                profile = profile,
+                weights = d.weights.filter { it.userId == userId }.sortedWith(compareBy({ it.date }, { it.createdAtMillis }, { it.id })),
+                tests = d.fitness.filter { it.userId == userId }.map { it.result },
+                resting = d.resting.filter { it.userId == userId }.map { RestingPoint(it.measuredAtMillis, it.bpm) },
+            )
+        }
+
+        override suspend fun samples(workoutId: Long): List<WorkoutSample> = synchronized(lock) {
+            workoutSamples[workoutId].orEmpty().sortedBy { it.seq }
+        }
+
+        override suspend fun store(record: AnalysisRecord): Boolean = synchronized(lock) {
+            val d = data.value
+            if (d.workouts.none { it.id == record.workoutId }) return false
+            val stored = StoredAnalysis(record.analysis.algorithmVersion, record.fingerprint, record.computedAtMillis, WorkoutAnalysisJson.encode(record.analysis))
+            data.value = d.copy(analyses = d.analyses + (record.workoutId to stored))
+            true
+        }
+    }
+
+    override val workoutAnalysisRecalculator: WorkoutAnalysisRecalculator = StoredWorkoutAnalysisRecalculator(
+        analysisSource, zone, clock::nowMillis,
+        data.map { d ->
+            AnalysisInputsView(
+                d.workouts.filter { !it.isInProgress }.map { Triple(it.id, it.userId, it.startedAtMillis) },
+                d.weights, d.fitness, d.resting, d.profiles,
+            )
+        }.distinctUntilChanged(),
     )
 
     override fun workoutObserver(

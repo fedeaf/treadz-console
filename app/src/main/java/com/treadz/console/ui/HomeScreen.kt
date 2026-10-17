@@ -54,6 +54,7 @@ fun HomeScreen(ui: MainUiState, home: HomeUiState, actions: MainActions, modifie
                     RestingCard(home, actions, Modifier.weight(1f).fillMaxWidth())
                     WeightCard(home, actions, Modifier.weight(1f).fillMaxWidth())
                     HistoryCard(home, actions, Modifier.weight(1f).fillMaxWidth())
+                    PerformanceCard(actions, Modifier.weight(1f).fillMaxWidth())
                 }
             }
         } else {
@@ -66,6 +67,7 @@ fun HomeScreen(ui: MainUiState, home: HomeUiState, actions: MainActions, modifie
                     WeightCard(home, actions, Modifier.weight(1f).fillMaxHeight())
                 }
                 HistoryCard(home, actions, Modifier.fillMaxWidth())
+                PerformanceCard(actions, Modifier.fillMaxWidth())
             }
         }
     }
@@ -144,6 +146,17 @@ private fun HistoryCard(home: HomeUiState, actions: MainActions, modifier: Modif
         onClick = actions.onOpenHistory,
         modifier = modifier,
         valueSmall = true,
+    )
+}
+
+@Composable
+private fun PerformanceCard(actions: MainActions, modifier: Modifier) {
+    HomeCard(
+        title = stringResource(R.string.main_performance),
+        note = stringResource(R.string.home_performance_note),
+        tag = "home_performance",
+        onClick = actions.onOpenPerformance,
+        modifier = modifier,
     )
 }
 

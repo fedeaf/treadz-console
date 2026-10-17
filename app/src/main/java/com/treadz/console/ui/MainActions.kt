@@ -50,6 +50,8 @@ data class MainActions(
     val onOpenUsers: () -> Unit = {},
     val onOpenWeight: () -> Unit = {},
     val onOpenHistory: () -> Unit = {},
+    /** Opens the Performance screen (trends of the analysed workouts and tests). */
+    val onOpenPerformance: () -> Unit = {},
     val onOpenPrograms: () -> Unit = {},
     /** Opens the Devices screen (the treadmill and the heart-rate strap). */
     val onOpenDevices: () -> Unit = {},

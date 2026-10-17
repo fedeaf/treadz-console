@@ -78,6 +78,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 ) {
                     if (state.owner == null) UnassignedBanner(actions)
                     Summary(detail, state, actions)
+                    state.analysis?.let { WorkoutAnalysisPanel(it, detail.summary.stats.calories) }
                     detail.sessionRecord?.let { SessionRecordPanel(it) }
                     ExportSection(state, actions)
                     DeleteWorkoutButton(actions)
@@ -93,6 +94,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 detail.sessionRecord?.let { SessionRecordPanel(it) }
                 ExportSection(state, actions)
                 Charts(detail, Modifier.fillMaxWidth())
+                state.analysis?.let { WorkoutAnalysisPanel(it, detail.summary.stats.calories) }
                 DeleteWorkoutButton(actions)
             }
         }

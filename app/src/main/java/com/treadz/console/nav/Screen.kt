@@ -23,6 +23,9 @@ sealed interface Screen {
 
     data object History : Screen
 
+    /** The active user's trends: VO2max, thresholds, fitness index, load, recovery, resting heart rate, weight. */
+    data object Performance : Screen
+
     data class WorkoutDetail(val workoutId: Long) : Screen
 
     /** The standard programs and the active user's own programs. */

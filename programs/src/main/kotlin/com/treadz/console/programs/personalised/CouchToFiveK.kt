@@ -87,8 +87,8 @@ data class CouchToFiveKSelection(
  * and at least the walking speed + 0.5, then the user's ± adjustment. Walking at the speed asked, else the final speed
  * of the last walking block of the previous session, else 5 km/h.
  *
- * **Heart rate**: runs of 6 min or more are guided in zone 3 (70-80 % of the heart-rate reserve, see
- * [ProgramGenerators.reserveZone]; continuous), starting at the jog speed or where the heart rate settled in the last
+ * **Heart rate**: runs of 6 min or more are guided in zone 3 of the zone model (see [ProgramGenerators]; it was 70-80 %
+ * of the heart-rate reserve up to version 1; continuous), starting at the jog speed or where the heart rate settled in the last
  * such run, between a slow jog (walking speed + [MIN_JOG_ABOVE_WALK_KMH]; they stay runs) and the jog speed + 1 km/h
  * (or 75 % of the MAS). Shorter runs keep the jog speed (never faster) with the heart-rate ceiling: their zone is 60-85 % HRmax, so
  * the speed only comes down when the heart rate goes above 85 % (or above the ceiling, 85 % + 8 bpm), at most to the
@@ -110,7 +110,7 @@ object CouchToFiveK : ProgramGenerator {
 
     override val descriptor = GeneratorDescriptor(
         id = ID,
-        version = 1,
+        version = 2,
         inputs = setOf(GeneratorInput.StartWeek, GeneratorInput.WalkingSpeed, GeneratorInput.JogSpeedAdjustment),
         modes = setOf(ExerciseMode.Run),
         startWeeks = 1..9,
@@ -290,7 +290,7 @@ object CouchToFiveK : ProgramGenerator {
         val walk = g.walkingSpeed
         val base = max(IntensityTranslator.MIN_RUNNING_SPEED_KMH, JOG_MAS_FRACTION * g.factor * g.refs.masKmh)
         val jog = Generation.clampSpeed(max(base * (1 + request.jogSpeedAdjustmentPercent / 100.0), walk + MIN_JOG_ABOVE_WALK_KMH))
-        val zone3 by lazy { g.reserveZone(70, 80) }
+        val zone3 by lazy { g.modelZone(3) }
         val settled = settledRunSpeed(request.history, request.nowMillis)?.let { Generation.clampSpeed(it) }
 
         if (sel.recentSessionWarning) {

@@ -12,6 +12,41 @@ data class BpmRange(val lowBpm: Int, val highBpm: Int, val usedReserve: Boolean)
 object HeartRateBands {
 
     /**
+     * Resting heart rate assumed, as a fraction of the maximum, to turn a % of the reserve into a % of the maximum when
+     * the resting heart rate is unknown: a third (60 bpm for a maximum of 180). See [reserveToMaxPercent].
+     */
+    const val ASSUMED_RESTING_FRACTION = 1.0 / 3.0
+
+    /**
+     * The % of the maximum equivalent to [reservePercent] % of the reserve for a resting heart rate of
+     * [ASSUMED_RESTING_FRACTION] of the maximum, rounded (60 % of the reserve → 73 % of the maximum; 70 → 80; 80 → 87).
+     */
+    fun reserveToMaxPercent(reservePercent: Int): Int =
+        ((ASSUMED_RESTING_FRACTION + reservePercent / 100.0 * (1.0 - ASSUMED_RESTING_FRACTION)) * 100.0).roundToInt()
+
+    /**
+     * The heart rate at [reservePercent] % of the reserve: Karvonen with [restingBpm], or without it (`null`) the
+     * equivalent % of the maximum ([reserveToMaxPercent]). Rounded to the nearest bpm.
+     */
+    fun reserveBpm(maxBpm: Int, restingBpm: Int?, reservePercent: Int): Int =
+        if (restingBpm != null) {
+            (restingBpm + (maxBpm - restingBpm) * reservePercent / 100.0).roundToInt()
+        } else {
+            (maxBpm * reserveToMaxPercent(reservePercent) / 100.0).roundToInt()
+        }
+
+    /**
+     * [bpm] as the nearest integer % of the reserve (with [restingBpm]) or of the maximum (without it): the inverse of
+     * [toBpm], to express a zone given in bpm in a program, which stores percentages.
+     */
+    fun percentOf(bpm: Int, maxBpm: Int, restingBpm: Int?): Int =
+        if (restingBpm != null && restingBpm < maxBpm) {
+            ((bpm - restingBpm) * 100.0 / (maxBpm - restingBpm)).roundToInt()
+        } else {
+            (bpm * 100.0 / maxBpm).roundToInt()
+        }
+
+    /**
      * The range between [lowPercent] and [highPercent] for a person with a maximum of [maxBpm]: that percentage of the
      * maximum, or, when [ofReserve] is asked and [restingBpm] is not `null`, of the reserve (Karvonen,
      * `resting + reserve · percent`, with reserve = maximum − resting). [restingBpm] must already be a usable value

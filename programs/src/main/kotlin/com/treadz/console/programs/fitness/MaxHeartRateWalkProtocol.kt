@@ -2,6 +2,9 @@ package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.Acsm
 import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.fitness.StageLoad
+import com.treadz.console.analysis.fitness.WalkingTestVo2max
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
 import com.treadz.console.programs.heartrate.PlausibilityConfig
 import kotlin.math.abs
@@ -11,8 +14,9 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Maximal heart-rate walking test with incline: a modified Balke-Ware protocol (constant walking speed, +1 % per
- * minute) whose **only purpose is to measure the maximum heart rate** efficiently. No VO2max, no MAS.
+ * Maximal walking test with incline: a modified Balke-Ware protocol (constant walking speed, +1 % per minute) designed
+ * to measure the maximum heart rate efficiently; it also gives the VO2max and, with RR intervals from a strap
+ * connected to the app, the thresholds.
  *
  * **Warm-up (2 min)**: 1 min at 75 % of the ramp speed and 0 %, then 1 min at 80 % and 1 % (rounded to 0.1 km/h: 4.1 and
  * 4.4 km/h for 5.5). Manual changes are kept until the next warm-up step; the ramp start (speed, incline) can still be
@@ -34,6 +38,12 @@ import kotlin.math.roundToInt
  * maximum or a heart-rate plateau (the end-of-stage heart rate rose < 3 bpm over the last 2 stages while the load kept
  * rising: never at the caps). Impossible readings (spikes, a sudden drop of a strap taken off, < 40, > 240) are
  * discarded with [HeartRatePlausibilityFilter] (without its "maximum + 15" rule: this test measures the maximum).
+ *
+ * **VO2max** (valid results that ended by exhaustion): the ACSM equation at the mean real load (speed and incline
+ * reported by the treadmill) of the last 60 s of the effort ([WalkingTestVo2max]), SEE 3.5 (assumed); a lower bound
+ * when the effort was not maximal or both caps were reached. MAS = VO2max / 3.5, estimated
+ * ([FitnessTestRecalculation.walkOutputs]). **Thresholds**: DFA-α1 over the ramp
+ * ([FitnessTestRecalculation.thresholds]); without RR intervals the reason `noRrIntervals`.
  *
  * **Cool-down**: 3 min flat at the lower of 5 km/h and the last speed, changeable by hand; a STOP there keeps the result.
  */
@@ -269,8 +279,18 @@ internal class MaxHeartRateWalkProtocol(
             else -> EffortAssessment.Maximal
         }
         candidate = peak?.roundToInt()
-        // No VO2max: the result of this test lives in its measurements.
-        return null
+        // VO2max from the real load of the last minute; from the stages if the samples do not cover it.
+        val estimate = WalkingTestVo2max.fromSamples(effortSamples, at(t)) ?: WalkingTestVo2max.fromStages(
+            stages.map { StageLoad(it.speedKmh, it.inclinePercent, it.durationSeconds) } +
+                StageLoad(speedOf(stageIndex), inclineOf(stageIndex), ((t - stageStartT) / 1000).toInt()),
+        )
+        return estimate?.let { FitnessTestRecalculation.walkOutputs(it, subject.ageYears, subject.sex, effort, capReached, candidate) }
+    }
+
+    override fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? {
+        if (reason != FitnessEndReason.Exhausted) return null
+        val start = incStart ?: return null
+        return incrementalThresholds(start, t, outputs)
     }
 
     override fun measurements(): FitnessTestMeasurements {

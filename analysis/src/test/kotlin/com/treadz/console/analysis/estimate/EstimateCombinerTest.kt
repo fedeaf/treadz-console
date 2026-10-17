@@ -65,4 +65,32 @@ class EstimateCombinerTest {
         )!!
         assertEquals(listOf(0.25 / 1.75, 1.0 / 1.75, 0.5 / 1.75), c.inputs.map { it.weight })
     }
+
+    @Test
+    fun `a weight factor scales the weight - a damped submaximal test next to a maximal one`() {
+        // Maximal walking test 43.6 (SEE 3.5) and Ebbeling 48.9 (SEE 4.85) at a quarter of its weight: about 44.2.
+        val c = EstimateCombiner.combine(
+            listOf(EstimateInput(43.6, 3.5, 2.0), EstimateInput(48.9, 4.85, 2.0, weightFactor = 0.25)),
+            rules,
+        )!!
+        assertEquals(44.2, c.value, 0.05)
+        assertEquals(3.5, c.see, 1e-12)
+        val wa = 1.0 / (3.5 * 3.5)
+        val wb = 0.25 / (4.85 * 4.85)
+        assertEquals(wb / (wa + wb), c.inputs[1].weight, 1e-12)
+    }
+
+    @Test
+    fun `inputs that all weigh nothing give no estimate`() {
+        assertNull(EstimateCombiner.combine(listOf(EstimateInput(40.0, 4.0, 0.0, weightFactor = 0.0)), rules))
+    }
+
+    @Test
+    fun `discrepant pairs differ by more than 1,5 times their combined SEE`() {
+        // 5.3 apart with SEEs 3.5 and 4.85: the limit is 1.5 * 5.98 = 8.97, not discrepant.
+        assertEquals(emptyList<Pair<Int, Int>>(), EstimateCombiner.discrepantPairs(listOf(43.6, 48.9), listOf(3.5, 4.85)))
+        // 9.5 apart: discrepant.
+        assertEquals(listOf(0 to 1), EstimateCombiner.discrepantPairs(listOf(43.6, 53.1), listOf(3.5, 4.85)))
+        assertEquals(listOf(0 to 2, 1 to 2), EstimateCombiner.discrepantPairs(listOf(40.0, 41.0, 55.0), listOf(3.5, 3.5, 4.0)))
+    }
 }

@@ -3,6 +3,11 @@ package com.treadz.console.programs.fitness
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.fitness.Vo2MaxCategory
 import com.treadz.console.analysis.fitness.Vo2MaxClassification
+import com.treadz.console.analysis.thresholds.ThresholdMetrics
+import com.treadz.console.analysis.thresholds.ThresholdPoint
+import com.treadz.console.analysis.thresholds.ThresholdQuality
+import com.treadz.console.analysis.thresholds.ThresholdReason
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.json.JsonObject
 import com.treadz.console.programs.json.JsonPretty
 import com.treadz.console.programs.json.ProgramFormatException
@@ -53,11 +58,28 @@ import java.time.format.DateTimeParseException
  * `hrMaxCandidateBpm` and `effort`. `maxTest` also carries `heartRatePlateau` and `plateauRiseBpm`. Each entry of the
  * Ebbeling `speedAdjustments` has an `origin` (`automatic`, `app` or `console`; absent = `automatic`).
  *
- * The maximal heart-rate walking test (`"testType": "maxHeartRateWalk"`) has no `outputs` (no VO2max) and carries
- * `"maxHeartRateWalk": {"warmUpSeconds", "rampSeconds", "startSpeedKmh", "startInclinePercent",
- * "inclineIncrementPercent", "inclineCapPercent", "speedIncrementKmh", "speedCapKmh", "stageSeconds", "capReached",
- * "peakHeartRateBpm", "heartRateCoverage", "heartRatePlateau", "plateauRiseBpm", "hrMaxCandidateBpm", "effort",
- * "stages": [...]}`. `inputs.heartRateSource` is `treadmillConsole` or `directStrap` (the source of most readings).
+ * The maximal walking test (`"testType": "maxHeartRateWalk"`) carries `"maxHeartRateWalk": {"warmUpSeconds",
+ * "rampSeconds", "startSpeedKmh", "startInclinePercent", "inclineIncrementPercent", "inclineCapPercent",
+ * "speedIncrementKmh", "speedCapKmh", "stageSeconds", "capReached", "peakHeartRateBpm", "heartRateCoverage",
+ * "heartRatePlateau", "plateauRiseBpm", "hrMaxCandidateBpm", "effort", "stages": [...]}`. Since version 2 a valid one
+ * has `outputs` with `"method": "acsmWalkRamp"`, `"vo2maxSeeMlKgMin": 3.5`, `masKmh` (VO2max / 3.5) with
+ * `"masIsEstimated": true`, `hrMaxCandidateBpm` and `effort`. `inputs.heartRateSource` is `treadmillConsole` or
+ * `directStrap` (the source of most readings).
+ *
+ * **Version 2** adds the `thresholds` block of the maximal tests (walking and running), with the version of the
+ * algorithm that produced it:
+ * ```
+ * "thresholds": {"algorithmVersion": 1, "quality": "high",
+ *   "vt1": {"heartRateBpm": 132.4, "speedKmh": 6.2, "inclinePercent": 11.3, "vo2MlKgMin": 31.6, "percentVo2max": 72.5,
+ *           "percentHeartRateReserve": 61.0},
+ *   "vt2": {"heartRateBpm": 151.2, ...},
+ *   "metrics": {"stretchWindows": 31, "validWindows": 48, "totalWindows": 50, "rSquared": 0.82,
+ *               "meanArtifactPercent": 1.2, "slopePerBpm": -0.021, "interceptAlpha1": 3.53}}
+ * ```
+ * or, without thresholds, `{"algorithmVersion": 1, "reason": "noRrIntervals"}` (also `noWorkoutSamples`,
+ * `notEnoughValidWindows`, `noAlpha1Decline`, `vt1OutOfRange`; then `quality` and `metrics` may still be present).
+ * A result is written with the lowest version that holds it: version 1 when it has neither `thresholds` nor an
+ * `acsmWalkRamp` VO2max (so older apps keep reading it). Version 1 documents are read as before.
  */
 object FitnessTestJson {
 
@@ -70,7 +92,7 @@ object FitnessTestJson {
 
     private fun resultTree(r: FitnessTestResult): Map<String, Any?> = compact(
         linkedMapOf(
-            "schemaVersion" to r.schemaVersion,
+            "schemaVersion" to maxOf(r.schemaVersion, FitnessTestResult.schemaVersionFor(r.outputs, r.thresholds)),
             "id" to r.id,
             "testType" to r.testType,
             "protocolVersion" to r.protocolVersion,
@@ -96,6 +118,7 @@ object FitnessTestJson {
                 ),
             ),
             "outputs" to r.outputs?.let { outputsTree(it) },
+            "thresholds" to r.thresholds?.let { thresholdsTree(it) },
             "durations" to linkedMapOf("effortSeconds" to r.effortSeconds, "coolDownSeconds" to r.coolDownSeconds),
             when (val m = r.measurements) {
                 is EbbelingMeasurements -> "ebbeling" to ebbelingTree(m)
@@ -117,6 +140,39 @@ object FitnessTestJson {
             "masIsLowerBound" to if (o.masKmh != null) o.masIsLowerBound else null,
             "hrMaxCandidateBpm" to o.hrMaxCandidateBpm,
             "effort" to o.effort,
+            "masIsEstimated" to if (o.masIsEstimated) true else null,
+        ),
+    )
+
+    private fun thresholdsTree(t: ThresholdResult): Map<String, Any?> = compact(
+        linkedMapOf(
+            "algorithmVersion" to t.algorithmVersion,
+            "quality" to t.quality,
+            "reason" to t.reason,
+            "vt1" to t.vt1?.let { pointTree(it) },
+            "vt2" to t.vt2?.let { pointTree(it) },
+            "metrics" to t.metrics?.let {
+                linkedMapOf(
+                    "stretchWindows" to it.stretchWindows,
+                    "validWindows" to it.validWindows,
+                    "totalWindows" to it.totalWindows,
+                    "rSquared" to it.rSquared,
+                    "meanArtifactPercent" to it.meanArtifactPercent,
+                    "slopePerBpm" to it.slopePerBpm,
+                    "interceptAlpha1" to it.interceptAlpha1,
+                )
+            },
+        ),
+    )
+
+    private fun pointTree(p: ThresholdPoint): Map<String, Any?> = compact(
+        linkedMapOf(
+            "heartRateBpm" to p.heartRateBpm,
+            "speedKmh" to p.speedKmh,
+            "inclinePercent" to p.inclinePercent,
+            "vo2MlKgMin" to p.vo2MlKgMin,
+            "percentVo2max" to p.percentVo2max,
+            "percentHeartRateReserve" to p.percentHeartRateReserve,
         ),
     )
 
@@ -264,9 +320,39 @@ object FitnessTestJson {
             minutes = o.objects("minutes", optional = true).map { minuteFrom(it) },
             coolDownSeconds = o.optObj("durations")?.optInt("coolDownSeconds") ?: 0,
             outputs = o.optObj("outputs")?.let { outputsFrom(it) },
+            thresholds = o.optObj("thresholds")?.let { thresholdsFrom(it) },
             schemaVersion = version,
         )
     }
+
+    private fun thresholdsFrom(o: JsonObject) = ThresholdResult(
+        algorithmVersion = o.int("algorithmVersion"),
+        vt1 = o.optObj("vt1")?.let { pointFrom(it) },
+        vt2 = o.optObj("vt2")?.let { pointFrom(it) },
+        quality = o.optEnum("quality", ThresholdQuality.entries.toTypedArray()),
+        metrics = o.optObj("metrics")?.let {
+            ThresholdMetrics(
+                stretchWindows = it.int("stretchWindows"),
+                validWindows = it.int("validWindows"),
+                totalWindows = it.int("totalWindows"),
+                rSquared = it.double("rSquared"),
+                meanArtifactPercent = it.double("meanArtifactPercent"),
+                slopePerBpm = it.double("slopePerBpm"),
+                interceptAlpha1 = it.double("interceptAlpha1"),
+            )
+        },
+        // A reason written by a newer app that this one does not know is kept as "not enough data".
+        reason = o.optString("reason")?.let { code -> ThresholdReason.entries.firstOrNull { it.wireName() == code } ?: ThresholdReason.NotEnoughValidWindows },
+    )
+
+    private fun pointFrom(o: JsonObject) = ThresholdPoint(
+        heartRateBpm = o.double("heartRateBpm"),
+        speedKmh = o.optDouble("speedKmh"),
+        inclinePercent = o.optDouble("inclinePercent"),
+        vo2MlKgMin = o.optDouble("vo2MlKgMin"),
+        percentVo2max = o.optDouble("percentVo2max"),
+        percentHeartRateReserve = o.optDouble("percentHeartRateReserve"),
+    )
 
     private fun outputsFrom(o: JsonObject) = FitnessTestOutputs(
         vo2maxMlKgMin = o.double("vo2maxMlKgMin"),
@@ -278,6 +364,7 @@ object FitnessTestJson {
         masIsLowerBound = o.boolean("masIsLowerBound", false),
         hrMaxCandidateBpm = o.optInt("hrMaxCandidateBpm"),
         effort = o.optEnum("effort", EffortAssessment.entries.toTypedArray()),
+        masIsEstimated = o.boolean("masIsEstimated", false),
     )
 
     private fun classificationFrom(o: JsonObject) = Vo2MaxClassification(
@@ -387,9 +474,24 @@ object FitnessTestJson {
      *              "sources": [{"resultId": "...", "testType": "maxIncrementalRun", "testedAt": "2026-10-01T10:00:00Z", "vo2maxMlKgMin": 46.7,
      *                           "seeMlKgMin": 4.0, "ageDays": 7, "weight": 0.6, "lowerBound": false}, ...]},
      *   "mas": {"valueKmh": 13.35, "estimated": false, "lowerBound": false, "sourceResultId": "...", "testedAt": "2026-10-01T10:00:00Z", "effort": "maximal"},
-     *   "hrMax": {"measuredBpm": 181, "sourceResultId": "...", "testedAt": "2026-10-01T10:00:00Z"}
+     *   "hrMax": {"measuredBpm": 181, "sourceResultId": "...", "testedAt": "2026-10-01T10:00:00Z"},
+     *   "thresholds": {
+     *     "rules": {"halfLifeDays": 30.0, "maxAgeDays": 180, "highQualityWeight": 1.0, "mediumQualityWeight": 0.5,
+     *               "jumpBpm": 6.0, "jumpFactor": 0.5, "corroborationDays": 60, "corroborationBpm": 4.0},
+     *     "vt1": {"heartRateBpm": 132, "vo2MlKgMin": 31.6, "quality": "high",
+     *             "sources": [{"resultId": "...", "testType": "maxHeartRateWalk", "testedAt": "...", "heartRateBpm": 132.4,
+     *                          "vo2MlKgMin": 31.6, "quality": "high", "ageDays": 2, "weight": 1.0, "jump": false,
+     *                          "corroborated": false}]},
+     *     "vt2": {...},
+     *     "history": [{"resultId": "...", "testType": "maxHeartRateWalk", "testedAt": "...", "vt1Bpm": 132.4,
+     *                  "vt2Bpm": 151.2, "quality": "high"}]
+     *   }
      * }
      * ```
+     * Added on 2026-10-17 (optional, the profile stays at version 1 because older apps ignore unknown fields):
+     * `thresholds`; in `rules` `submaximalFactorWithMaximal`, `maximalRecencyDays` and `discrepancyFactor`; in
+     * `vo2max` `discrepancy` (only when true); in each VO2max source `weightFactor` (only when not 1) and `discrepant`
+     * (only when true).
      */
     fun encodeProfile(profile: FitnessProfile): String = JsonPretty.render(
         width = WIDTH,
@@ -401,6 +503,9 @@ object FitnessTestJson {
                     "halfLifeDays" to profile.rules.halfLifeDays,
                     "maxAgeDays" to profile.rules.maxAgeDays,
                     "warningSeeFactor" to profile.rules.warningSeeFactor,
+                    "submaximalFactorWithMaximal" to profile.rules.submaximalFactorWithMaximal,
+                    "maximalRecencyDays" to profile.rules.maximalRecencyDays,
+                    "discrepancyFactor" to profile.rules.discrepancyFactor,
                 ),
                 "vo2max" to profile.vo2max?.let { v ->
                     compact(
@@ -409,17 +514,22 @@ object FitnessTestJson {
                             "seeMlKgMin" to v.seeMlKgMin,
                             "classification" to v.classification?.let { classificationTree(it) },
                             "sources" to v.sources.map {
-                                linkedMapOf(
-                                    "resultId" to it.resultId,
-                                    "testType" to it.testType,
-                                    "testedAt" to iso(it.testedAtMillis),
-                                    "vo2maxMlKgMin" to it.vo2maxMlKgMin,
-                                    "seeMlKgMin" to it.seeMlKgMin,
-                                    "ageDays" to it.ageDays,
-                                    "weight" to it.weight,
-                                    "lowerBound" to it.lowerBound,
+                                compact(
+                                    linkedMapOf(
+                                        "resultId" to it.resultId,
+                                        "testType" to it.testType,
+                                        "testedAt" to iso(it.testedAtMillis),
+                                        "vo2maxMlKgMin" to it.vo2maxMlKgMin,
+                                        "seeMlKgMin" to it.seeMlKgMin,
+                                        "ageDays" to it.ageDays,
+                                        "weight" to it.weight,
+                                        "lowerBound" to it.lowerBound,
+                                        "weightFactor" to if (it.weightFactor != 1.0) it.weightFactor else null,
+                                        "discrepant" to if (it.discrepant) true else null,
+                                    ),
                                 )
                             },
+                            "discrepancy" to if (v.discrepancy) true else null,
                         ),
                     )
                 },
@@ -438,16 +548,129 @@ object FitnessTestJson {
                 "hrMax" to profile.hrMax?.let {
                     linkedMapOf("measuredBpm" to it.measuredBpm, "sourceResultId" to it.sourceResultId, "testedAt" to iso(it.testedAtMillis))
                 },
+                "thresholds" to profile.thresholds?.let { thresholdProfileTree(it) },
             ),
         ),
     )
 
+    private fun thresholdProfileTree(t: ThresholdProfile): Map<String, Any?> = compact(
+        linkedMapOf(
+            "rules" to linkedMapOf(
+                "halfLifeDays" to t.rules.halfLifeDays,
+                "maxAgeDays" to t.rules.maxAgeDays,
+                "highQualityWeight" to t.rules.highQualityWeight,
+                "mediumQualityWeight" to t.rules.mediumQualityWeight,
+                "jumpBpm" to t.rules.jumpBpm,
+                "jumpFactor" to t.rules.jumpFactor,
+                "corroborationDays" to t.rules.corroborationDays,
+                "corroborationBpm" to t.rules.corroborationBpm,
+            ),
+            "vt1" to t.vt1?.let { thresholdEstimateTree(it) },
+            "vt2" to t.vt2?.let { thresholdEstimateTree(it) },
+            "history" to t.history.map {
+                compact(
+                    linkedMapOf(
+                        "resultId" to it.resultId,
+                        "testType" to it.testType,
+                        "testedAt" to iso(it.testedAtMillis),
+                        "vt1Bpm" to it.vt1Bpm,
+                        "vt2Bpm" to it.vt2Bpm,
+                        "quality" to it.quality,
+                    ),
+                )
+            },
+        ),
+    )
+
+    private fun thresholdEstimateTree(e: ThresholdEstimate): Map<String, Any?> = compact(
+        linkedMapOf(
+            "heartRateBpm" to e.heartRateBpm,
+            "vo2MlKgMin" to e.vo2MlKgMin,
+            "quality" to e.quality,
+            "sources" to e.sources.map {
+                compact(
+                    linkedMapOf(
+                        "resultId" to it.resultId,
+                        "testType" to it.testType,
+                        "testedAt" to iso(it.testedAtMillis),
+                        "heartRateBpm" to it.heartRateBpm,
+                        "vo2MlKgMin" to it.vo2MlKgMin,
+                        "quality" to it.quality,
+                        "ageDays" to it.ageDays,
+                        "weight" to it.weight,
+                        "jump" to it.jump,
+                        "corroborated" to it.corroborated,
+                    ),
+                )
+            },
+        ),
+    )
+
+    private fun thresholdProfileFrom(o: JsonObject): ThresholdProfile {
+        val defaults = ThresholdProfileRules()
+        val rules = o.optObj("rules")?.let {
+            ThresholdProfileRules(
+                halfLifeDays = it.optDouble("halfLifeDays") ?: defaults.halfLifeDays,
+                maxAgeDays = it.optInt("maxAgeDays") ?: defaults.maxAgeDays,
+                highQualityWeight = it.optDouble("highQualityWeight") ?: defaults.highQualityWeight,
+                mediumQualityWeight = it.optDouble("mediumQualityWeight") ?: defaults.mediumQualityWeight,
+                jumpBpm = it.optDouble("jumpBpm") ?: defaults.jumpBpm,
+                jumpFactor = it.optDouble("jumpFactor") ?: defaults.jumpFactor,
+                corroborationDays = it.optInt("corroborationDays") ?: defaults.corroborationDays,
+                corroborationBpm = it.optDouble("corroborationBpm") ?: defaults.corroborationBpm,
+            )
+        } ?: defaults
+        val qualities = ThresholdQuality.entries.toTypedArray()
+        fun estimate(e: JsonObject) = ThresholdEstimate(
+            heartRateBpm = e.int("heartRateBpm"),
+            vo2MlKgMin = e.optDouble("vo2MlKgMin"),
+            quality = e.enum("quality", qualities),
+            sources = e.objects("sources", optional = true).map {
+                ThresholdSource(
+                    resultId = it.string("resultId"),
+                    testType = it.enum("testType", FitnessTestType.entries.toTypedArray()),
+                    testedAtMillis = time(it, "testedAt"),
+                    heartRateBpm = it.double("heartRateBpm"),
+                    vo2MlKgMin = it.optDouble("vo2MlKgMin"),
+                    quality = it.enum("quality", qualities),
+                    ageDays = it.int("ageDays"),
+                    weight = it.double("weight"),
+                    jump = it.boolean("jump", false),
+                    corroborated = it.boolean("corroborated", false),
+                )
+            },
+        )
+        return ThresholdProfile(
+            vt1 = o.optObj("vt1")?.let { estimate(it) },
+            vt2 = o.optObj("vt2")?.let { estimate(it) },
+            history = o.objects("history", optional = true).map {
+                ThresholdHistoryEntry(
+                    resultId = it.string("resultId"),
+                    testType = it.enum("testType", FitnessTestType.entries.toTypedArray()),
+                    testedAtMillis = time(it, "testedAt"),
+                    vt1Bpm = it.optDouble("vt1Bpm"),
+                    vt2Bpm = it.optDouble("vt2Bpm"),
+                    quality = it.optEnum("quality", qualities),
+                )
+            },
+            rules = rules,
+        )
+    }
+
     fun decodeProfile(text: String): FitnessProfile {
         val o = JsonObject(parseDocument(text), "")
         val version = checkVersion(o, FitnessProfile.SCHEMA_VERSION, "profile")
+        val defaults = FitnessProfileRules()
         val rules = o.optObj("rules")?.let {
-            FitnessProfileRules(it.double("halfLifeDays"), it.int("maxAgeDays"), it.double("warningSeeFactor"))
-        } ?: FitnessProfileRules()
+            FitnessProfileRules(
+                halfLifeDays = it.double("halfLifeDays"),
+                maxAgeDays = it.int("maxAgeDays"),
+                warningSeeFactor = it.double("warningSeeFactor"),
+                submaximalFactorWithMaximal = it.optDouble("submaximalFactorWithMaximal") ?: defaults.submaximalFactorWithMaximal,
+                maximalRecencyDays = it.optInt("maximalRecencyDays") ?: defaults.maximalRecencyDays,
+                discrepancyFactor = it.optDouble("discrepancyFactor") ?: defaults.discrepancyFactor,
+            )
+        } ?: defaults
         return FitnessProfile(
             computedAtMillis = time(o, "computedAt"),
             vo2max = o.optObj("vo2max")?.let { v ->
@@ -465,8 +688,11 @@ object FitnessTestJson {
                             ageDays = it.int("ageDays"),
                             weight = it.double("weight"),
                             lowerBound = it.boolean("lowerBound", false),
+                            weightFactor = it.optDouble("weightFactor") ?: 1.0,
+                            discrepant = it.boolean("discrepant", false),
                         )
                     },
+                    discrepancy = v.boolean("discrepancy", false),
                 )
             },
             mas = o.optObj("mas")?.let { m ->
@@ -482,6 +708,7 @@ object FitnessTestJson {
             hrMax = o.optObj("hrMax")?.let { h -> HrMaxEstimate(h.int("measuredBpm"), h.string("sourceResultId"), time(h, "testedAt")) },
             rules = rules,
             schemaVersion = version,
+            thresholds = o.optObj("thresholds")?.let { thresholdProfileFrom(it) },
         )
     }
 

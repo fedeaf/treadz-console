@@ -1,6 +1,11 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.FitnessFormulas
 import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
+import com.treadz.console.analysis.thresholds.ThresholdEngine
+import com.treadz.console.analysis.thresholds.ThresholdReason
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.engine.HeartRateRig
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.SafetyLimits
@@ -91,7 +96,20 @@ class MaxHeartRateWalkScenariosTest {
 
         val r = rig.result
         assertEquals(Validity.Valid, r.validity, "${r.flags}")
-        assertNull(r.outputs, "no VO2max for this test")
+        // VO2max: ACSM at the mean real load of the last minute (the simulated walker's VO2max is 45).
+        val o = checkNotNull(r.outputs)
+        assertEquals(Vo2MaxMethod.AcsmWalkRamp, o.method)
+        assertEquals(3.5, o.vo2maxSeeMlKgMin)
+        assertTrue(o.vo2maxMlKgMin in 42.0..49.0, "${o.vo2maxMlKgMin}")
+        assertFalse(o.vo2maxIsLowerBound)
+        assertTrue(o.masIsEstimated)
+        assertEquals(FitnessFormulas.round2(o.vo2maxMlKgMin / 3.5), o.masKmh)
+        assertEquals(EffortAssessment.Maximal, o.effort)
+        assertEquals(rig.walk.hrMaxCandidateBpm, o.hrMaxCandidateBpm)
+        assertEquals(Vo2MaxNorms.classify(o.vo2maxMlKgMin, 40, Sex.Male), o.classification)
+        // The console's heart rate has no RR intervals: no thresholds, and the reason is stored.
+        assertEquals(ThresholdResult.none(ThresholdReason.NoRrIntervals), r.thresholds)
+        assertEquals(FitnessTestResult.SCHEMA_VERSION, r.schemaVersion)
         assertEquals(180, r.coolDownSeconds)
         val m = rig.walk
         assertEquals(0.2, m.speedIncrementKmh)
@@ -111,10 +129,11 @@ class MaxHeartRateWalkScenariosTest {
         assertEquals(r, FitnessTestJson.decode(FitnessTestJson.encode(r)))
         assertTrue(FitnessTestJson.encode(r).contains("\"testType\": \"maxHeartRateWalk\""))
 
-        // It feeds the measured maximum of the profile, and nothing else.
+        // It feeds the measured maximum and the VO2max of the profile; the MAS is estimated from it.
         val profile = FitnessProfileCalculator.compute(listOf(r), r.endedAtMillis, 40, Sex.Male)
-        assertNull(profile.vo2max)
-        assertNull(profile.mas)
+        assertEquals(o.vo2maxMlKgMin, profile.vo2max?.valueMlKgMin)
+        assertEquals(true, profile.mas?.estimated)
+        assertNull(profile.thresholds)
         assertEquals(m.hrMaxCandidateBpm, profile.hrMax?.measuredBpm)
         assertEquals(r.id, profile.hrMax?.sourceResultId)
         val decision = HeartRateMaxPolicy.resolve(null, null, profile.hrMax, 180)
@@ -135,6 +154,12 @@ class MaxHeartRateWalkScenariosTest {
         assertEquals(Validity.Valid, r.validity, "${r.flags}")
         assertEquals(HeartRateSourceKind.DirectStrap, r.inputs.heartRateSource)
         assertEquals(EffortAssessment.Maximal, r.effortAssessment)
+        // The strap's RR intervals reached the threshold analysis (the simulated strap's RR have no real variability,
+        // so the thresholds themselves are not meaningful here).
+        val t = checkNotNull(r.thresholds)
+        assertEquals(ThresholdEngine.ALGORITHM_VERSION, t.algorithmVersion)
+        assertTrue(t.reason != ThresholdReason.NoRrIntervals, "$t")
+        assertEquals(Vo2MaxMethod.AcsmWalkRamp, r.outputs?.method)
     }
 
     @Test

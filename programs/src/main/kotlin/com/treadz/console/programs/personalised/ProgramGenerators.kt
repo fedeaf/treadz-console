@@ -1,5 +1,11 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.Acsm
+import com.treadz.console.analysis.heartrate.HeartRateBands
+import com.treadz.console.analysis.zones.TrainingZones
+import com.treadz.console.analysis.zones.ZoneSet
+import com.treadz.console.analysis.zones.ZoneSource
+import com.treadz.console.programs.fitness.ProfileZones
 import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
@@ -118,15 +124,24 @@ interface ProgramGenerator {
  *
  * | id | structure | intensity |
  * |---|---|---|
- * | `zone2` | 5 min + main + 5 min, 20-90 min | main block heart-rate guided in zone 2 (60-70 % HRR), continuous |
- * | `tempo` | 10-20 min warm-up + 2-3 × (8-10 min + 3 min) + 5 min, 37-60 min | work at 80-88 % MAS, guided in zone 4 (80-90 % HRR), continuous |
+ * | `zone2` | 5 min + main + 5 min, 20-90 min | main block heart-rate guided in zone 2 of the zone model, continuous |
+ * | `tempo` | 10-20 min warm-up + 2-3 × (8-10 min + 3 min) + 5 min, 37-60 min | work at 80-88 % MAS, guided in zone 4 of the zone model, continuous |
  * | `norwegian-4x4` | 10 + 4 × (4 + 3) + 5 min | work guided at 85-95 % HRmax, between repetitions |
  * | `intervals-30-30` | 10 min + N × (30 s + 30 s) + 5 min, N 6-30 | 30 s at 100-105 % MAS / 30 s easy, fixed values |
- * | `couch-to-5k` | the 27 classic sessions, see [CouchToFiveK] | jog at 60-65 % MAS; long runs guided in zone 3 (70-80 % HRR) |
+ * | `couch-to-5k` | the 27 classic sessions, see [CouchToFiveK] | jog at 60-65 % MAS; long runs guided in zone 3 of the zone model |
  *
- * **Heart-rate zones** are given in % of the heart-rate reserve (Karvonen, HRR) when the resting heart rate is known:
- * % of the reserve matches % of the VO2 reserve (ACSM), so the zones follow each user's fitness. The Norwegian 4x4 and
- * the short Couch to 5K runs keep % of the maximum, as their protocols define them. See [reserveZone].
+ * **Heart-rate zones** come from the zone model ([TrainingZones] through [ProfileZones]): with measured thresholds,
+ * zones around VT1 and VT2 in bpm, written in the program as the nearest whole % of the heart-rate reserve (or of the
+ * maximum without a resting heart rate); otherwise the %-of-reserve table of the fitness level (the VO2max
+ * classification of a test, else the self-rated level, else low), as % of the reserve (Karvonen, HRR) when the resting
+ * heart rate is known: % of the reserve matches % of the VO2 reserve (ACSM). The Norwegian 4x4 and the short Couch to
+ * 5K runs keep % of the maximum, as their protocols define them. See [Generation.modelZone] and [reserveZone].
+ *
+ * **Start of a heart-rate block with a measured VT1** (and its ACSM VO2): VO2 = 3.5 + (VO2_VT1 − 3.5) ·
+ * (HR_target − HR_rest) / (VT1 − HR_rest), with HR_target the middle of the block's zone and HR_rest the resting heart
+ * rate (assumed at a third of the maximum when unknown), translated with ACSM to the incline at the walking speed or to
+ * the running speed at 1 %; not lowered by the estimated-values factor (it comes from a measurement). Without VT1 the
+ * start comes from the VO2max or the MAS as before. A settled value from the history keeps priority.
  *
  * Common rules: running is at 1 %; walking keeps the speed and moves the incline (heart-rate blocks adjust the incline
  * while walking and the speed while running). Warm-ups are at the easy value (running: half the MAS, at least the
@@ -140,9 +155,9 @@ object ProgramGenerators {
 
     /**
      * Resting heart rate assumed, as a fraction of the maximum, to turn a % of the reserve into a % of the maximum when
-     * the resting heart rate is unknown: a third (60 bpm for a maximum of 180).
+     * the resting heart rate is unknown: a third (60 bpm for a maximum of 180). See [HeartRateBands.ASSUMED_RESTING_FRACTION].
      */
-    const val ASSUMED_RESTING_FRACTION = 1.0 / 3.0
+    const val ASSUMED_RESTING_FRACTION = HeartRateBands.ASSUMED_RESTING_FRACTION
 
     /**
      * The zone [lowPercent]-[highPercent] % of the heart-rate reserve: as such when [restingHeartRateBpm] is known,
@@ -156,8 +171,7 @@ object ProgramGenerators {
             HeartRateZone(HeartRateBasis.MaxHeartRate, reserveToMaxPercent(lowPercent), reserveToMaxPercent(highPercent))
         }
 
-    private fun reserveToMaxPercent(percent: Int): Int =
-        ((ASSUMED_RESTING_FRACTION + percent / 100.0 * (1.0 - ASSUMED_RESTING_FRACTION)) * 100.0).roundToInt()
+    private fun reserveToMaxPercent(percent: Int): Int = HeartRateBands.reserveToMaxPercent(percent)
 
     /** A zone as description text: "60-70 % of the heart-rate reserve" or "73-80 % of the maximum heart rate". */
     fun zoneText(zone: HeartRateZone): String = "${zone.lowPercent}-${zone.highPercent} % of the " +
@@ -267,6 +281,70 @@ internal class Generation(
         return zone
     }
 
+    /** The zone model of this user (see [ProfileZones]). */
+    val zones: ZoneSet by lazy {
+        val p = request.profile
+        ProfileZones.compute(p.fitnessProfile, p.heartRate, p.selfRatedFitness, p.ageYears, p.sex)
+    }
+
+    /** VT1 of the profile with its oxygen demand, when the zones come from measured thresholds. */
+    private val vt1: Pair<Int, Double>? by lazy {
+        val t = request.profile.fitnessProfile?.thresholds?.vt1
+        val vo2 = t?.vo2MlKgMin
+        if (zones.source == ZoneSource.MeasuredThresholds && t != null && vo2 != null) t.heartRateBpm to vo2 else null
+    }
+
+    /**
+     * Zone [number] (2-4) of the zone model as a program zone. With measured thresholds: its bpm bounds as the nearest
+     * whole % of the reserve (with a resting heart rate) or of the maximum; otherwise the level table in % of the reserve
+     * ([reserveZone], which notes a missing resting heart rate).
+     */
+    fun modelZone(number: Int): HeartRateZone {
+        val z = zones
+        inputs["zoneSource"] = z.source.wire()
+        inputs["zoneLevel"] = z.level.wire()
+        if (z.source != ZoneSource.MeasuredThresholds) {
+            val b = checkNotNull(TrainingZones.RESERVE_BOUNDARIES[z.level])
+            return reserveZone(b[number - 2], b[number - 1])
+        }
+        inputs["vt1Bpm"] = z.vt1Bpm.toString()
+        inputs["vt2Bpm"] = z.vt2Bpm.toString()
+        if (z.vt2FromTable) inputs["vt2FromTable"] = "true"
+        val range = z.zone(number)
+        val max = request.profile.heartRate.maxBpm
+        val rest = refs.restingHeartRateBpm
+        val low = HeartRateBands.percentOf(checkNotNull(range.lowBpm), max, rest).coerceIn(0, 99)
+        val high = HeartRateBands.percentOf(range.highBpm, max, rest).coerceIn(low + 1, 100)
+        val zone = HeartRateZone(if (rest != null) HeartRateBasis.HeartRateReserve else HeartRateBasis.MaxHeartRate, low, high)
+        inputs["heartRateZoneBasis"] = zone.basis.wire()
+        return zone
+    }
+
+    /**
+     * The start oxygen demand of a heart-rate block in [zone] from the measured VT1 (see [ProgramGenerators]), or `null`
+     * without a measured VT1 with its VO2.
+     */
+    fun vt1StartVo2(zone: HeartRateZone, key: String): Double? {
+        val (vt1Bpm, vt1Vo2) = vt1 ?: return null
+        val max = request.profile.heartRate.maxBpm
+        val rest = refs.restingHeartRateBpm?.toDouble() ?: (max * ASSUMED_RESTING)
+        if (vt1Bpm <= rest) return null
+        val bpm = HeartRateZones.toBpm(zone, request.profile.heartRate)
+        val target = (bpm.lowBpm + bpm.highBpm) / 2.0
+        val vo2 = Acsm.REST_VO2 + (vt1Vo2 - Acsm.REST_VO2) * (target - rest) / (vt1Bpm - rest)
+        inputs["startFromVt1.$key"] = fmt(vo2)
+        return maxOf(Acsm.REST_VO2, vo2)
+    }
+
+    /** Start target of a heart-rate block from the measured VT1: walking incline or running speed (ACSM). */
+    fun vt1Start(zone: HeartRateZone, key: String): TreadmillTarget? {
+        val vo2 = vt1StartVo2(zone, key) ?: return null
+        return when (mode) {
+            ExerciseMode.Walk -> walking(vo2, key = key)
+            ExerciseMode.Run -> TreadmillTarget(runSpeed(Acsm.runningSpeedFor(vo2, IntensityTranslator.RUNNING_INCLINE_PERCENT / 100.0)), IntensityTranslator.RUNNING_INCLINE_PERCENT, vo2)
+        }
+    }
+
     /** The middle of [zone], in bpm for this user, as a fraction of the maximum heart rate (for start values). */
     fun midFractionOfMax(zone: HeartRateZone): Double {
         val bpm = HeartRateZones.toBpm(zone, request.profile.heartRate)
@@ -341,6 +419,8 @@ internal class Generation(
     companion object {
         const val DAY_MS = 86_400_000L
 
+        private const val ASSUMED_RESTING = ProgramGenerators.ASSUMED_RESTING_FRACTION
+
         fun clampSpeed(v: Double): Double = round1(v.coerceIn(ProgramLimits.MIN_SPEED_KMH, ProgramLimits.MAX_SPEED_KMH))
 
         fun clampIncline(v: Double): Double = v.coerceIn(ProgramLimits.MIN_INCLINE_PERCENT, ProgramLimits.MAX_INCLINE_PERCENT).roundToInt().toDouble()
@@ -359,13 +439,13 @@ internal class Generation(
 // ---------------------------------------------------------------------------------------------- generators
 
 /**
- * Zone 2 easy run or walk: 5 min + main block heart-rate guided in zone 2 (60-70 % of the heart-rate reserve,
- * continuous) + 5 min.
+ * Zone 2 easy run or walk: 5 min + main block heart-rate guided in zone 2 of the zone model (continuous) + 5 min.
+ * Version 2: zone 2 from the zone model (it was 60-70 % of the reserve) and the start from a measured VT1.
  */
 internal object Zone2Generator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "zone2",
-        version = 1,
+        version = 2,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.DurationMinutes, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         durationMinutes = 20..90,
@@ -382,19 +462,22 @@ internal object Zone2Generator : ProgramGenerator {
         val g = Generation(request, descriptor, usesVo2max = request.mode == ExerciseMode.Walk, usesMas = request.mode == ExerciseMode.Run, usesMaxHeartRate = true)
         val mainSeconds = (minutes - 10) * 60
         g.inputs["durationMinutes"] = minutes.toString()
-        val zone = g.reserveZone(60, 70)
-        // Start at the middle of the zone.
+        val zone = g.modelZone(2)
+        // Start at the middle of the zone: from the measured VT1, else from the VO2max.
+        val fromVt1 = g.vt1Start(zone, MAIN_KEY)
         val fraction = IntensityTranslator.vo2maxFractionForHeartRate(g.midFractionOfMax(zone), g.refs) * g.factor
         val main = when (g.mode) {
             ExerciseMode.Run -> {
-                val start = g.runSpeed(IntensityTranslator.running(fraction * g.refs.vo2maxMlKgMin, g.refs).speedKmh)
+                val start = fromVt1?.speedKmh ?: g.runSpeed(IntensityTranslator.running(fraction * g.refs.vo2maxMlKgMin, g.refs).speedKmh)
                 g.runningHeartRateBlock(
                     BlockPhase.Work, mainSeconds, MAIN_KEY, zone, start,
                     minimum = min(g.walkingSpeed, start),
                     maximum = max(start + 1.0, 0.75 * g.refs.masKmh),
                 )
             }
-            ExerciseMode.Walk -> g.walkingHeartRateBlock(BlockPhase.Work, mainSeconds, MAIN_KEY, zone, g.walking(fraction * g.refs.vo2maxMlKgMin, key = MAIN_KEY))
+            ExerciseMode.Walk -> g.walkingHeartRateBlock(
+                BlockPhase.Work, mainSeconds, MAIN_KEY, zone, fromVt1 ?: g.walking(fraction * g.refs.vo2maxMlKgMin, key = MAIN_KEY),
+            )
         }
         val steps = listOf(
             Generation.timed(BlockPhase.WarmUp, 300, g.easy()),
@@ -412,13 +495,14 @@ internal object Zone2Generator : ProgramGenerator {
 
 /**
  * Tempo / threshold: warm-up (10-20 min, easy) + N × (L min at 80-88 % MAS + 3 min recovery) + 5 min, with N 2-3 and L
- * 8-10 min: the combination with the most work whose warm-up fits 10-20 min. The work blocks are guided in zone 4
- * (80-90 % of the heart-rate reserve, continuous: they last 6 min or more) starting at 84 % MAS.
+ * 8-10 min: the combination with the most work whose warm-up fits 10-20 min. The work blocks are guided in zone 4 of the
+ * zone model (continuous: they last 6 min or more) starting at 84 % MAS, or from a measured VT1. Version 2: zone 4 from
+ * the zone model (it was 80-90 % of the reserve) and the start from a measured VT1.
  */
 internal object TempoGenerator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "tempo",
-        version = 1,
+        version = 2,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.DurationMinutes, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         durationMinutes = 37..60,
@@ -452,10 +536,11 @@ internal object TempoGenerator : ProgramGenerator {
         g.inputs["series"] = n.toString()
         g.inputs["workMinutes"] = l.toString()
         val mas = g.refs.masKmh
-        val zone = g.reserveZone(80, 90)
+        val zone = g.modelZone(4)
+        val fromVt1 = g.vt1Start(zone, WORK_KEY)
         val work = when (g.mode) {
             ExerciseMode.Run -> {
-                val start = g.runSpeed(0.84 * g.factor * mas)
+                val start = fromVt1?.speedKmh ?: g.runSpeed(0.84 * g.factor * mas)
                 g.runningHeartRateBlock(
                     BlockPhase.Work, l * 60, WORK_KEY, zone, start,
                     minimum = min(start, max(g.walkingSpeed, 0.70 * g.factor * mas)),
@@ -464,7 +549,7 @@ internal object TempoGenerator : ProgramGenerator {
             }
             ExerciseMode.Walk -> g.walkingHeartRateBlock(
                 BlockPhase.Work, l * 60, WORK_KEY, zone,
-                g.walking(0.84 * g.factor * g.refs.vo2maxMlKgMin, key = WORK_KEY),
+                fromVt1 ?: g.walking(0.84 * g.factor * g.refs.vo2maxMlKgMin, key = WORK_KEY),
             )
         }
         val recovery = Generation.timed(BlockPhase.Recovery, RECOVERY_MINUTES * 60, g.easy())
@@ -484,12 +569,13 @@ internal object TempoGenerator : ProgramGenerator {
 
 /**
  * Norwegian 4x4: 10 min warm-up + 4 × (4 min at 85-95 % HRmax + 3 min active recovery) + 5 min. The work blocks are
- * heart-rate guided between repetitions, starting at the intensity of 90 % HRmax.
+ * heart-rate guided between repetitions, starting at the intensity of 90 % HRmax (from a measured VT1 when there is one;
+ * version 2).
  */
 internal object Norwegian4x4Generator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "norwegian-4x4",
-        version = 1,
+        version = 2,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         heartRateGuided = true,
@@ -502,17 +588,18 @@ internal object Norwegian4x4Generator : ProgramGenerator {
     override fun generate(request: GeneratorRequest): GeneratedProgram {
         val g = Generation(request, descriptor, usesVo2max = request.mode == ExerciseMode.Walk, usesMas = request.mode == ExerciseMode.Run, usesMaxHeartRate = true)
         val fraction = IntensityTranslator.vo2maxFractionForHeartRate(0.90, g.refs) * g.factor
+        val fromVt1 = g.vt1Start(ZONE, WORK_KEY)
         val mas = g.refs.masKmh
         val work = when (g.mode) {
             ExerciseMode.Run -> {
-                val start = g.runSpeed(IntensityTranslator.running(fraction * g.refs.vo2maxMlKgMin, g.refs).speedKmh)
+                val start = fromVt1?.speedKmh ?: g.runSpeed(IntensityTranslator.running(fraction * g.refs.vo2maxMlKgMin, g.refs).speedKmh)
                 g.runningHeartRateBlock(
                     BlockPhase.Work, 240, WORK_KEY, ZONE, start,
                     minimum = min(start, max(g.walkingSpeed, 0.6 * g.factor * mas)),
                     maximum = max(start + 0.5, mas),
                 )
             }
-            ExerciseMode.Walk -> g.walkingHeartRateBlock(BlockPhase.Work, 240, WORK_KEY, ZONE, g.walking(fraction * g.refs.vo2maxMlKgMin, key = WORK_KEY))
+            ExerciseMode.Walk -> g.walkingHeartRateBlock(BlockPhase.Work, 240, WORK_KEY, ZONE, fromVt1 ?: g.walking(fraction * g.refs.vo2maxMlKgMin, key = WORK_KEY))
         }
         val steps = listOf(
             Generation.timed(BlockPhase.WarmUp, 600, g.easy()),

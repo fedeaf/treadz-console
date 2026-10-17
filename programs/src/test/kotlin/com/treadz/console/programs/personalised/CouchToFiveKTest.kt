@@ -90,8 +90,9 @@ class CouchToFiveKTest {
         val run = g.program.steps[1] as Block
         assertEquals(BlockEnd.Duration(1200), run.end)
         val t = run.target as BlockTarget.HeartRate
-        // No resting heart rate: 70-80 % of the reserve as 80-87 % of the maximum.
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 80, 87), t.zone)
+        // VO2max 42 at 40 is "fair": low level, zone 3 = 55-75 % of the reserve; no resting heart rate: 70-83 % of the
+        // maximum.
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 70, 83), t.zone)
         assertEquals(HeartRateAdjust.Speed, t.adjust)
         assertEquals(BlockTarget.Absolute(7.5, 1.0), t.start)
         // The slowest jog (walking 5.0 + 0.5): a run never turns into a walk.
@@ -100,7 +101,7 @@ class CouchToFiveKTest {
         assertTrue(g.notices.any { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${g.notices}")
 
         val rested = CouchToFiveK.generate(request(profile = measuredProfile(restingBpm = 55), history = listOf(c25kRecord(14, NOW - 2 * DAY - HOUR))))
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 70, 80), ((rested.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 55, 75), ((rested.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
         // Sessions without continuous runs do not need the resting heart rate.
         assertTrue(CouchToFiveK.generate(request()).notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing })
     }

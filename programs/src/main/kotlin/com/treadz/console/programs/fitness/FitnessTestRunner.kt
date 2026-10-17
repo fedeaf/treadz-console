@@ -60,7 +60,10 @@ import kotlin.math.max
  *    from the console) counts as exhaustion: the result is valid and there is no cool-down. Everywhere else a STOP
  *    makes the test invalid.
  *  - The heart rate comes from [heartRate] (normally an `AutomaticHeartRateSource`); the result records the source of
- *    most valid readings ([FitnessTestInputs.heartRateSource]), else [heartRateSourceKind].
+ *    most valid readings ([FitnessTestInputs.heartRateSource]), else [heartRateSourceKind]. The RR intervals of a strap
+ *    connected to the app ([HeartRateSource.readings]) feed the thresholds of the maximal tests, computed when the
+ *    effort ends together with the walking test's VO2max ([FitnessTestRecalculation]): a result is complete when the
+ *    runner reports it.
  *  - At the end of the cool-down the belt is stopped.
  *
  * Thread safety: all state lives behind one lock and is only changed in short non-suspending sections; controller calls
@@ -140,8 +143,8 @@ class FitnessTestRunner(
     }.await()
 
     /**
-     * Starts the maximal heart-rate walking test (modified Balke): needs a current, non-zero heart rate (its only purpose
-     * is the maximum heart rate) and a speed cap of at least 3 km/h.
+     * Starts the maximal walking test (modified Balke): needs a current, non-zero heart rate (it is designed to measure
+     * the maximum heart rate) and a speed cap of at least 3 km/h.
      */
     suspend fun startMaxHeartRateWalk(parameters: MaxHeartRateWalkParameters): FitnessActionResult = scope.async {
         startBody(requireHeartRate = true, parameters.resultId) { id, limits ->
@@ -374,6 +377,7 @@ class FitnessTestRunner(
             launch(start = CoroutineStart.UNDISPATCHED) { controller.events.collect(::onControllerEvent) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.state.collect(::onTreadmillState) }
             launch(start = CoroutineStart.UNDISPATCHED) { controller.connection.collect { onConnection() } }
+            launch(start = CoroutineStart.UNDISPATCHED) { heartRate.readings.collect(::onHeartRateReading) }
             driverLoop()
         }
     }
@@ -483,6 +487,15 @@ class FitnessTestRunner(
         wake()
     }
 
+    /** RR intervals of a strap connected to the app, for the thresholds of the maximal tests. */
+    private fun onHeartRateReading(reading: HeartRateReading) {
+        if (reading.rrIntervalsMs.isEmpty() || reading.source != HeartRateSourceKind.DirectStrap || reading.validity == HeartRateValidity.Invalid) return
+        synchronized(lock) {
+            val p = protocol ?: return
+            if (running && !stopping && !p.isFinished) p.addRrIntervals(testTime(), reading.rrIntervalsMs)
+        }
+    }
+
     private fun onConnection() {
         synchronized(lock) {
             checkInterruptions()
@@ -581,7 +594,7 @@ class FitnessTestRunner(
     private fun clampIncline(percent: Double): Double =
         SafetyClamp.incline(percent, controller.capabilities.value?.incline ?: SafetyClamp.DEFAULT_INCLINE_RANGE, controller.limits.value)
 
-    /** The walking heart-rate test measures no VO2max: it does not need the weight. */
+    /** The walking test gives its VO2max per kilogram from the load alone: it does not need the weight. */
     private fun validSubject(s: FitnessSubject, type: FitnessTestType) =
         s.ageYears in 10..100 && s.hrMaxBpm in 100..240 &&
             (type == FitnessTestType.MaxHeartRateWalk || s.weightKg in 25.0..280.0)

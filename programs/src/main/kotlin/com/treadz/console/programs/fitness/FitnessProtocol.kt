@@ -1,6 +1,11 @@
 package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.samples.RrInterval
+import com.treadz.console.analysis.samples.RrSeries
+import com.treadz.console.analysis.samples.SampleHeartRateSource
+import com.treadz.console.analysis.samples.WorkoutSample
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.treadmill.TreadmillState
 import kotlin.math.max
@@ -69,6 +74,13 @@ internal abstract class FitnessProtocol(
     private var coolDownManual = false
     private var endT: Long? = null
     private var outputs: FitnessTestOutputs? = null
+    private var thresholds: ThresholdResult? = null
+
+    /** The load and heart rate seen during the effort, on the epoch clock (for the derived values at the end). */
+    protected val effortSamples = ArrayList<WorkoutSample>()
+
+    /** RR intervals of a strap connected to the app received during the effort, on the epoch clock. */
+    protected val rrIntervals = ArrayList<RrInterval>()
 
     val hr = HeartRateLog()
 
@@ -112,11 +124,27 @@ internal abstract class FitnessProtocol(
     fun observe(t: Long, obs: Observation) {
         val bpm = plausibleHeartRate(t, obs.heartRateBpm)
         hr.add(t, bpm)
-        if (bpm != null) {
-            val source = obs.source ?: heartRateKind
-            sourceCounts[source] = (sourceCounts[source] ?: 0) + 1
+        val source = if (bpm != null) obs.source ?: heartRateKind else null
+        if (source != null) sourceCounts[source] = (sourceCounts[source] ?: 0) + 1
+        if (isEffortPhase && (effortSamples.isEmpty() || at(t) > effortSamples.last().timeMillis)) {
+            effortSamples += WorkoutSample(
+                at(t), obs.speedKmh, obs.inclinePercent, bpm,
+                when (source) {
+                    HeartRateSourceKind.DirectStrap -> SampleHeartRateSource.Strap
+                    HeartRateSourceKind.TreadmillConsole -> SampleHeartRateSource.Console
+                    null -> null
+                },
+            )
         }
         recordMinutes(t)
+    }
+
+    /**
+     * RR intervals of one notification of a strap connected to the app, received at [t]. Kept only during the effort
+     * (they feed the thresholds of the maximal tests).
+     */
+    fun addRrIntervals(t: Long, rrMs: List<Int>) {
+        if (isEffortPhase) RrSeries.append(rrIntervals, at(t), rrMs)
     }
 
     /** Hook for protocols that discard impossible readings; the default keeps every valid reading. */
@@ -262,6 +290,7 @@ internal abstract class FitnessProtocol(
         endDetail = detail
         outputs = computeOutputs(t, reason)
         closeMeasurements(t)
+        if (flags.none { it.severity == FlagSeverity.Invalidating }) thresholds = computeThresholds(t, reason, outputs)
         if (coolDown) {
             coolDownSpeed = clampSpeed(min(coolDownMaxSpeedKmh, targetSpeed ?: coolDownMaxSpeedKmh))
             enterPhase(t, FitnessTestPhase.CoolDown)
@@ -281,6 +310,27 @@ internal abstract class FitnessProtocol(
 
     /** Closes the protocol's own records at the end of the effort. */
     protected open fun closeMeasurements(t: Long) = Unit
+
+    /**
+     * Thresholds of a valid result, computed when the effort ends (after [computeOutputs] and [closeMeasurements]).
+     * Default: none (Ebbeling).
+     */
+    protected open fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? = null
+
+    /**
+     * The thresholds of the incremental phase from [incrementalStartT] to [t] with the RR intervals and samples of the
+     * effort ([FitnessTestRecalculation.thresholds]).
+     */
+    protected fun incrementalThresholds(incrementalStartT: Long, t: Long, outputs: FitnessTestOutputs?): ThresholdResult =
+        FitnessTestRecalculation.thresholds(
+            rr = rrIntervals,
+            samples = effortSamples,
+            incrementalStartMillis = at(incrementalStartT),
+            incrementalEndMillis = at(t),
+            maxHeartRateBpm = subject.hrMaxBpm,
+            restingHeartRateBpm = subject.restingHeartRateBpm,
+            vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
+        )
 
     protected abstract fun measurements(): FitnessTestMeasurements
 
@@ -362,6 +412,7 @@ internal abstract class FitnessProtocol(
             minutes = minutes.toList(),
             coolDownSeconds = coolDownStartT?.let { (max(0L, (coolDownEndT ?: end) - it) / 1000).toInt() } ?: 0,
             outputs = if (valid) outputs else null,
+            thresholds = if (valid) thresholds else null,
         )
     }
 

@@ -5,11 +5,25 @@ package com.treadz.console.analysis.fitness
  * the grade as a fraction, VO2 in ml·kg⁻¹·min⁻¹:
  *  - walking: `VO2 = 3.5 + 0.1·S + 1.8·S·G`
  *  - running: `VO2 = 3.5 + 0.2·S + 0.9·S·G`
+ *
+ * Which one applies is decided by the speed: above [RUNNING_SPEED_THRESHOLD_KMH] the running equation, at or below it
+ * the walking one (ACSM: the walking equation is meant for 50-100 m/min, the running one above 134 m/min or for real
+ * jogging at lower speeds; 7.5 km/h = 125 m/min is the usual cut between both on a treadmill).
  */
 object Acsm {
 
     /** Resting oxygen consumption, 1 MET: 3.5 ml·kg⁻¹·min⁻¹. */
     const val REST_VO2 = 3.5
+
+    /** Above this speed (km/h) the running equation is used, at or below it the walking one. */
+    const val RUNNING_SPEED_THRESHOLD_KMH = 7.5
+
+    /** Whether [speedKmh] is counted as running for the choice of equation. */
+    fun isRunning(speedKmh: Double): Boolean = speedKmh > RUNNING_SPEED_THRESHOLD_KMH
+
+    /** The walking or running equation, chosen by [speedKmh] ([isRunning]). */
+    fun vo2(speedKmh: Double, inclinePercent: Double): Double =
+        if (isRunning(speedKmh)) runningVo2(speedKmh, inclinePercent) else walkingVo2(speedKmh, inclinePercent)
 
     fun walkingVo2(speedKmh: Double, inclinePercent: Double): Double {
         val s = speedKmh * 1000.0 / 60.0
@@ -26,6 +40,9 @@ object Acsm {
         val s = speedKmh * 1000.0 / 60.0
         return (vo2 - REST_VO2 - 0.1 * s) / (1.8 * s)
     }
+
+    /** Running speed (km/h) that gives [vo2] at [grade] (a fraction), from the running equation. */
+    fun runningSpeedFor(vo2: Double, grade: Double): Double = (vo2 - REST_VO2) / (0.2 + 0.9 * grade) * 60.0 / 1000.0
 
     /** Walking speed (km/h) that gives [vo2] at [grade] (a fraction); with 0 it is the flat-walking speed. */
     fun walkingSpeedFor(vo2: Double, grade: Double): Double = (vo2 - REST_VO2) / (0.1 + 1.8 * grade) * 60.0 / 1000.0

@@ -11,6 +11,8 @@ data class FitnessSubject(
     /** Not used by the walking heart-rate test, which accepts 0 (unknown). */
     val weightKg: Double,
     val hrMaxBpm: Int,
+    /** The usable resting heart rate, when known: only for the % of the reserve at each threshold. */
+    val restingHeartRateBpm: Int? = null,
 )
 
 /** Start parameters of the Ebbeling walking test. */

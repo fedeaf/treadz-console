@@ -20,7 +20,7 @@ import com.treadz.console.programs.model.ProgramOrigin
 import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.programs.personalised.SessionBlockRecord
 import com.treadz.console.programs.personalised.SessionOutcome
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 
 const val GENERATOR_4X4 = "norwegian-4x4"
 const val GENERATOR_C25K = "couch-to-5k"

@@ -1,11 +1,12 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.SelfRatedFitness
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.engine.HeartRateBlockSummary
 import com.treadz.console.programs.engine.HeartRateControlMode
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
 import com.treadz.console.programs.fitness.MasEstimate
-import com.treadz.console.programs.fitness.Sex
 import com.treadz.console.programs.fitness.Vo2MaxEstimate
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.model.BlockPhase

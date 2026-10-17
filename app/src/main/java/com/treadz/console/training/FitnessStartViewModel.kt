@@ -14,7 +14,7 @@ import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.fitness.MaxHeartRateWalkParameters
 import com.treadz.console.programs.fitness.MaxTestParameters
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState

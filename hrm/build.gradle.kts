@@ -10,6 +10,7 @@ kotlin {
 }
 
 dependencies {
+    api(project(":analysis"))
     api(libs.kotlinx.coroutines.core)
 
     testImplementation(platform(libs.junit.bom))

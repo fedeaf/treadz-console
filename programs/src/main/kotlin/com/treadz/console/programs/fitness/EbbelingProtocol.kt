@@ -1,5 +1,7 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max

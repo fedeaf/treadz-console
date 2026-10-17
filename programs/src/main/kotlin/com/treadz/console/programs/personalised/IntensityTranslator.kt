@@ -1,5 +1,6 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.Acsm
 import com.treadz.console.programs.model.ProgramLimits
 import kotlin.math.max
 import kotlin.math.min
@@ -21,8 +22,8 @@ data class TreadmillTarget(
  * The single translator from an intensity (% of VO2max, % of MAS, or a heart rate) to speed and incline. It gives the
  * start values of a session; heart-rate-guided blocks correct them during the run.
  *
- * ACSM metabolic equations (ACSM's Guidelines for Exercise Testing and Prescription), with S the speed in m/min and G
- * the grade as a fraction, VO2 in ml·kg⁻¹·min⁻¹:
+ * ACSM metabolic equations ([Acsm.walkingVo2], [Acsm.runningVo2]; ACSM's Guidelines for Exercise Testing and
+ * Prescription), with S the speed in m/min and G the grade as a fraction, VO2 in ml·kg⁻¹·min⁻¹:
  *  - walking: `VO2 = 3.5 + 0.1·S + 1.8·S·G`
  *  - running: `VO2 = 3.5 + 0.2·S + 0.9·S·G`
  *
@@ -47,35 +48,21 @@ object IntensityTranslator {
     /** Slowest speed generated for running work (slower than this is walking for most adults). */
     const val MIN_RUNNING_SPEED_KMH = 6.0
 
-    private const val REST_VO2 = 3.5
-
-    fun walkingVo2(speedKmh: Double, inclinePercent: Double): Double {
-        val s = speedKmh * 1000.0 / 60.0
-        return REST_VO2 + 0.1 * s + 1.8 * s * inclinePercent / 100.0
-    }
-
-    fun runningVo2(speedKmh: Double, inclinePercent: Double): Double {
-        val s = speedKmh * 1000.0 / 60.0
-        return REST_VO2 + 0.2 * s + 0.9 * s * inclinePercent / 100.0
-    }
-
     /**
      * Walking at [walkingSpeedKmh] with the incline that gives [vo2] (see the class rules). [maxInclinePercent] lowers
      * the incline limit (the speed then rises sooner, up to [MAX_WALKING_SPEED_KMH]).
      */
     fun walking(vo2: Double, walkingSpeedKmh: Double, maxInclinePercent: Double = MAX_WALKING_INCLINE_PERCENT): TreadmillTarget {
         val w = walkingSpeedKmh
-        val s = w * 1000.0 / 60.0
-        val grade = (vo2 - REST_VO2 - 0.1 * s) / (1.8 * s)
+        val grade = Acsm.walkingGradeFor(vo2, w)
         return when {
             grade <= 0.0 -> {
-                val flat = (vo2 - REST_VO2) / 0.1 * 60.0 / 1000.0
+                val flat = Acsm.walkingSpeedFor(vo2, 0.0)
                 TreadmillTarget(round1(flat.coerceIn(min(MIN_WALKING_SPEED_KMH, w), w)), 0.0, vo2)
             }
             grade * 100.0 <= maxInclinePercent -> TreadmillTarget(round1(w), (grade * 100.0).roundToInt().toDouble(), vo2)
             else -> {
-                val g = maxInclinePercent / 100.0
-                val needed = (vo2 - REST_VO2) / (0.1 + 1.8 * g) * 60.0 / 1000.0
+                val needed = Acsm.walkingSpeedFor(vo2, maxInclinePercent / 100.0)
                 TreadmillTarget(round1(min(max(needed, w), max(w, MAX_WALKING_SPEED_KMH))), maxInclinePercent, vo2, capped = needed > max(w, MAX_WALKING_SPEED_KMH) + 0.05)
             }
         }
@@ -83,7 +70,7 @@ object IntensityTranslator {
 
     /** Running at 1 % with the speed that gives [vo2] (see the class rules). */
     fun running(vo2: Double, references: IntensityReferences): TreadmillTarget {
-        val fraction = (vo2 - REST_VO2) / (references.vo2maxMlKgMin - REST_VO2)
+        val fraction = (vo2 - Acsm.REST_VO2) / (references.vo2maxMlKgMin - Acsm.REST_VO2)
         return TreadmillTarget(clampSpeed(fraction * references.masKmh), RUNNING_INCLINE_PERCENT, vo2)
     }
 
@@ -119,7 +106,7 @@ object IntensityTranslator {
         val max = references.maxHeartRateBpm
         val fraction = if (rest != null && rest < max) {
             val reserve = (heartRateFraction * max - rest) / (max - rest)
-            (REST_VO2 + reserve * (references.vo2maxMlKgMin - REST_VO2)) / references.vo2maxMlKgMin
+            (Acsm.REST_VO2 + reserve * (references.vo2maxMlKgMin - Acsm.REST_VO2)) / references.vo2maxMlKgMin
         } else {
             (heartRateFraction * 100.0 - 37.182) / 0.6463 / 100.0
         }

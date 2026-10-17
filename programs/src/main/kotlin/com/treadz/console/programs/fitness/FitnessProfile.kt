@@ -1,7 +1,12 @@
 package com.treadz.console.programs.fitness
 
-import kotlin.math.pow
-import kotlin.math.sqrt
+import com.treadz.console.analysis.estimate.CombinationRules
+import com.treadz.console.analysis.estimate.EstimateCombiner
+import com.treadz.console.analysis.estimate.EstimateInput
+import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.analysis.fitness.Vo2MaxClassification
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 
 /**
  * Rules of the fitness profile (kept in the document so a reader knows how it was computed).
@@ -122,35 +127,33 @@ object FitnessProfileCalculator {
             .filter { (_, days) -> days <= rules.maxAgeDays }
 
         // -- VO2max
-        data class Weighted(val r: FitnessTestResult, val days: Double, val see: Double, val w: Double)
-        val weighted = usable.map { (r, days) ->
-            val o = checkNotNull(r.outputs)
-            val warned = r.flags.any { it.severity == FlagSeverity.Warning } || o.effort == EffortAssessment.NotMaximal
-            val see = o.vo2maxSeeMlKgMin * if (warned) rules.warningSeeFactor else 1.0
-            Weighted(r, days, see, 0.5.pow(days / rules.halfLifeDays) / (see * see))
-        }
-        val vo2 = if (weighted.isEmpty()) {
+        val combined = EstimateCombiner.combine(
+            usable.map { (r, days) ->
+                val o = checkNotNull(r.outputs)
+                val warned = r.flags.any { it.severity == FlagSeverity.Warning } || o.effort == EffortAssessment.NotMaximal
+                EstimateInput(value = o.vo2maxMlKgMin, see = o.vo2maxSeeMlKgMin, ageDays = days, warned = warned)
+            },
+            CombinationRules(halfLifeDays = rules.halfLifeDays, warningSeeFactor = rules.warningSeeFactor),
+        )
+        val vo2 = if (combined == null) {
             null
         } else {
-            val total = weighted.sumOf { it.w }
-            val value = weighted.sumOf { it.w * checkNotNull(it.r.outputs).vo2maxMlKgMin } / total
-            val spread = sqrt(weighted.sumOf { it.w * it.w * it.see * it.see }) / total
-            val see = maxOf(spread, weighted.minOf { it.see })
-            val rounded = FitnessFormulas.round1(value)
+            val rounded = FitnessFormulas.round1(combined.value)
             Vo2MaxEstimate(
                 valueMlKgMin = rounded,
-                seeMlKgMin = FitnessFormulas.round2(see),
+                seeMlKgMin = FitnessFormulas.round2(combined.see),
                 classification = if (ageYears != null && sex != null) Vo2MaxNorms.classify(rounded, ageYears, sex) else null,
-                sources = weighted.sortedByDescending { it.r.startedAtMillis }.map {
-                    val o = checkNotNull(it.r.outputs)
+                sources = usable.zip(combined.inputs).sortedByDescending { (u, _) -> u.first.startedAtMillis }.map { (u, c) ->
+                    val (r, days) = u
+                    val o = checkNotNull(r.outputs)
                     Vo2MaxSource(
-                        resultId = it.r.id,
-                        testType = it.r.testType,
-                        testedAtMillis = it.r.startedAtMillis,
+                        resultId = r.id,
+                        testType = r.testType,
+                        testedAtMillis = r.startedAtMillis,
                         vo2maxMlKgMin = o.vo2maxMlKgMin,
-                        seeMlKgMin = FitnessFormulas.round2(it.see),
-                        ageDays = it.days.toInt(),
-                        weight = FitnessFormulas.round2(it.w / total),
+                        seeMlKgMin = FitnessFormulas.round2(c.seeUsed),
+                        ageDays = days.toInt(),
+                        weight = FitnessFormulas.round2(c.weight),
                         lowerBound = o.vo2maxIsLowerBound,
                     )
                 },

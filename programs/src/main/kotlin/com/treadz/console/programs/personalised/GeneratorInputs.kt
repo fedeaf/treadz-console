@@ -1,13 +1,11 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.SelfRatedFitness
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
-import com.treadz.console.programs.fitness.Sex
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import java.util.UUID
-
-/** How fit the user says they are (profile field). `null` where it is used means "unknown". */
-enum class SelfRatedFitness { Beginner, Intermediate, Advanced }
 
 /** Whether a generated session is walked (speed fixed, incline moves) or run (speed moves, incline 1 %). */
 enum class ExerciseMode { Walk, Run }

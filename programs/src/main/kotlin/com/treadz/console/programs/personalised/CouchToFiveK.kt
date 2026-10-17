@@ -1,8 +1,8 @@
 package com.treadz.console.programs.personalised
 
+import com.treadz.console.analysis.fitness.Vo2MaxCategory
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.programs.engine.HeartRateControlMode
-import com.treadz.console.programs.fitness.Vo2MaxCategory
-import com.treadz.console.programs.fitness.Vo2MaxNorms
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase

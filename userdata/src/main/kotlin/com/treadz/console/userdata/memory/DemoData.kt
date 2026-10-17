@@ -68,7 +68,7 @@ object DemoData {
                 totalDurationSeconds = 2400, easySpeedKmh = 5.0, maxSpeedKmh = 10.0, maxInclinePercent = 8.0, intensityAdjustmentPercent = 5,
             ),
         )
-        val anaSex = com.treadz.console.programs.fitness.Sex.Female
+        val anaSex = com.treadz.console.analysis.fitness.Sex.Female
         data.fitnessTests.save(ana.id, DemoPrograms.ebbeling(startedAtMillis = startOf(40), vo2max = 38.5, ageYears = 39, sex = anaSex, weightKg = 66.0))
         data.fitnessTests.save(ana.id, DemoPrograms.maxTest(startedAtMillis = startOf(10), masKmh = 12.0, peakBpm = 183, ageYears = 39, sex = anaSex, weightKg = 65.0))
         return ana to beto

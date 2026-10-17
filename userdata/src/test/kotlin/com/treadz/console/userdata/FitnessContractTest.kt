@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import org.robolectric.RobolectricTestRunner
 import java.time.ZoneOffset
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 
 /**
  * Fitness test results, the fitness profile (snapshot and live), the maximum heart rate decision and its two answers:

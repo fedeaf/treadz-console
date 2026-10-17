@@ -4,7 +4,7 @@ import com.treadz.console.Decimals
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.personalised.ExerciseMode
@@ -16,7 +16,7 @@ import com.treadz.console.programs.personalised.GeneratorProfile
 import com.treadz.console.programs.personalised.GeneratorRequest
 import com.treadz.console.programs.personalised.IntensityTranslator
 import com.treadz.console.programs.personalised.ProgramGenerators
-import com.treadz.console.programs.personalised.SelfRatedFitness
+import com.treadz.console.analysis.fitness.SelfRatedFitness
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserData

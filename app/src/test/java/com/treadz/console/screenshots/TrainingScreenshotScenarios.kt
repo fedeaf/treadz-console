@@ -235,7 +235,7 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
         val (_, beto) = demo()
         runBlocking {
             data.profiles.setActiveUser(beto.id)
-            data.fitnessTests.save(beto.id, DemoPrograms.maxTest(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b09", startedAtMillis = app.date.atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), masKmh = 13.0, peakBpm = 193, ageYears = 42, sex = com.treadz.console.programs.fitness.Sex.Male, weightKg = 90.0))
+            data.fitnessTests.save(beto.id, DemoPrograms.maxTest(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b09", startedAtMillis = app.date.atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), masKmh = 13.0, peakBpm = 193, ageYears = 42, sex = com.treadz.console.analysis.fitness.Sex.Male, weightKg = 90.0))
         }
         idleBelt()
         capture("f06_hrmax_question", startAt = listOf(Screen.Programs, Screen.FitnessTests))
@@ -248,7 +248,7 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
         val started = app.date.minusDays(3).atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         runBlocking {
             val ana = data.profiles.activeUserId()!!
-            data.fitnessTests.save(ana, DemoPrograms.ebbeling(id = id, startedAtMillis = started, vo2max = 41.2, ageYears = 39, sex = com.treadz.console.programs.fitness.Sex.Female, weightKg = 65.5))
+            data.fitnessTests.save(ana, DemoPrograms.ebbeling(id = id, startedAtMillis = started, vo2max = 41.2, ageYears = 39, sex = com.treadz.console.analysis.fitness.Sex.Female, weightKg = 65.5))
         }
         return id
     }
@@ -266,7 +266,7 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
 
     @Test fun x03_result_invalid() {
         val (ana, _) = demo()
-        val base = DemoPrograms.ebbeling(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b04", startedAtMillis = app.date.minusDays(1).atTime(18, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), ageYears = 39, sex = com.treadz.console.programs.fitness.Sex.Female)
+        val base = DemoPrograms.ebbeling(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b04", startedAtMillis = app.date.minusDays(1).atTime(18, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), ageYears = 39, sex = com.treadz.console.analysis.fitness.Sex.Female)
         runBlocking { data.fitnessTests.save(ana.id, TrainingFixtures.invalidEbbeling(base)) }
         capture("x03_result_invalid", startAt = listOf(Screen.Programs, Screen.FitnessTests, Screen.FitnessResult(base.id)))
     }
@@ -408,7 +408,7 @@ abstract class TrainingScreenshotScenarios(private val prefix: String) {
     @Test fun h05_profile_hrmax_question() {
         val (_, beto) = demo()
         runBlocking {
-            data.fitnessTests.save(beto.id, DemoPrograms.maxTest(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b09", startedAtMillis = app.date.atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), masKmh = 13.0, peakBpm = 193, ageYears = 42, sex = com.treadz.console.programs.fitness.Sex.Male, weightKg = 90.0))
+            data.fitnessTests.save(beto.id, DemoPrograms.maxTest(id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b09", startedAtMillis = app.date.atTime(18, 30).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(), masKmh = 13.0, peakBpm = 193, ageYears = 42, sex = com.treadz.console.analysis.fitness.Sex.Male, weightKg = 90.0))
         }
         capture("h05_profile_hrmax_question", startAt = listOf(Screen.ProfileEditor(beto.id, 1)))
     }

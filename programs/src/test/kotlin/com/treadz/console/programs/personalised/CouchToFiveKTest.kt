@@ -1,6 +1,7 @@
 package com.treadz.console.programs.personalised
 
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.programs.engine.HeartRateControlMode
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase
@@ -10,7 +11,6 @@ import com.treadz.console.programs.model.HeartRateBasis
 import com.treadz.console.programs.model.HeartRateZone
 import com.treadz.console.programs.model.ProgramValidator
 import com.treadz.console.programs.model.Repeat
-import com.treadz.console.programs.plan.ProgramResolver
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.Advance
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.ChosenStartWeek
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.FirstSession
@@ -18,7 +18,7 @@ import com.treadz.console.programs.personalised.CouchToFiveKDecision.PlanComplet
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.RepeatHardEffort
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.RepeatManualReduction
 import com.treadz.console.programs.personalised.CouchToFiveKDecision.StepBack
-import com.treadz.console.programs.engine.HeartRateControlMode
+import com.treadz.console.programs.plan.ProgramResolver
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull

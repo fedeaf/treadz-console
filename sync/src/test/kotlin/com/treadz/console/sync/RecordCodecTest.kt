@@ -224,7 +224,7 @@ class RecordCodecTest {
 
     @Test fun `the fitness block is written for people and never read back`() {
         val results = listOf(ebbelingResult(TEST_1, T0 - 1000))
-        val fitness = FitnessProfileCalculator.compute(results, T0 - 1000, 39, com.treadz.console.programs.fitness.Sex.Female)
+        val fitness = FitnessProfileCalculator.compute(results, T0 - 1000, 39, com.treadz.console.analysis.fitness.Sex.Female)
         val withBlock = profile.copy(fitness = fitness)
         val json = text(RecordCodec.profile(withBlock))
         // an embedded document is indented with the file

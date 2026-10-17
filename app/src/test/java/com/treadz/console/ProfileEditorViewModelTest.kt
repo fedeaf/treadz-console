@@ -254,7 +254,7 @@ class ProfileEditorViewModelTest {
                 beto.id,
                 com.treadz.console.userdata.memory.DemoPrograms.maxTest(
                     id = "0b6f8f9e-4d0c-4d43-9f43-2f0c6f1a7b41", startedAtMillis = started, peakBpm = 193, ageYears = 42,
-                    sex = com.treadz.console.programs.fitness.Sex.Male, weightKg = 90.0,
+                    sex = com.treadz.console.analysis.fitness.Sex.Male, weightKg = 90.0,
                 ),
             )
         }

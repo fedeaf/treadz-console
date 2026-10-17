@@ -1,5 +1,8 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.analysis.fitness.Vo2MaxCategory
+import com.treadz.console.analysis.fitness.Vo2MaxClassification
 import com.treadz.console.programs.json.JsonObject
 import com.treadz.console.programs.json.JsonPretty
 import com.treadz.console.programs.json.ProgramFormatException

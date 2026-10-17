@@ -16,7 +16,7 @@ import com.treadz.console.programs.fitness.SpeedAdjustment
 import com.treadz.console.programs.fitness.StageRecord
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.programs.fitness.Vo2MaxMethod
-import com.treadz.console.programs.fitness.Vo2MaxNorms
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase
@@ -27,7 +27,7 @@ import com.treadz.console.programs.model.Repeat
 import com.treadz.console.programs.plan.ProgramResolver
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.programs.standard.StandardPrograms
-import com.treadz.console.programs.fitness.Sex as FitnessSex
+import com.treadz.console.analysis.fitness.Sex as FitnessSex
 
 const val PROGRAM_1 = "5a0e0d2c-5b0f-4a56-9d6a-6f1f4b6d2c01"
 const val PROGRAM_2 = "5a0e0d2c-5b0f-4a56-9d6a-6f1f4b6d2c02"

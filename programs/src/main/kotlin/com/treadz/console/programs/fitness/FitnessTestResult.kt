@@ -1,7 +1,7 @@
 package com.treadz.console.programs.fitness
 
-/** Biological sex as used by the prediction equations and the norm tables. */
-enum class Sex { Male, Female }
+import com.treadz.console.analysis.fitness.Sex
+import com.treadz.console.analysis.fitness.Vo2MaxClassification
 
 /** The fitness tests the app can run. */
 enum class FitnessTestType {

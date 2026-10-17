@@ -5,7 +5,7 @@ import com.treadz.console.fakes.MainDispatcherRule
 import com.treadz.console.programs.fitness.FitnessEndReason
 import com.treadz.console.programs.fitness.FitnessTestFlag
 import com.treadz.console.programs.fitness.HeartRateMaxOrigin
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.FitnessResultViewModel
 import com.treadz.console.training.FitnessResults

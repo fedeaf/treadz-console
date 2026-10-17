@@ -8,7 +8,7 @@ import com.treadz.console.programs.engine.RunState
 import com.treadz.console.programs.fitness.EbbelingParameters
 import com.treadz.console.programs.fitness.FitnessSubject
 import com.treadz.console.programs.fitness.FitnessTestPhase
-import com.treadz.console.programs.fitness.Sex
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.programs.plan.ProgramResolver
 import com.treadz.console.programs.standard.StandardPrograms

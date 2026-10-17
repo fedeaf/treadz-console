@@ -12,6 +12,7 @@ import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.workout.WorkoutSessionStore
 import com.treadz.console.userdata.DataResult
+import com.treadz.console.userdata.FitnessRecalculator
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.SyncableUserData
@@ -59,7 +60,11 @@ class Device(
     val repo: RepositoryRef = RepositoryRef("fede", "treadz-data", "main"),
     seedGenericProfile: Boolean = true,
     maxAttempts: Int = 5,
+    /** The engine recalculates the stored fitness test results after a pull that brings results or test workouts (as the app does). */
+    recalculates: Boolean = false,
 ) {
+    /** Can be switched at any time: a device that has not been updated yet does not recalculate. */
+    var recalculates: Boolean = recalculates
     private var uuidCounter = 0L
     val data: SyncableUserData = TreadZUserData.createInMemory(
         RuntimeEnvironment.getApplication() as Context,
@@ -82,7 +87,13 @@ class Device(
         .addInterceptor(github)
         .build()
     val client = RestGitHubClient(http, tokens::get, nowMillis = { clock.nowMillis })
-    val engine = SyncEngine(client, data.sync, programs, fitnessTests, state, clock, ZoneOffset.UTC, maxAttempts = maxAttempts, pauseBeforeRetry = {})
+    private val recalculation = object : FitnessRecalculator {
+        override suspend fun recalculate(): Int = if (recalculates) data.fitnessRecalculator.recalculate() else 0
+    }
+    val engine = SyncEngine(
+        client, data.sync, programs, fitnessTests, state, clock, ZoneOffset.UTC,
+        maxAttempts = maxAttempts, pauseBeforeRetry = {}, recalculation = recalculation,
+    )
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
 
     /** Created on first use: it restores its status from the token and state as they are at that moment. */

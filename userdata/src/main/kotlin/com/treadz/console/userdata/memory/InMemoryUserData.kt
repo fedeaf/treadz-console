@@ -2,7 +2,9 @@ package com.treadz.console.userdata.memory
 
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.FitnessTestJson
+import com.treadz.console.programs.fitness.FitnessTestRecalculation
 import com.treadz.console.programs.fitness.FitnessTestResult
+import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.json.PlanJson
@@ -16,6 +18,11 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.FitnessProfiles
+import com.treadz.console.userdata.FitnessRecalculator
+import com.treadz.console.userdata.LinkedWorkout
+import com.treadz.console.userdata.RecalculationSource
+import com.treadz.console.userdata.RestingPoint
+import com.treadz.console.userdata.StoredResultsRecalculator
 import com.treadz.console.userdata.FitnessTestRecord
 import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.GenericProfile
@@ -628,6 +635,25 @@ class InMemoryUserData(
             return RestingHeartRates.assess(m, d.resting.filter { it.userId == m.userId })
         }
     }
+
+    override val fitnessRecalculator: FitnessRecalculator = StoredResultsRecalculator(
+        object : RecalculationSource {
+            override suspend fun candidates(): List<FitnessTestRecord> =
+                data.value.fitness.filter { it.result.validity == Validity.Valid && it.result.testType in FitnessTestRecalculation.ANALYSED_TESTS }
+
+            override suspend fun linkedWorkout(testId: String): LinkedWorkout? = synchronized(lock) {
+                val workout = data.value.workouts.filter { it.fitnessTestId == testId }.minByOrNull { it.startedAtMillis } ?: return null
+                LinkedWorkout(workout.isInProgress, workoutSamples[workout.id].orEmpty().toList())
+            }
+
+            override suspend fun restingPoints(userId: Long): List<RestingPoint> =
+                data.value.resting.filter { it.userId == userId }.map { RestingPoint(it.measuredAtMillis, it.bpm) }
+
+            override suspend fun save(userId: Long, result: FitnessTestResult) {
+                fitnessTests.save(userId, result)
+            }
+        },
+    )
 
     override fun workoutObserver(
         controller: TreadmillController,

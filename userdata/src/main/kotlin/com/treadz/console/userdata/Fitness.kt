@@ -106,19 +106,26 @@ object FitnessProfiles {
 
     /**
      * The **snapshot**: `FitnessProfileCalculator` with `now` = the start time of the newest usable result (valid,
-     * with outputs), the age at that day in UTC, and the results in a fixed order (by start time, then id). It depends
+     * with something to derive: see below), the age at that day in UTC, and the results in a fixed order (by start time, then id). It depends
      * only on synchronised data (the results, the sex and the birth date), never on this device's clock, time zone or
      * database order, so every device computes exactly the same document. Its `computedAtMillis` is that newest
      * result's time. `null` without a usable result.
      *
-     * A result is usable when it is valid and has outputs (VO2max) or a measured maximum heart rate (the walking heart
-     * rate test has no outputs, only the maximum heart rate).
+     * A result is usable when it is valid and has outputs (VO2max; the maximal walking test has them since format
+     * version 2), a measured maximum heart rate (a walking result stored before version 2 and not recalculated yet has no
+     * outputs, only the maximum heart rate) or thresholds. The snapshot therefore carries everything the calculator
+     * derives: the VO2max with the weight of the submaximal tests reduced by the recent maximal test and the discrepancy
+     * flag, the MAS (measured by the running test only; the walking test's estimate is never a MAS source), the measured
+     * maximum heart rate and the thresholds profile.
      *
      * Consequence: the snapshot does not age. A result drops out of it only when a newer one is more than the
      * maximum age (365 days) after it; for ageing use [live].
      */
     fun snapshot(results: List<FitnessTestResult>, sex: Sex, birthDate: LocalDate): FitnessProfile? {
-        val usable = results.filter { it.validity == Validity.Valid && (it.outputs != null || it.measuredHrMaxCandidateBpm != null) }
+        val usable = results.filter {
+            it.validity == Validity.Valid &&
+                (it.outputs != null || it.measuredHrMaxCandidateBpm != null || it.thresholds?.vt1 != null || it.thresholds?.vt2 != null)
+        }
         if (usable.isEmpty()) return null
         val now = usable.maxOf { it.startedAtMillis }
         val age = ageOn(birthDate, Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC).toLocalDate())

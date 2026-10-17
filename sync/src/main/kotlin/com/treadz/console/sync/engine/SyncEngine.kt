@@ -17,6 +17,7 @@ import com.treadz.console.sync.github.GitHubFailure
 import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.sync.github.TreeChange
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessRecalculator
 import com.treadz.console.userdata.export.WorkoutCsv
 import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
@@ -74,7 +75,15 @@ import java.time.ZoneId
  * The Git Data API cannot be used before the first commit, so the first commit is made with the Contents API
  * (the repository's `README.md`).
  *
+ * ## Recalculation after a pull
+ * A pull that brought fitness test results or workouts linked to a test runs the [recalculation] (when given) before the
+ * push: results written by an older app, or whose workout has just arrived, get their derived values (VO2max of the
+ * walking test, thresholds) and go up in the same cycle. Every device derives the same document from the same data, so
+ * when two devices do it the last writer wins and nobody rewrites it again (the result then has the current algorithm
+ * version). A failure there never fails the synchronisation.
+ *
  * @param pauseBeforeRetry waits between attempts after a lost race; tests replace it.
+ * @param recalculation the stored-results recalculation to run after a pull that brought results or test workouts.
  */
 class SyncEngine(
     private val client: GitHubClient,
@@ -86,6 +95,7 @@ class SyncEngine(
     private val zone: ZoneId = ZoneId.systemDefault(),
     private val maxAttempts: Int = 5,
     private val pauseBeforeRetry: suspend (attempt: Int) -> Unit = { delay(300L * it) },
+    private val recalculation: FitnessRecalculator? = null,
 ) {
 
     /**
@@ -168,6 +178,7 @@ class SyncEngine(
                     val treeSha = client.treeShaOfCommit(repo, head)
                     files = client.files(repo, treeSha).associate { it.path to it.sha }
                     val pulled = pull(repo, state, files)
+                    if (pulled.testData) recalculate()
                     downloaded += pulled.applied
                     state = state.copy(headCommitSha = head, files = files, workoutPaths = pulled.workoutPaths)
                     stateStore.save(state)
@@ -225,7 +236,18 @@ class SyncEngine(
 
     // ---------------------------------------------------------------- pull
 
-    private class Pulled(val applied: Int, val workoutPaths: Map<String, String>)
+    /** @property testData The pull brought fitness test results or workouts linked to a test. */
+    private class Pulled(val applied: Int, val workoutPaths: Map<String, String>, val testData: Boolean)
+
+    private suspend fun recalculate() {
+        try {
+            recalculation?.recalculate()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Derived values only: the results stay as they are and the next pull or app start tries again.
+        }
+    }
 
     private suspend fun pull(repo: RepositoryRef, state: SyncState, files: Map<String, String>): Pulled {
         val previous = state.files
@@ -284,7 +306,8 @@ class SyncEngine(
         val result = store.applyRemote(RemoteChanges(profiles, weights, workouts, restingHeartRates))
         val programsApplied = if (documents.isEmpty()) 0 else programs.applyRemote(documents)
         val fitnessApplied = if (fitness.isEmpty()) 0 else fitnessTests.applyRemote(fitness)
-        return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths)
+        val testData = fitness.isNotEmpty() || workouts.any { it.workout.fitnessTestId != null }
+        return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths, testData)
     }
 
     // ---------------------------------------------------------------- push

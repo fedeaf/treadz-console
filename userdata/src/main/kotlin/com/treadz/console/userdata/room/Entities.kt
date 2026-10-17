@@ -257,6 +257,11 @@ internal data class FitnessTestEntity(
     /** `Validity.Valid`. */
     val isValid: Boolean,
     val vo2maxMlKgMin: Double?,
+    /**
+     * The maximal aerobic speed of the result, **measured** (maximal running test) **or estimated** (VO2max / 3.5 of the
+     * maximal walking test, `masIsEstimated` in the JSON). Nothing reads this column: the document is the source of
+     * truth and carries the flag. Do not use it to tell measured from estimated values.
+     */
     val masKmh: Double?,
     val json: String,
     val updatedAtMillis: Long,

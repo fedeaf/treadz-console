@@ -42,12 +42,28 @@ manual measurement.
 entered or last confirmed (values entered before the field existed lack it and count as older than any fitness test). When there is no manual value the app uses the maximum heart
 rate measured by a maximal fitness test and, failing that, the Tanaka estimate `208 - 0.7 * age`.
 
-`profile.json` may also contain a `fitness` block: the user's fitness profile (combined VO2max, maximal aerobic speed
-and measured maximum heart rate, with the tests it was computed from and the weighting rules), derived from the
-`fitness-tests` of the user. It is **read-only**, there for people and for analysis: the app ignores it on reading and
+`profile.json` may also contain a `fitness` block: the user's fitness profile (combined VO2max, maximal aerobic speed,
+measured maximum heart rate and thresholds, with the tests they were computed from and the weighting rules), derived from
+the `fitness-tests` of the user. It is **read-only**, there for people and for analysis: the app ignores it on reading and
 computes it again on every device from the fitness tests, so every device writes exactly the same block. Its
 `computedAt` is the start time of the newest valid test, not the time it was written: results are weighted by their
 age relative to that test. The file keeps the profile's own `updated_at`/`updated_by` when only the block changes.
+The block stays at `schemaVersion` 1: the fields below were added as optional ones (readers must ignore unknown fields).
+
+- `vo2max.discrepancy` (only present, `true`, when it applies): two of the tests used differ by more than 1.5 times
+  `sqrt(SEE1^2 + SEE2^2)` (their standard errors as weighted), so one of the measurements is probably wrong; those sources
+  carry `discrepant: true`. It is data only. A source also carries `weightFactor` when it is not 1: 0.25 for a submaximal
+  test (Ebbeling) while a valid maximal test of the last 90 days exists. `rules` lists `submaximalFactorWithMaximal`,
+  `maximalRecencyDays` and `discrepancyFactor`.
+- `mas` is the latest **measured** value of the maximal running test, or `estimated: true` (VO2max / 3.5). The estimated
+  MAS of a maximal walking test (`masIsEstimated` in the test) is never used as a measured one.
+- `thresholds`, present when a valid maximal test has VT1 or VT2: `rules` (weights by quality, 30-day half-life, tests
+  older than 180 days left out, the jump rule), `vt1` and `vt2` (`heartRateBpm` combined, `vo2MlKgMin` at the threshold,
+  the `quality` of the source that weighs most and the `sources`: `resultId`, `testType`, `testedAt`, `heartRateBpm`,
+  `vo2MlKgMin`, `quality`, `ageDays`, `weight`, and `jump`/`corroborated`) and `history` (every valid test with a
+  threshold, newest first: `resultId`, `testType`, `testedAt`, `vt1Bpm`, `vt2Bpm`, `quality`). Only tests with a `high`
+  or `medium` quality detection count; a test more than 6 bpm away from the value the earlier tests give weighs half
+  until another test of the next 60 days is within 4 bpm of it.
 
 `weight.csv`: `uuid,date,weight_kg,deleted,updated_at,updated_by,created_at`, one row per weight entry, ordered by
 `date`, then `created_at`, then `uuid`. The last row that is not deleted is the user's current weight, the same on every device
@@ -105,8 +121,53 @@ app and are not stored here). A personalised program carries its `origin` (gener
 `fitness-tests/<id>.json`: `uuid` (the test id), `user_uuid`, and the result under `result`: validity and flags, the
 inputs (age, sex, weight, maximum heart rate), the outputs (VO2max, maximal aerobic speed, measured maximum heart rate,
 classification), the measurements and every minute of the test. Tests that are not valid are kept too (they do not count
-in the fitness profile). The inputs name the source of the heart rate (`directStrap` or `treadmillConsole`). The maximal
-heart rate walking test (`maxHeartRateWalk`) has no outputs: its measured maximum heart rate is in the measurements.
+in the fitness profile). The inputs name the source of the heart rate (`directStrap` or `treadmillConsole`).
+
+The result has its own `schemaVersion` (1 or 2). A result is written with the lowest version that holds it, so a document
+with nothing new stays at 1 and older apps keep reading it; apps that know a lower version reject a higher one and keep the
+file untouched. **Version 2** (added in October 2026) adds:
+
+- The **maximal walking test** (`testType` `maxHeartRateWalk`, a modified Balke ramp: +1 % incline per minute until
+  exhaustion) now has `outputs` when it is valid: `method` `acsmWalkRamp` (the ACSM walking equation, running above
+  7.5 km/h, at the mean real speed and incline of the last 60 seconds of the effort, from the workout samples; from the
+  stage records when the workout is not available), `vo2maxSeeMlKgMin` 3.5 (an assumption), `vo2maxIsLowerBound`,
+  `classification`, `hrMaxCandidateBpm`, `effort`, and `masKmh` = VO2max / 3.5 with **`masIsEstimated: true`**: the maximal
+  aerobic speed of the walking test is an estimate, only the maximal running test measures it (its `masKmh` has no
+  `masIsEstimated`). Walking results written before version 2 have no `outputs`, only the measured maximum heart rate in
+  the measurements, until the app recalculates them.
+- **`thresholds`**, on the valid maximal tests (walking and running): the heart rates of the first and second ventilatory
+  thresholds (VT1 and VT2) found with the DFA-alpha1 of the RR intervals of the ramp (alpha1 = 0.75 for VT1, 0.5 for VT2, from the windows of
+  120 s where alpha1 falls as the heart rate rises). It needs RR intervals from a strap connected to the app
+  (`hr_source` `direct_strap` in the workout csv); the console's heart rate and imported workouts have none.
+
+  ```
+  "thresholds": {"algorithmVersion": 1, "quality": "high",
+    "vt1": {"heartRateBpm": 132.4, "speedKmh": 6.2, "inclinePercent": 11.3, "vo2MlKgMin": 31.6, "percentVo2max": 72.5,
+            "percentHeartRateReserve": 61.0},
+    "vt2": {"heartRateBpm": 151.2, "...": "same fields"},
+    "metrics": {"stretchWindows": 31, "validWindows": 48, "totalWindows": 50, "rSquared": 0.82,
+                "meanArtifactPercent": 1.2, "slopePerBpm": -0.021, "interceptAlpha1": 3.53}}
+  ```
+
+  `algorithmVersion` is the version of the algorithm that produced the block. `quality` is `high`, `medium` or `low` (low
+  detections are kept but do not count in the profile). `vt1`/`vt2` are points: `heartRateBpm`, and the load there
+  (`speedKmh`, `inclinePercent`), its oxygen demand `vo2MlKgMin` (ACSM), `percentVo2max` and `percentHeartRateReserve`
+  (the last one only when the user's resting heart rate is known). VT2 is never given without VT1. `metrics` describes the
+  detection: valid windows in the stretch used (`stretchWindows`), in the whole ramp (`validWindows`) and in total
+  (`totalWindows`), the `rSquared` of the alpha1-heart-rate regression, the mean share of corrected beats
+  (`meanArtifactPercent`), `slopePerBpm` and `interceptAlpha1`. Without thresholds the block holds `algorithmVersion` and
+  a `reason`: `noWorkoutSamples` (the workout of the test is not available: deleted or not synchronised yet), `noRrIntervals`
+  (no RR intervals from a strap connected to the app), `notEnoughValidWindows`, `noAlpha1Decline` or `vt1OutOfRange`
+  (VT1 was not crossed in the ramp); `quality` and `metrics` may then still be present. A missing block means the result
+  has not been analysed (it was written by an app that did not know the analysis).
+
+Derived values are recalculated, not trusted: when the app finds a valid maximal result without `thresholds`, with an older
+`algorithmVersion`, or marked `noWorkoutSamples` while its workout (the workout whose `fitness_test_id` is the result's id)
+is now available, it computes them again from that workout's samples and rewrites the result (`updated_at` and
+`updated_by` change; the measured data in the result do not). Stale samples are ignored. The resting heart rate used for
+`percentHeartRateReserve` is the reference of `resting-heart-rate.csv` as it was at the start time of the test (only the
+measurements up to then; without any, the earliest one), so every device that recalculates the same result from the same
+data writes the same document. A result with the current `algorithmVersion` is never recalculated again.
 
 ## Deletions (tombstones)
 

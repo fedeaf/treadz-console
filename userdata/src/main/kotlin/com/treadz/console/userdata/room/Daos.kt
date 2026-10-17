@@ -150,6 +150,10 @@ internal interface WorkoutDao {
     @Query("SELECT * FROM workout_samples WHERE workoutId = :workoutId ORDER BY seq")
     suspend fun samples(workoutId: Long): List<WorkoutSampleEntity>
 
+    /** The workout in which a fitness test was run (the earliest, if several claim it; ties by uuid, the same on every device). */
+    @Query("SELECT * FROM workouts WHERE fitnessTestId = :testId AND deleted = 0 ORDER BY startedAtMillis, uuid LIMIT 1")
+    suspend fun linkedToTest(testId: String): WorkoutEntity?
+
     @Insert
     suspend fun insert(workout: WorkoutEntity): Long
 
@@ -354,6 +358,10 @@ internal interface FitnessTestDao {
 
     @Query("SELECT * FROM fitness_tests WHERE uuid = :uuid AND deleted = 0")
     suspend fun get(uuid: String): FitnessTestEntity?
+
+    /** The live, valid results of the given test types (the ones whose derived values can be recalculated), of every user. */
+    @Query("SELECT * FROM fitness_tests WHERE deleted = 0 AND isValid = 1 AND testType IN (:testTypes) ORDER BY startedAtMillis, uuid")
+    suspend fun liveValidOfTypes(testTypes: List<String>): List<FitnessTestEntity>
 
     @Insert
     suspend fun insert(test: FitnessTestEntity): Long

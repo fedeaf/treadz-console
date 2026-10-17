@@ -8,6 +8,11 @@ import com.treadz.console.userdata.room.UserDataDatabase
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.ProgramDocumentStore
 import com.treadz.console.userdata.sync.SyncStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.util.UUID
 
@@ -22,6 +27,9 @@ object TreadZUserData {
 
     @Volatile
     private var instance: SyncableUserData? = null
+
+    /** Runs the recalculation of the stored fitness test results once, off the main thread, when the data layer is created. */
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun get(context: Context): UserData = syncable(context)
 
@@ -73,6 +81,18 @@ object TreadZUserData {
         val db = Room.databaseBuilder(context, UserDataDatabase::class.java, UserDataDatabase.FILE_NAME)
             .addMigrations(*UserDataDatabase.migrations(deviceId))
             .build()
-        return RoomUserData(db, Clock.System, ZoneId.systemDefault(), deviceId = deviceId)
+        val data = RoomUserData(db, Clock.System, ZoneId.systemDefault(), deviceId = deviceId)
+        // Migration-like: results stored by an older version get their derived values (VO2max of the walking test,
+        // thresholds) from their workouts. Once per result; the synchronisation repeats it when a pull brings data.
+        background.launch {
+            try {
+                data.fitnessRecalculator.recalculate()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A failure leaves the results as they were; the next start or synchronisation tries again.
+            }
+        }
+        return data
     }
 }

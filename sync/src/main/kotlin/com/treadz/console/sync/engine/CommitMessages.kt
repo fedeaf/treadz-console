@@ -107,7 +107,11 @@ internal object CommitMessages {
             parts += result.measuredHrMaxCandidateBpm?.let { "HRmax $it" } ?: "invalid"
         } else {
             parts += "VO2max %.1f".format(Locale.ROOT, outputs.vo2maxMlKgMin)
-            outputs.masKmh?.let { parts += "MAS %.1f km/h".format(Locale.ROOT, it) }
+            outputs.masKmh?.let { parts += (if (outputs.masIsEstimated) "estimated MAS" else "MAS") + " %.1f km/h".format(Locale.ROOT, it) }
+        }
+        result.thresholds?.let { t ->
+            t.vt1?.let { parts += "VT1 %.0f bpm".format(Locale.ROOT, it.heartRateBpm) }
+            t.vt2?.let { parts += "VT2 %.0f bpm".format(Locale.ROOT, it.heartRateBpm) }
         }
         return parts.joinToString(SEP)
     }

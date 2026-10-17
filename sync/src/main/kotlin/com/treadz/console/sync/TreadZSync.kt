@@ -55,7 +55,10 @@ object TreadZSync {
             .build()
         val client = RestGitHubClient(http, tokens::get)
         val stateStore = FileSyncStateStore(File(context.filesDir, "treadz_sync_state.json"))
-        val engine = SyncEngine(client, store, programs, fitnessTests, stateStore, Clock.System)
+        val engine = SyncEngine(
+            client, store, programs, fitnessTests, stateStore, Clock.System,
+            recalculation = TreadZUserData.get(context).fitnessRecalculator,
+        )
         val service = DefaultSyncService(
             client = client,
             engine = engine,

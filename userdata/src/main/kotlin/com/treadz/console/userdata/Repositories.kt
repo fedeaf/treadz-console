@@ -210,6 +210,13 @@ interface UserData {
     val restingHeartRates: RestingHeartRateRepository
 
     /**
+     * Brings the stored fitness test results up to date (VO2max of the walking test, thresholds): the real data layer
+     * runs it by itself at app start and after a synchronisation that brought results or workouts; the UI never needs
+     * to call it. See [FitnessRecalculator].
+     */
+    val fitnessRecalculator: FitnessRecalculator
+
+    /**
      * Creates the component that records the treadmill's sessions into [workouts]. It only observes
      * [controller]; it never sends commands. Call [WorkoutHistoryObserver.start] to begin.
      *

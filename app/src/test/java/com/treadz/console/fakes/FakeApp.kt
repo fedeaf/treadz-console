@@ -97,6 +97,9 @@ class FakeApp(
 
     override fun today(): LocalDate = date
 
+    /** The trends of the Performance screen are computed inline: a screen never waits for another thread. */
+    override val computeDispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+
     /** Built like the activity builds it. */
     val viewModel: MainViewModel by lazy { mainViewModel(mainClock) }
 

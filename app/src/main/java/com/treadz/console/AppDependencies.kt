@@ -32,7 +32,9 @@ import com.treadz.console.userdata.TreadZUserData
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.export.WorkoutExporter
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import java.time.LocalDate
 
 /**
@@ -81,6 +83,9 @@ interface AppDependencies {
 
     /** Today's date in the device time zone. Injectable so tests and screenshots are deterministic. */
     fun today(): LocalDate
+
+    /** Where the Performance trends are computed (off the main thread). Tests run them inline so screens never wait on it. */
+    val computeDispatcher: CoroutineDispatcher get() = Dispatchers.Default
 }
 
 /**

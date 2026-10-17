@@ -43,6 +43,7 @@ import com.treadz.console.controls.ControlAxis
 import com.treadz.console.controls.SessionKind
 import com.treadz.console.home.HeartRateMaxViewModel
 import com.treadz.console.home.HomeViewModel
+import com.treadz.console.performance.PerformanceViewModel
 import com.treadz.console.resting.RestingViewModel
 import com.treadz.console.history.HistoryViewModel
 import com.treadz.console.history.WorkoutDetailViewModel
@@ -164,6 +165,7 @@ fun TreadZRoot(
                                     onOpenUsers = { navigation.push(Screen.UserSelection) },
                                     onOpenWeight = { navigation.push(Screen.Weight) },
                                     onOpenHistory = { navigation.push(Screen.History) },
+                                    onOpenPerformance = { navigation.push(Screen.Performance) },
                                     onOpenPrograms = { navigation.push(Screen.Programs) },
                                     onOpenDevices = { navigation.push(Screen.Devices) },
                                     onOpenResting = { navigation.push(Screen.RestingHeartRate) },
@@ -426,6 +428,14 @@ fun TreadZRoot(
                                 onCancelAssign = vm::cancelAssign,
                             ),
                         )
+                    }
+
+                    Screen.Performance -> {
+                        val vm = viewModel<PerformanceViewModel>(
+                            factory = viewModelFactory { initializer { PerformanceViewModel(dependencies.userData, dependencies::today, dependencies.computeDispatcher) } },
+                        )
+                        val state by vm.uiState.collectAsStateWithLifecycle()
+                        PerformanceScreen(state = state, actions = PerformanceActions(onBack = navigation::pop, onToggle = vm::toggle))
                     }
 
                     is Screen.WorkoutDetail -> {

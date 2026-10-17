@@ -165,7 +165,7 @@ fun ZoneSource.label(): String = stringResource(
 )
 
 @Composable
-private fun zoneColor(number: Int): Color = when (number) {
+internal fun zoneColor(number: Int): Color = when (number) {
     1 -> MaterialTheme.colorScheme.onSurfaceVariant
     2 -> MaterialTheme.colorScheme.secondary
     3 -> MaterialTheme.extra.ok
@@ -174,7 +174,7 @@ private fun zoneColor(number: Int): Color = when (number) {
 }
 
 @Composable
-private fun ZoneRange.text(): String =
+internal fun ZoneRange.text(): String =
     lowBpm.let { low -> if (low == null) stringResource(R.string.zone_below_bpm, highBpm) else stringResource(R.string.zone_range_bpm, low, highBpm) }
 
 /** The five zones in bpm with where they come from (and, with measured thresholds, that VT2 is only typical when it is). */

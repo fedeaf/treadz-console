@@ -44,6 +44,11 @@ data class WorkoutDetailUiState(
     val exportNotice: ExportNotice? = null,
     /** The fitness test result this workout was recorded for, when it still exists. */
     val fitnessTest: FitnessTestRecord? = null,
+    /**
+     * The metrics of the workout (energy, zones, load, efficiency, recovery, α1, signal quality) and the passive remarks
+     * for the missing ones; `null` while the analysis is not computed or when there is nothing to analyse (shown as nothing).
+     */
+    val analysis: WorkoutAnalysisView? = null,
 ) {
     /** A workout that has not ended cannot be exported yet. */
     val canExport: Boolean get() = detail != null && !detail.summary.isInProgress && !exporting
@@ -61,6 +66,12 @@ class WorkoutDetailViewModel(
     val uiState: StateFlow<WorkoutDetailUiState> = state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            userData.workoutAnalysis.analysis(workoutId).collect { stored ->
+                val view = WorkoutAnalysisPresenter.present(stored?.analysis)
+                state.update { it.copy(analysis = view) }
+            }
+        }
         viewModelScope.launch {
             load()
             while (state.value.detail?.summary?.isInProgress == true) {

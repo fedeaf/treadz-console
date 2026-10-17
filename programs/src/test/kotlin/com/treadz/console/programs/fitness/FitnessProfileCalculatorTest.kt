@@ -42,7 +42,8 @@ class FitnessProfileCalculatorTest {
     @Test
     fun `VO2max is weighted by inverse variance and recency`() {
         val results = listOf(ebbeling("a", 0, 40.0), maxTest("b", 90, 46.0 / 3.5))
-        val p = FitnessProfileCalculator.compute(results, now, 40, Sex.Male)
+        // (The maximal test counts as recent up to 89 days here, so the Ebbeling test is not damped; see below.)
+        val p = FitnessProfileCalculator.compute(results, now, 40, Sex.Male, FitnessProfileRules(maximalRecencyDays = 89))
         val wa = 1.0 / (4.85 * 4.85)
         val wb = 0.5 / (4.0 * 4.0) // one half-life old
         val expected = (wa * 40.0 + wb * 46.0) / (wa + wb)
@@ -161,7 +162,7 @@ class FitnessProfileCalculatorTest {
         val text = FitnessTestJson.encode(sampleResult(FitnessTestType.EbbelingWalk))
             .replace("\"flags\": []", "\"flags\": [{\"code\": \"somethingNew\", \"severity\": \"info\"}]")
         assertEquals(emptyList<FitnessTestFlag>(), FitnessTestJson.decode(text).flags)
-        val newer = FitnessTestJson.encode(sampleResult(FitnessTestType.EbbelingWalk)).replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+        val newer = FitnessTestJson.encode(sampleResult(FitnessTestType.EbbelingWalk)).replace("\"schemaVersion\": 1", "\"schemaVersion\": ${FitnessTestResult.SCHEMA_VERSION + 1}")
         val e = runCatching { FitnessTestJson.decode(newer) }.exceptionOrNull()
         assertTrue(e is com.treadz.console.programs.json.ProgramFormatException && e.path == "schemaVersion", "$e")
         val bad = FitnessTestJson.encode(sampleResult(FitnessTestType.EbbelingWalk)).replace("2026-10-08T10:00:00Z", "yesterday")

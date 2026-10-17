@@ -2,6 +2,7 @@ package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.FitnessFormulas
 import com.treadz.console.analysis.fitness.Vo2MaxNorms
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -284,6 +285,13 @@ internal class MaxIncrementalProtocol(
             hrMaxCandidateBpm = peak?.roundToInt(),
             effort = effort,
         )
+    }
+
+    /** Thresholds of the incremental phase (DFA-α1, see [FitnessTestRecalculation]); its VO2max stays Léger-Mercier. */
+    override fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? {
+        if (reason != FitnessEndReason.Exhausted) return null
+        val start = incStart ?: return null
+        return incrementalThresholds(start, t, outputs)
     }
 
     override fun measurements(): FitnessTestMeasurements {

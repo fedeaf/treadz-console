@@ -2,6 +2,8 @@ package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.fitness.Vo2MaxClassification
+import com.treadz.console.analysis.fitness.WalkingTestVo2max
+import com.treadz.console.analysis.thresholds.ThresholdResult
 
 /** The fitness tests the app can run. */
 enum class FitnessTestType {
@@ -18,9 +20,11 @@ enum class FitnessTestType {
     MaxIncrementalRun,
 
     /**
-     * Maximal heart-rate walking test (modified Balke): 2-min warm-up, then walking from 5.5 km/h and 5 % with +1 % per
-     * minute up to 18 % (or the user's incline limit) and then the speed equivalent of +1 % per minute, until
-     * exhaustion. Its only purpose is the maximum heart rate (no VO2max, no MAS). Wire name `maxHeartRateWalk`.
+     * Maximal walking test (modified Balke): 2-min warm-up, then walking from 5.5 km/h and 5 % with +1 % per minute up
+     * to 18 % (or the user's incline limit) and then the speed equivalent of +1 % per minute, until exhaustion. It gives
+     * the maximum heart rate, the VO2max (ACSM at the mean load of the last minute, [Vo2MaxMethod.AcsmWalkRamp]) and,
+     * with RR intervals from a strap, the thresholds ([FitnessTestResult.thresholds]). Wire name `maxHeartRateWalk`
+     * (kept from when it only measured the maximum heart rate).
      */
     MaxHeartRateWalk,
 }
@@ -329,9 +333,11 @@ data class MaxTestMeasurements(
 ) : FitnessTestMeasurements
 
 /**
- * Measurements of the maximal heart-rate walking test ([FitnessTestType.MaxHeartRateWalk]). This test has no VO2max:
- * its result has no [FitnessTestResult.outputs]; the measured maximum is [hrMaxCandidateBpm], meaningful only for a
- * valid result (see [FitnessTestResult.measuredHrMaxCandidateBpm]).
+ * Measurements of the maximal walking test ([FitnessTestType.MaxHeartRateWalk]). The measured maximum is
+ * [hrMaxCandidateBpm], meaningful only for a valid result (see [FitnessTestResult.measuredHrMaxCandidateBpm]); a valid
+ * result also has [FitnessTestResult.outputs] with the VO2max ([Vo2MaxMethod.AcsmWalkRamp]), which repeat
+ * [hrMaxCandidateBpm] and [effort]. Results stored before version 2 of the result format have no outputs until they
+ * are recalculated ([FitnessTestRecalculation]).
  */
 data class MaxHeartRateWalkMeasurements(
     val warmUpSeconds: Int,
@@ -368,6 +374,12 @@ enum class Vo2MaxMethod {
 
     /** VO2max ≈ 3.5 · MAS (Léger and Mercier 1984). */
     LegerMercier1984,
+
+    /**
+     * Maximal walking test: the ACSM walking equation (running above 7.5 km/h) at the mean real load of the last 60 s of
+     * the effort; SEE 3.5 assumed. See [WalkingTestVo2max].
+     */
+    AcsmWalkRamp,
 }
 
 /** Whether the maximal test looks like a maximal effort. */
@@ -393,19 +405,28 @@ data class FitnessTestOutputs(
     /** The real value is at least this (maximal test that reached the speed cap). */
     val vo2maxIsLowerBound: Boolean = false,
     val classification: Vo2MaxClassification?,
-    /** Maximal aerobic speed, maximal test only. */
+    /** Maximal aerobic speed: measured by the running test; VO2max / 3.5 for the walking test ([masIsEstimated]). */
     val masKmh: Double? = null,
     val masIsLowerBound: Boolean = false,
     /** Measured maximum heart rate candidate (peak heart rate of a maximal test), when reliable. Adopted when [effort] is [EffortAssessment.Maximal]. */
     val hrMaxCandidateBpm: Int? = null,
     /** Maximal test only. */
     val effort: EffortAssessment? = null,
+    /** [masKmh] is not measured but VO2max / 3.5 (Léger and Mercier): the walking test. */
+    val masIsEstimated: Boolean = false,
 )
 
 /**
  * The result of one fitness test. JSON: [FitnessTestJson]. Time values are epoch milliseconds (ISO-8601 in JSON).
- * [outputs] is present only for a [Validity.Valid] result of a test that estimates VO2max (Ebbeling, maximal running
- * test); the walking heart-rate test has no outputs: its result is in [MaxHeartRateWalkMeasurements].
+ * [outputs] is present only for a [Validity.Valid] result (Ebbeling, maximal running test, maximal walking test; a
+ * walking test stored before format version 2 has none until it is recalculated, see [FitnessTestRecalculation]).
+ *
+ * [thresholds] (format version 2): the DFA-α1 thresholds of a valid maximal test (walking or running) with the
+ * algorithm version, or the reason there are none (no RR intervals, no workout samples...). `null` for Ebbeling, for
+ * invalid results and for results not analysed yet.
+ *
+ * [schemaVersion] is, by default, the lowest format version that can hold the result ([schemaVersionFor]): 1 without
+ * thresholds and without a walking-test VO2max, so older apps keep reading those documents.
  */
 data class FitnessTestResult(
     val id: String,
@@ -428,7 +449,8 @@ data class FitnessTestResult(
     val minutes: List<MinuteRecord>,
     val coolDownSeconds: Int,
     val outputs: FitnessTestOutputs?,
-    val schemaVersion: Int = SCHEMA_VERSION,
+    val thresholds: ThresholdResult? = null,
+    val schemaVersion: Int = schemaVersionFor(outputs, thresholds),
 ) {
     val effortSeconds: Int get() = ((effortEndedAtMillis - startedAtMillis) / 1000).toInt()
 
@@ -446,6 +468,15 @@ data class FitnessTestResult(
         get() = outputs?.effort ?: (measurements as? MaxHeartRateWalkMeasurements)?.effort
 
     companion object {
-        const val SCHEMA_VERSION = 1
+        /** Newest format version this code reads and writes. Version 2 added `thresholds` and `acsmWalkRamp`. */
+        const val SCHEMA_VERSION = 2
+
+        /** The format version without the additions of version 2. */
+        const val BASE_SCHEMA_VERSION = 1
+
+        /** The lowest format version that can hold a result with these [outputs] and [thresholds]. */
+        fun schemaVersionFor(outputs: FitnessTestOutputs?, thresholds: ThresholdResult?): Int =
+            if (thresholds != null || outputs?.method == Vo2MaxMethod.AcsmWalkRamp || outputs?.masIsEstimated == true) SCHEMA_VERSION
+            else BASE_SCHEMA_VERSION
     }
 }

@@ -102,4 +102,7 @@ object FitnessFormulas {
 
     /** Rounds to two decimals. */
     fun round2(v: Double): Double = (v * 100).roundToInt() / 100.0
+
+    /** Rounds to three decimals. */
+    fun round3(v: Double): Double = (v * 1000).roundToInt() / 1000.0
 }

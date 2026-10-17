@@ -112,6 +112,7 @@ fun FitnessResultContent(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Headline(result)
                 Figures(result)
+                ThresholdsPanel(result)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 HeartRateMaxQuestion(heartRateMax, onUseMeasured, onKeepMine)
@@ -126,6 +127,7 @@ fun FitnessResultContent(
             Headline(result)
             HeartRateMaxQuestion(heartRateMax, onUseMeasured, onKeepMine)
             Figures(result)
+            ThresholdsPanel(result)
             comparison?.let { Comparison(it) }
             WhatHappened(result)
             MinutesChart(result)
@@ -170,6 +172,8 @@ private fun Headline(result: FitnessTestResult) {
                     stringResource(R.string.result_error_margin, Format.weight(outputs.vo2maxSeeMlKgMin)),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // The walking test also measures the maximum heart rate: it keeps its place under the VO2max.
+                if (result.testType == FitnessTestType.MaxHeartRateWalk) WalkSummary(result, valid, compact = true)
             } else if (result.testType == FitnessTestType.MaxHeartRateWalk) {
                 WalkSummary(result, valid)
             } else {
@@ -179,9 +183,12 @@ private fun Headline(result: FitnessTestResult) {
     }
 }
 
-/** The result of the walking heart-rate test: the maximum heart rate it measured and how maximal the effort was (no VO2max). */
+/**
+ * The maximum heart rate the walking test measured and how maximal the effort was. It is the headline of a result that has
+ * no VO2max (not valid, or stored before the walking test gave one); under the VO2max it is [compact].
+ */
 @Composable
-private fun WalkSummary(result: FitnessTestResult, valid: Boolean) {
+private fun WalkSummary(result: FitnessTestResult, valid: Boolean, compact: Boolean = false) {
     if (!valid) {
         Text(stringResource(R.string.result_invalid_explanation), Modifier.testTag("result_invalid_text"), style = MaterialTheme.typography.bodyLarge)
         invalidReason(result)?.let { Text(it, Modifier.testTag("result_invalid_reason"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error) }
@@ -192,7 +199,7 @@ private fun WalkSummary(result: FitnessTestResult, valid: Boolean) {
     val maximal = result.effortAssessment == EffortAssessment.Maximal
     Text(stringResource(if (maximal) R.string.hrmax_label else R.string.result_peak_hr), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(Format.heartRate(bpm), Modifier.testTag("result_hrmax"), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+        Text(Format.heartRate(bpm), Modifier.testTag("result_hrmax"), style = if (compact) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
         if (bpm != null) Text(stringResource(R.string.unit_heart_rate), Modifier.padding(bottom = 10.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
     val effort = result.effortAssessment
@@ -247,9 +254,18 @@ private fun Figures(result: FitnessTestResult) {
     FlowRow(Modifier.fillMaxWidth().testTag("result_figures"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 2) {
         val tile = Modifier.weight(1f)
         outputs?.masKmh?.let {
+            // An estimated MAS (VO2max / 3.5, the walking test) is marked as such and gets a whole row for its longer label.
+            val estimated = outputs.masIsEstimated
             StatTile(
-                stringResource(R.string.result_mas), (if (outputs.masIsLowerBound) "≥ " else "") + Format.speed(it), tile, unit = stringResource(R.string.unit_speed),
-                note = if (outputs.masIsLowerBound) stringResource(R.string.result_mas_lower_bound) else null, valueTag = "result_mas",
+                stringResource(if (estimated) R.string.result_mas_estimated else R.string.result_mas),
+                (if (estimated) "≈ " else "") + (if (outputs.masIsLowerBound) "≥ " else "") + Format.speed(it),
+                if (estimated) Modifier.fillMaxWidth() else tile, unit = stringResource(R.string.unit_speed),
+                note = when {
+                    estimated -> stringResource(R.string.result_mas_estimated_note)
+                    outputs.masIsLowerBound -> stringResource(R.string.result_mas_lower_bound)
+                    else -> null
+                },
+                valueTag = "result_mas",
             )
         }
         if (result.testType == FitnessTestType.MaxIncrementalRun) {
@@ -307,7 +323,12 @@ private fun Comparison(c: FitnessComparison) {
                 Modifier.testTag("comparison_vo2"),
                 style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
             )
-            c.masDelta?.let { Text(stringResource(R.string.result_comparison_mas, signed(it)), style = MaterialTheme.typography.bodyLarge) }
+            c.masDelta?.let {
+                Text(
+                    stringResource(if (c.masIsEstimated) R.string.result_comparison_mas_estimated else R.string.result_comparison_mas, signed(it)),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
             if (c.withinMeasurementError) {
                 Text(stringResource(R.string.result_comparison_within_error), Modifier.testTag("comparison_within_error"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

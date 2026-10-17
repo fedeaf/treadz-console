@@ -5,6 +5,10 @@ import com.treadz.console.programs.engine.HeartRateControlMode
 import com.treadz.console.programs.fitness.FitnessEndReason
 import com.treadz.console.programs.fitness.FitnessTestFlag
 import com.treadz.console.programs.fitness.FitnessTestInputs
+import com.treadz.console.programs.fitness.FitnessTestOutputs
+import com.treadz.console.programs.fitness.Vo2MaxMethod
+import com.treadz.console.analysis.fitness.Vo2MaxNorms
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestResult
 import com.treadz.console.programs.fitness.FitnessTestType
@@ -151,6 +155,10 @@ object GeneratedFixtures {
         startInclinePercent: Double = 5.0,
         ageYears: Int = 39,
         hrMaxBpm: Int = 183,
+        /** VO2max of the result (ACSM at the last minute's load, SEE 3.5); `null` leaves the outputs out (a result stored before version 2). */
+        vo2max: Double? = if (valid) 44.1 else null,
+        vo2maxIsLowerBound: Boolean = false,
+        thresholds: ThresholdResult? = null,
     ): FitnessTestResult {
         val stages = (0 until rampSeconds / 60).map { i ->
             StageRecord(i + 1, startSpeedKmh, (startInclinePercent + i).coerceAtMost(18.0), 60, true, 120.0 + i * 6.0)
@@ -172,7 +180,15 @@ object GeneratedFixtures {
                 ageYears = ageYears, sex = Sex.Female, weightKg = 66.0, hrMaxBpm = hrMaxBpm, agePredictedHrMaxBpm = 220 - ageYears,
                 heartRateSource = HeartRateSourceKind.DirectStrap, requestedStartSpeedKmh = startSpeedKmh, startSpeedKmh = startSpeedKmh,
             ),
-            measurements = measurements, minutes = minutes, coolDownSeconds = 180, outputs = null,
+            measurements = measurements, minutes = minutes, coolDownSeconds = 180,
+            outputs = vo2max?.let {
+                FitnessTestOutputs(
+                    vo2maxMlKgMin = it, vo2maxSeeMlKgMin = 3.5, method = Vo2MaxMethod.AcsmWalkRamp, vo2maxIsLowerBound = vo2maxIsLowerBound,
+                    classification = Vo2MaxNorms.classify(it, ageYears, Sex.Female), masKmh = Math.round(it / 3.5 * 100) / 100.0,
+                    hrMaxCandidateBpm = if (valid) peakBpm?.toInt() else null, effort = effort, masIsEstimated = true,
+                )
+            },
+            thresholds = thresholds,
         )
     }
 }

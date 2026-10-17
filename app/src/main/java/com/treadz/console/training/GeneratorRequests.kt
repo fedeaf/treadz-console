@@ -16,8 +16,6 @@ import com.treadz.console.programs.personalised.GeneratorProfile
 import com.treadz.console.programs.personalised.GeneratorRequest
 import com.treadz.console.programs.personalised.IntensityTranslator
 import com.treadz.console.programs.personalised.ProgramGenerators
-import com.treadz.console.analysis.fitness.SelfRatedFitness
-import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.UserData
 import com.treadz.console.userdata.UserProfile
@@ -134,12 +132,7 @@ object GeneratorRequests {
             ageYears = user.ageOn(today),
             heightCm = user.heightCm.toDouble(),
             weightKg = context.weight?.takeUnless { it.isPlaceholder }?.weightKg,
-            selfRatedFitness = when (user.fitnessLevel) {
-                FitnessLevel.Beginner -> SelfRatedFitness.Beginner
-                FitnessLevel.Intermediate -> SelfRatedFitness.Intermediate
-                FitnessLevel.Advanced -> SelfRatedFitness.Advanced
-                null -> null
-            },
+            selfRatedFitness = UserZones.selfRatedOf(user.fitnessLevel),
             fitnessProfile = context.fitnessProfile,
             heartRate = HeartRateProfile(decision?.bpm ?: user.estimatedMaxHeartRateBpm(today), context.restingBpm),
             maxHeartRateOrigin = decision?.origin ?: HeartRateMaxOrigin.Estimated,

@@ -607,7 +607,7 @@ fun TreadZRoot(
 
                     Screen.FitnessTests -> {
                         val vm = viewModel<FitnessTestsViewModel>(
-                            factory = viewModelFactory { initializer { FitnessTestsViewModel(dependencies.userData) } },
+                            factory = viewModelFactory { initializer { FitnessTestsViewModel(dependencies.userData, dependencies::today) } },
                         )
                         val state by vm.uiState.collectAsStateWithLifecycle()
                         FitnessTestsScreen(

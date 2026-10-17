@@ -178,7 +178,8 @@ fun FactRow(label: String, value: String, modifier: Modifier = Modifier, tag: St
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             value,
-            Modifier.widthIn(max = 260.dp).then(if (tag != null) Modifier.testTag(tag) else Modifier),
+            // On a phone the label keeps room next to a long value (it wraps in two lines instead).
+            Modifier.widthIn(max = if (LocalLayout.current.wide) 260.dp else 200.dp).then(if (tag != null) Modifier.testTag(tag) else Modifier),
             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = valueColor, textAlign = TextAlign.End,
         )
     }

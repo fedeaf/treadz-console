@@ -15,6 +15,7 @@ import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.fitness.MaxHeartRateWalkParameters
 import com.treadz.console.programs.fitness.MaxTestParameters
 import com.treadz.console.analysis.fitness.Sex as FitnessSex
+import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState
@@ -66,6 +67,8 @@ data class FitnessStartUiState(
     val ageYears: Int = 0,
     val weight: WeightEntry? = null,
     val heartRateMax: HeartRateMaxDecision? = null,
+    /** The resting heart rate reference of the history (what the heart-rate profile uses), `null` when unknown or implausible. */
+    val restingHeartRateBpm: Int? = null,
     /** Start speed as typed. */
     val speedText: String = "",
     val speedMin: Double = 0.0,
@@ -131,7 +134,13 @@ class FitnessStartViewModel(
 
     private val local = MutableStateFlow(Local())
 
-    private data class Person(val user: UserProfile?, val weight: WeightEntry?, val hrMax: HeartRateMaxDecision?, val results: List<FitnessTestResult>)
+    private data class Person(
+        val user: UserProfile?,
+        val weight: WeightEntry?,
+        val hrMax: HeartRateMaxDecision?,
+        val results: List<FitnessTestResult>,
+        val restingBpm: Int? = null,
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val person: Flow<Person> = userData.profiles.activeUser.flatMapLatest { user ->
@@ -142,7 +151,8 @@ class FitnessStartViewModel(
                 userData.weights.latestWeight(user.id),
                 userData.fitnessTests.heartRateMax(user.id),
                 userData.fitnessTests.results(user.id),
-            ) { weight, hrMax, results -> Person(user, weight, hrMax, results.map { it.result }) }
+                userData.restingHeartRates.reference(user.id),
+            ) { weight, hrMax, results, resting -> Person(user, weight, hrMax, results.map { it.result }, resting?.bpm) }
         }
     }
 
@@ -198,6 +208,7 @@ class FitnessStartViewModel(
             ageYears = user?.ageOn(today()) ?: 0,
             weight = person.weight,
             heartRateMax = person.hrMax,
+            restingHeartRateBpm = person.hrMax?.let { HeartRateProfile(it.bpm, person.restingBpm).usableRestingBpm },
             speedText = local.speedText,
             speedMin = speedRange.start,
             speedMax = speedRange.endInclusive,
@@ -276,13 +287,7 @@ class FitnessStartViewModel(
         val speed = Decimals.parse(state.speedText) ?: return
         if (!state.canStart) return
         val hrMax = state.heartRateMax?.bpm ?: return
-        val subject = FitnessSubject(
-            ageYears = state.ageYears,
-            sex = if (user.sex == Sex.Male) FitnessSex.Male else FitnessSex.Female,
-            // The walking heart-rate test measures no VO2max: without a weight it gets 0 (unknown), which it accepts.
-            weightKg = state.weight?.weightKg ?: 0.0,
-            hrMaxBpm = hrMax,
-        )
+        val subject = subjectOf(user, state.ageYears, state.weight, hrMax, state.restingHeartRateBpm)
         val incline = if (walk) Decimals.parse(state.inclineText) ?: return else 0.0
         local.update { it.copy(starting = true, failure = null) }
         viewModelScope.launch {
@@ -296,7 +301,20 @@ class FitnessStartViewModel(
         }
     }
 
-    private companion object {
-        const val SPEED_STEP = 0.1
+    companion object {
+        private const val SPEED_STEP = 0.1
+
+        /**
+         * Who is tested. [restingBpm] is the resting reference the heart-rate profile uses, so the thresholds of the test
+         * carry the percentage of the heart-rate reserve. A walking test without a weight gets 0 (unknown), which it accepts.
+         */
+        internal fun subjectOf(user: UserProfile, ageYears: Int, weight: WeightEntry?, hrMaxBpm: Int, restingBpm: Int?): FitnessSubject =
+            FitnessSubject(
+                ageYears = ageYears,
+                sex = if (user.sex == Sex.Male) FitnessSex.Male else FitnessSex.Female,
+                weightKg = weight?.weightKg ?: 0.0,
+                hrMaxBpm = hrMaxBpm,
+                restingHeartRateBpm = restingBpm,
+            )
     }
 }

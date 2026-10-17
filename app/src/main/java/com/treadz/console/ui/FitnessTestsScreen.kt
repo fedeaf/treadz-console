@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.treadz.console.R
+import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.Validity
@@ -114,13 +115,18 @@ private fun TestCards(state: FitnessTestsUiState, actions: FitnessTestsActions) 
 private fun Fitness(state: FitnessTestsUiState, actions: FitnessTestsActions) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HeartRateMaxQuestion(state.heartRateMax, actions.onUseMeasuredHeartRateMax, actions.onKeepManualHeartRateMax)
-        FitnessSummaryPanel(state.profile, state.heartRateMax, Modifier.testTag("fitness_summary"))
+        FitnessSummaryPanel(state.profile, state.heartRateMax, Modifier.testTag("fitness_summary"), zones = state.zones)
     }
 }
 
 /** The fitness figures of a user (also shown in the profile). */
 @Composable
-fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.console.programs.fitness.HeartRateMaxDecision?, modifier: Modifier = Modifier) {
+fun FitnessSummaryPanel(
+    profile: FitnessProfile?,
+    heartRateMax: com.treadz.console.programs.fitness.HeartRateMaxDecision?,
+    modifier: Modifier = Modifier,
+    zones: ZoneSet? = null,
+) {
     Panel(modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SectionLabel(stringResource(R.string.fitness_summary_title))
@@ -131,6 +137,12 @@ fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.conso
                     stringResource(R.string.value_vo2max, Format.weight(vo2.valueMlKgMin)) + (vo2.classification?.let { " · " + it.category.label() } ?: ""),
                     tag = "summary_vo2max",
                 )
+                // Two of the tests behind the value disagree by more than their errors allow: a passive mark, no question.
+                if (vo2.discrepancy) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Tag(stringResource(R.string.fitness_summary_discrepancy), MaterialTheme.extra.warning, Modifier.testTag("summary_vo2max_discrepancy"))
+                    }
+                }
             } else {
                 Text(stringResource(R.string.fitness_summary_none), Modifier.testTag("summary_none"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -142,6 +154,8 @@ fun FitnessSummaryPanel(profile: FitnessProfile?, heartRateMax: com.treadz.conso
                 )
             }
             heartRateMax?.let { FactRow(stringResource(R.string.hrmax_label), hrMaxValue(it), tag = "summary_hrmax") }
+            ProfileThresholdRows(profile?.thresholds?.vt1, profile?.thresholds?.vt2)
+            if (zones != null) ZoneList(zones, Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -174,11 +188,22 @@ private fun ResultRow(record: FitnessTestRecord, actions: FitnessTestsActions) {
             result.outputs?.let { o ->
                 Text(
                     stringResource(R.string.value_vo2max, Format.weight(o.vo2maxMlKgMin)) + (o.classification?.let { " · " + it.category.label() } ?: "") +
-                        (o.masKmh?.let { " · " + stringResource(R.string.result_mas_short, Format.speed(it)) } ?: ""),
+                        (o.masKmh?.let { " · " + stringResource(if (o.masIsEstimated) R.string.result_mas_short_estimated else R.string.result_mas_short, Format.speed(it)) } ?: ""),
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
-            // The walking heart-rate test measures the maximum heart rate and nothing else.
+            if (valid) {
+                result.thresholds?.vt1?.let { vt1 ->
+                    val vt2 = result.thresholds?.vt2
+                    Text(
+                        if (vt2 != null) stringResource(R.string.result_thresholds_short, Math.round(vt1.heartRateBpm).toInt(), Math.round(vt2.heartRateBpm).toInt())
+                        else stringResource(R.string.result_thresholds_short_vt1, Math.round(vt1.heartRateBpm).toInt()),
+                        Modifier.testTag("test_thresholds_${record.id}"),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            // The walking heart-rate test also shows the maximum heart rate it measured.
             result.measuredHrMaxCandidateBpm?.takeIf { result.testType == FitnessTestType.MaxHeartRateWalk }?.let { bpm ->
                 Text(
                     stringResource(
@@ -261,7 +286,7 @@ private fun WarningPanel(type: FitnessTestType) {
             val bullets = when {
                 ebbeling -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap, R.string.test_warning_stop_ebbeling)
                 walk -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap_walk, R.string.test_warning_handrails, R.string.test_warning_end_walk)
-                else -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap, R.string.test_warning_end_max)
+                else -> listOf(R.string.test_warning_food, R.string.test_warning_exercise, R.string.test_warning_strap_max, R.string.test_warning_end_max)
             }
             bullets.forEach { Text("• " + stringResource(it), style = MaterialTheme.typography.bodyLarge) }
         }

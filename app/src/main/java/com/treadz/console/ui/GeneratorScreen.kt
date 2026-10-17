@@ -270,6 +270,7 @@ private fun Preview(state: GeneratorUiState, actions: GeneratorActions) {
                     heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
                 )
                 PlanTotals(plan)
+                GeneratedZoneOrigin(generated.program.origin?.inputs.orEmpty())
                 Notices(generated, plan, actions)
                 if (generated.descriptor.heartRateGuided && !state.heartRateAvailable) {
                     Text(

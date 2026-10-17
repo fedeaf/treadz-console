@@ -216,6 +216,16 @@ interface UserData {
      */
     val fitnessRecalculator: FitnessRecalculator
 
+    /** The cached analysis of each finished workout and the other inputs of the performance trends (see [WorkoutAnalysisRepository]). */
+    val workoutAnalysis: WorkoutAnalysisRepository
+
+    /**
+     * Keeps [workoutAnalysis] up to date: the real data layer runs it by itself at app start and after every change of the
+     * data the analyses depend on (a workout ends, a synchronisation pull, a local edit); the UI never needs to call it.
+     * See [WorkoutAnalysisRecalculator].
+     */
+    val workoutAnalysisRecalculator: WorkoutAnalysisRecalculator
+
     /**
      * Creates the component that records the treadmill's sessions into [workouts]. It only observes
      * [controller]; it never sends commands. Call [WorkoutHistoryObserver.start] to begin.

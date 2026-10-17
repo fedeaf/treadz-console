@@ -18,6 +18,7 @@ import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.SyncableUserData
 import com.treadz.console.userdata.TreadZUserData
 import com.treadz.console.userdata.UserProfile
+import com.treadz.console.userdata.WorkoutAnalysisRecalculator
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
@@ -62,9 +63,19 @@ class Device(
     maxAttempts: Int = 5,
     /** The engine recalculates the stored fitness test results after a pull that brings results or test workouts (as the app does). */
     recalculates: Boolean = false,
+    /** The engine recalculates the workout analyses after a pull that brings workouts or their context (as the app does). */
+    recalculatesAnalyses: Boolean = false,
 ) {
     /** Can be switched at any time: a device that has not been updated yet does not recalculate. */
     var recalculates: Boolean = recalculates
+    var recalculatesAnalyses: Boolean = recalculatesAnalyses
+
+    /** How many times the engine asked for the workout analyses to be brought up to date (counted even when this device does not do it). */
+    var analysisRuns = 0
+        private set
+
+    /** Makes the workout analysis recalculation fail, to see that the synchronisation does not. */
+    var analysisFails: Boolean = false
     private var uuidCounter = 0L
     val data: SyncableUserData = TreadZUserData.createInMemory(
         RuntimeEnvironment.getApplication() as Context,
@@ -90,9 +101,18 @@ class Device(
     private val recalculation = object : FitnessRecalculator {
         override suspend fun recalculate(): Int = if (recalculates) data.fitnessRecalculator.recalculate() else 0
     }
+    private val analysisRecalculation = object : WorkoutAnalysisRecalculator {
+        override suspend fun recalculate(): Int {
+            analysisRuns++
+            if (analysisFails) error("the analysis failed")
+            return if (this@Device.recalculatesAnalyses) data.workoutAnalysisRecalculator.recalculate() else 0
+        }
+
+        override suspend fun keepUpToDate(debounceMillis: Long): Nothing = kotlinx.coroutines.awaitCancellation()
+    }
     val engine = SyncEngine(
         client, data.sync, programs, fitnessTests, state, clock, ZoneOffset.UTC,
-        maxAttempts = maxAttempts, pauseBeforeRetry = {}, recalculation = recalculation,
+        maxAttempts = maxAttempts, pauseBeforeRetry = {}, recalculation = recalculation, analysisRecalculation = analysisRecalculation,
     )
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
 

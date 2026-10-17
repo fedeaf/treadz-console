@@ -26,6 +26,9 @@ import androidx.room.PrimaryKey
 // carry the heart rate peak, the record of a generated session and the generator id; users carry the paired strap; the
 // new table resting_heart_rates holds the resting heart rate history (it replaces users.restingHeartRateBpm, which stays
 // in the table as a legacy column that is no longer read).
+//
+// Since schema version 6: the table workout_analysis caches the per-workout analysis (derived data, local to the device,
+// never synchronised: every device computes it from the synchronised samples).
 
 @Entity(
     tableName = "users",
@@ -327,4 +330,45 @@ internal data class RestingHeartRateEntity(
     val updatedBy: String,
     val deleted: Boolean,
     val dirty: Boolean,
+)
+
+/**
+ * The cached analysis of one finished workout (since schema version 6): derived data, recomputed whenever the algorithm
+ * version or the [fingerprint] of its inputs changes, never synchronised. Deleted with the workout (a hard delete
+ * cascades; a tombstoned workout hides it and the next recalculation removes it).
+ *
+ * [json] is the complete analysis (`WorkoutAnalysisJson`): every section with its value or its reason, and the zones
+ * used. The scalar columns repeat the few values the trends and lists read without parsing it; `NULL` = the section is
+ * missing (it has a reason in the document).
+ */
+@Entity(
+    tableName = "workout_analysis",
+    foreignKeys = [
+        ForeignKey(
+            entity = WorkoutEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["workoutId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+internal data class WorkoutAnalysisEntity(
+    @PrimaryKey val workoutId: Long,
+    /** `WorkoutAnalyzer.ALGORITHM_VERSION` the analysis was computed with. */
+    val algorithmVersion: Int,
+    /** Hash of the inputs of the analysis (see `AnalysisFingerprint`). */
+    val fingerprint: String,
+    val computedAtMillis: Long,
+    val json: String,
+    /** Banister's TRIMP. */
+    val trimp: Double?,
+    /** Aerobic fitness index (ml/kg/min). */
+    val fitnessIndex: Double?,
+    val decouplingPercent: Double?,
+    /** The decoupling comes from a long steady zone 2 session (the comparable ones). */
+    val longSteadyZone2: Boolean,
+    val recoveryDrop60Bpm: Double?,
+    val recoveryDrop120Bpm: Double?,
+    /** `RecoveryContext` name. */
+    val recoveryContext: String?,
 )

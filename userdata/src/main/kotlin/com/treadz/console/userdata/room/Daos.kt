@@ -85,6 +85,9 @@ internal interface WeightDao {
     @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay DESC, createdAtMillis DESC, uuid DESC LIMIT 1")
     fun observeLatest(userId: Long): Flow<WeightEntryEntity?>
 
+    @Query("SELECT * FROM weight_entries WHERE userId = :userId AND deleted = 0 ORDER BY epochDay, createdAtMillis, uuid")
+    suspend fun liveForUser(userId: Long): List<WeightEntryEntity>
+
     @Query("SELECT * FROM weight_entries WHERE id = :id AND deleted = 0")
     suspend fun get(id: Long): WeightEntryEntity?
 
@@ -478,4 +481,102 @@ internal interface RestingHeartRateDao {
 
     @Query("UPDATE resting_heart_rates SET dirty = 0 WHERE uuid = :uuid AND updatedAtMillis = :at AND updatedBy = :by")
     suspend fun markSynced(uuid: String, at: Long, by: String): Int
+}
+
+/** The workout row the recalculation of the analyses starts from (see `WorkoutAnalysisDao.candidates`). */
+internal data class AnalysisCandidateRow(
+    val workoutId: Long,
+    val userId: Long,
+    val startedAtMillis: Long,
+    val sampleCount: Int,
+    val firstSampleMillis: Long?,
+    val lastSampleMillis: Long?,
+    val storedVersion: Int?,
+    val storedFingerprint: String?,
+)
+
+/** An analysis with its workout's start, for the lists of a user. */
+internal data class UserAnalysisRow(val workoutId: Long, val startedAtMillis: Long, val computedAtMillis: Long, val json: String)
+
+/**
+ * What changed in a table the analyses depend on: the number of live rows and the sum and maximum of their version
+ * stamps. Any edit, addition or deletion changes at least one of them, so the observed value only changes when the data
+ * the analyses are computed from does (a workout in progress, whose rows change every few seconds, is left out).
+ */
+internal data class ChangeStamp(val count: Int, val maxUpdated: Long, val sumUpdated: Long)
+
+@Dao
+internal interface WorkoutAnalysisDao {
+    @Query(
+        "SELECT a.* FROM workout_analysis a INNER JOIN workouts w ON w.id = a.workoutId " +
+            "WHERE a.workoutId = :workoutId AND w.deleted = 0",
+    )
+    fun observe(workoutId: Long): Flow<WorkoutAnalysisEntity?>
+
+    @Query(
+        "SELECT a.workoutId AS workoutId, w.startedAtMillis AS startedAtMillis, a.computedAtMillis AS computedAtMillis, a.json AS json " +
+            "FROM workout_analysis a INNER JOIN workouts w ON w.id = a.workoutId " +
+            "WHERE w.userId = :userId AND w.deleted = 0 AND w.endReason IS NOT NULL ORDER BY w.startedAtMillis, w.id",
+    )
+    fun observeByUser(userId: Long): Flow<List<UserAnalysisRow>>
+
+    /**
+     * The finished, live workouts that belong to a user, newest first, with a cheap signature of their samples and the
+     * version and fingerprint of the stored analysis, if any.
+     */
+    @Query(
+        "SELECT w.id AS workoutId, w.userId AS userId, w.startedAtMillis AS startedAtMillis, " +
+            "(SELECT COUNT(*) FROM workout_samples s WHERE s.workoutId = w.id) AS sampleCount, " +
+            "(SELECT MIN(s.timestampMillis) FROM workout_samples s WHERE s.workoutId = w.id) AS firstSampleMillis, " +
+            "(SELECT MAX(s.timestampMillis) FROM workout_samples s WHERE s.workoutId = w.id) AS lastSampleMillis, " +
+            "a.algorithmVersion AS storedVersion, a.fingerprint AS storedFingerprint " +
+            "FROM workouts w LEFT JOIN workout_analysis a ON a.workoutId = w.id " +
+            "WHERE w.deleted = 0 AND w.endReason IS NOT NULL AND w.userId IS NOT NULL ORDER BY w.startedAtMillis DESC, w.id DESC",
+    )
+    suspend fun candidates(): List<AnalysisCandidateRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(row: WorkoutAnalysisEntity)
+
+    @Query("DELETE FROM workout_analysis WHERE workoutId = :workoutId")
+    suspend fun delete(workoutId: Long): Int
+
+    @Query("DELETE FROM workout_analysis WHERE workoutId IN (SELECT id FROM workouts WHERE userId = :userId)")
+    suspend fun deleteForUser(userId: Long): Int
+
+    /** Analyses of workouts that are tombstones or have no owner (a tombstone does not cascade). */
+    @Query("DELETE FROM workout_analysis WHERE workoutId IN (SELECT id FROM workouts WHERE deleted = 1 OR userId IS NULL)")
+    suspend fun deleteOrphans(): Int
+
+    // ---- change detection for the automatic recalculation ----
+
+    @Query(
+        "SELECT COUNT(*) AS count, COALESCE(MAX(updatedAtMillis), 0) AS maxUpdated, COALESCE(SUM(updatedAtMillis), 0) AS sumUpdated " +
+            "FROM workouts WHERE deleted = 0 AND endReason IS NOT NULL",
+    )
+    fun workoutsStamp(): Flow<ChangeStamp>
+
+    @Query(
+        "SELECT COUNT(*) AS count, COALESCE(MAX(updatedAtMillis), 0) AS maxUpdated, COALESCE(SUM(updatedAtMillis), 0) AS sumUpdated " +
+            "FROM weight_entries WHERE deleted = 0",
+    )
+    fun weightsStamp(): Flow<ChangeStamp>
+
+    @Query(
+        "SELECT COUNT(*) AS count, COALESCE(MAX(updatedAtMillis), 0) AS maxUpdated, COALESCE(SUM(updatedAtMillis), 0) AS sumUpdated " +
+            "FROM fitness_tests WHERE deleted = 0 AND isValid = 1",
+    )
+    fun testsStamp(): Flow<ChangeStamp>
+
+    @Query(
+        "SELECT COUNT(*) AS count, COALESCE(MAX(updatedAtMillis), 0) AS maxUpdated, COALESCE(SUM(updatedAtMillis), 0) AS sumUpdated " +
+            "FROM resting_heart_rates WHERE deleted = 0",
+    )
+    fun restingStamp(): Flow<ChangeStamp>
+
+    @Query(
+        "SELECT COUNT(*) AS count, COALESCE(MAX(updatedAtMillis), 0) AS maxUpdated, COALESCE(SUM(updatedAtMillis), 0) AS sumUpdated " +
+            "FROM users WHERE deleted = 0",
+    )
+    fun usersStamp(): Flow<ChangeStamp>
 }

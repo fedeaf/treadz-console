@@ -18,6 +18,7 @@ import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.sync.github.TreeChange
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.userdata.FitnessRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisRecalculator
 import com.treadz.console.userdata.export.WorkoutCsv
 import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.FitnessTestDocumentStore
@@ -82,8 +83,14 @@ import java.time.ZoneId
  * when two devices do it the last writer wins and nobody rewrites it again (the result then has the current algorithm
  * version). A failure there never fails the synchronisation.
  *
+ * A pull that brought anything the per-workout analyses are computed from (workouts, weights, resting heart rate
+ * measurements, profiles or fitness test results) then runs the [analysisRecalculation] (when given), after the one above
+ * since the recalculated results change the context of a workout. The analyses are a local cache and never synchronised,
+ * so nothing is pushed because of them; a failure there never fails the synchronisation either.
+ *
  * @param pauseBeforeRetry waits between attempts after a lost race; tests replace it.
  * @param recalculation the stored-results recalculation to run after a pull that brought results or test workouts.
+ * @param analysisRecalculation the workout analysis recalculation to run after a pull that brought workouts or their context.
  */
 class SyncEngine(
     private val client: GitHubClient,
@@ -96,6 +103,7 @@ class SyncEngine(
     private val maxAttempts: Int = 5,
     private val pauseBeforeRetry: suspend (attempt: Int) -> Unit = { delay(300L * it) },
     private val recalculation: FitnessRecalculator? = null,
+    private val analysisRecalculation: WorkoutAnalysisRecalculator? = null,
 ) {
 
     /**
@@ -179,6 +187,7 @@ class SyncEngine(
                     files = client.files(repo, treeSha).associate { it.path to it.sha }
                     val pulled = pull(repo, state, files)
                     if (pulled.testData) recalculate()
+                    if (pulled.analysisData) recalculateAnalyses()
                     downloaded += pulled.applied
                     state = state.copy(headCommitSha = head, files = files, workoutPaths = pulled.workoutPaths)
                     stateStore.save(state)
@@ -236,8 +245,21 @@ class SyncEngine(
 
     // ---------------------------------------------------------------- pull
 
-    /** @property testData The pull brought fitness test results or workouts linked to a test. */
-    private class Pulled(val applied: Int, val workoutPaths: Map<String, String>, val testData: Boolean)
+    /**
+     * @property testData The pull brought fitness test results or workouts linked to a test.
+     * @property analysisData The pull brought workouts, weights, resting heart rate measurements, profiles or fitness test results.
+     */
+    private class Pulled(val applied: Int, val workoutPaths: Map<String, String>, val testData: Boolean, val analysisData: Boolean)
+
+    private suspend fun recalculateAnalyses() {
+        try {
+            analysisRecalculation?.recalculate()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Derived data only: the analyses stay as they are and the next change or app start tries again.
+        }
+    }
 
     private suspend fun recalculate() {
         try {
@@ -307,7 +329,8 @@ class SyncEngine(
         val programsApplied = if (documents.isEmpty()) 0 else programs.applyRemote(documents)
         val fitnessApplied = if (fitness.isEmpty()) 0 else fitnessTests.applyRemote(fitness)
         val testData = fitness.isNotEmpty() || workouts.any { it.workout.fitnessTestId != null }
-        return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths, testData)
+        val analysisData = fitness.isNotEmpty() || profiles.isNotEmpty() || weights.isNotEmpty() || restingHeartRates.isNotEmpty() || workouts.isNotEmpty()
+        return Pulled(result.applied + programsApplied + fitnessApplied, workoutPaths, testData, analysisData)
     }
 
     // ---------------------------------------------------------------- push

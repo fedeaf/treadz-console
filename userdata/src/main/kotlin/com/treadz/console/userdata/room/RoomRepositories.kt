@@ -479,6 +479,7 @@ internal class RoomWorkoutRepository(
             val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
             dao.markDeleted(workoutId, stamper.at(current.updatedAtMillis), stamper.deviceId)
             dao.deleteSamples(workoutId)
+            db.workoutAnalysis().delete(workoutId)
             DataResult.Success(Unit)
         }
     }
@@ -500,6 +501,7 @@ internal class RoomWorkoutRepository(
                     }
                 }
                 dao.deleteSamples(workoutId)
+                db.workoutAnalysis().delete(workoutId)
                 if (hold.isWorkoutHeld(workoutId)) {
                     dao.hardDelete(workoutId)
                 } else {
@@ -666,6 +668,7 @@ internal suspend fun softDeleteUser(db: UserDataDatabase, user: UserEntity, stam
     db.users().markDeleted(user.id, at, by)
     db.weights().markDeletedForUser(user.id, at, by)
     db.workouts().deleteSamplesForUser(user.id)
+    db.workoutAnalysis().deleteForUser(user.id)
     db.workouts().markDeletedForUser(user.id, at, by)
     db.programs().markDeletedForUser(user.id, at, by)
     db.fitnessTests().markDeletedForUser(user.id, at, by)

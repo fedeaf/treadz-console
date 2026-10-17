@@ -61,6 +61,26 @@ class FitnessStartViewModelTest {
         assertEquals(72, s.heartRateBpm)
     }
 
+    @Test fun theRestingReferenceOfTheHistoryTravelsWithTheSubjectSoThresholdsCarryTheReserve() {
+        belt()
+        val vm = viewModel(FitnessTestType.MaxHeartRateWalk)
+        val reference = checkNotNull(runBlocking { app.userData.restingHeartRates.reference(ana.id).first() }).bpm
+        assertEquals(58, reference) // the value typed in Ana's profile
+        assertEquals(reference, vm.state.restingHeartRateBpm)
+        val subject = FitnessStartViewModel.subjectOf(vm.state.user!!, vm.state.ageYears, vm.state.weight, 183, vm.state.restingHeartRateBpm)
+        assertEquals(58, subject.restingHeartRateBpm)
+        assertEquals(183, subject.hrMaxBpm)
+        assertEquals(Sex.Female, subject.sex)
+    }
+
+    @Test fun withoutAReferenceOrAWeightTheSubjectHasNeither() {
+        belt()
+        val vm = viewModel(FitnessTestType.MaxHeartRateWalk)
+        val subject = FitnessStartViewModel.subjectOf(vm.state.user!!, 39, null, 183, null)
+        assertNull(subject.restingHeartRateBpm)
+        assertEquals(0.0, subject.weightKg, 0.0)
+    }
+
     @Test fun theStartSpeedIsTheSpeedOfTheLastTestOfThatTypeOrTheDefault() {
         belt()
         assertEquals("4.8", viewModel(FitnessTestType.EbbelingWalk).state.speedText) // Ana's Ebbeling test was at 4.8

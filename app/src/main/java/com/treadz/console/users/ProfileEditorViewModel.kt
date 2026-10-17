@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.treadz.console.Decimals
 import com.treadz.console.beltBusy
 import com.treadz.console.heartrate.PeakOfferController
+import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.fitness.ObservedPeakOffer
+import com.treadz.console.training.UserZones
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.FitnessLevel
@@ -87,8 +89,11 @@ data class ProfileEditorUiState(
     val peakOffer: ObservedPeakOffer? = null,
 )
 
-/** The user's VO2max, MAS and maximum heart rate, with where the maximum comes from (read only here). */
-data class FitnessSummary(val profile: FitnessProfile?, val heartRateMax: HeartRateMaxDecision?)
+/**
+ * The user's VO2max, MAS, thresholds and maximum heart rate, with where the maximum comes from, and the training zones
+ * they give (read only here). [zones] is `null` until the profile itself is loaded.
+ */
+data class FitnessSummary(val profile: FitnessProfile?, val heartRateMax: HeartRateMaxDecision?, val zones: ZoneSet? = null)
 
 /**
  * Create / edit / personalise a profile. [profileId] is `null` to create. Editing the generic profile always
@@ -123,7 +128,14 @@ class ProfileEditorViewModel(
         viewModelScope.launch { syncLinked.collect { linked -> state.update { it.copy(syncLinked = linked) } } }
         if (profileId != null && fitnessTests != null) {
             viewModelScope.launch {
-                combine(fitnessTests.liveFitnessProfile(profileId), fitnessTests.heartRateMax(profileId)) { profile, hrMax -> FitnessSummary(profile, hrMax) }
+                combine(
+                    fitnessTests.liveFitnessProfile(profileId),
+                    fitnessTests.heartRateMax(profileId),
+                    restingHeartRates?.reference(profileId) ?: flowOf(null),
+                    profiles.profile(profileId),
+                ) { profile, hrMax, resting, user ->
+                    FitnessSummary(profile, hrMax, user?.let { UserZones.compute(it, profile, hrMax, resting?.bpm, today()) })
+                }
                     .collect { summary -> state.update { it.copy(fitness = summary) } }
             }
         }

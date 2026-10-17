@@ -1,5 +1,7 @@
 package com.treadz.console.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,16 +14,22 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -231,15 +239,10 @@ private fun TrainingFields(state: ProfileEditorUiState, actions: ProfileEditorAc
         }
         state.fitness?.let { fitness ->
             HeartRateMaxQuestion(fitness.heartRateMax, actions.onUseMeasuredHeartRateMax, actions.onKeepManualHeartRateMax)
-            FitnessSummaryPanel(fitness.profile, fitness.heartRateMax, Modifier.testTag("profile_fitness"))
+            FitnessSummaryPanel(fitness.profile, fitness.heartRateMax, Modifier.testTag("profile_fitness"), zones = fitness.zones)
         }
     }
-    Choice(label = stringResource(R.string.field_fitness)) {
-        BigChip(stringResource(R.string.option_not_set), selected = form.fitnessLevel == null, onClick = { actions.onFitnessLevel(null) }, tag = "fitness_none")
-        FitnessLevel.entries.forEach { level ->
-            BigChip(level.label(), selected = form.fitnessLevel == level, onClick = { actions.onFitnessLevel(level) }, tag = "fitness_${level.name}")
-        }
-    }
+    FitnessLevelChoice(form.fitnessLevel, actions.onFitnessLevel)
     Choice(label = stringResource(R.string.field_goal)) {
         BigChip(stringResource(R.string.option_not_set), selected = form.goal == null, onClick = { actions.onGoal(null) }, tag = "goal_none")
         Goal.entries.forEach { goal ->
@@ -315,6 +318,44 @@ fun TextField(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+/**
+ * The self-rated fitness level: one option per row with a line that says what it means (the questionnaire of Jackson et
+ * al.), so the user can place themselves without a guide. "Not set" is the first option.
+ */
+@Composable
+private fun FitnessLevelChoice(selected: FitnessLevel?, onSelect: (FitnessLevel?) -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("fitness_level_choice"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.field_fitness), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LevelOption(stringResource(R.string.option_not_set), stringResource(R.string.fitness_level_hint), selected == null, { onSelect(null) }, "fitness_none")
+        FitnessLevel.entries.forEach { level ->
+            LevelOption(level.label(), level.help(), selected == level, { onSelect(level) }, "fitness_${level.name}")
+        }
+    }
+}
+
+@Composable
+private fun LevelOption(title: String, help: String, selected: Boolean, onClick: () -> Unit, tag: String) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clip(shape)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, shape)
+            .border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, shape)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+            Text(help, style = MaterialTheme.typography.bodyMedium, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable
 private fun Choice(label: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

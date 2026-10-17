@@ -15,6 +15,8 @@ data class FitnessComparison(
     val vo2maxDelta: Double,
     val previousMasKmh: Double?,
     val masDelta: Double?,
+    /** The MAS of these tests is not measured but derived from the VO2max (the walking test). */
+    val masIsEstimated: Boolean = false,
     /** The change is smaller than the measurement error of these tests (about 5 ml/kg/min). */
     val withinMeasurementError: Boolean,
 )
@@ -46,6 +48,7 @@ object FitnessResults {
             vo2maxDelta = delta,
             previousMasKmh = previousMas,
             masDelta = if (mas != null && previousMas != null) mas - previousMas else null,
+            masIsEstimated = outputs.masIsEstimated || previousOutputs.masIsEstimated,
             withinMeasurementError = kotlin.math.abs(delta) < MEASUREMENT_ERROR_VO2MAX,
         )
     }

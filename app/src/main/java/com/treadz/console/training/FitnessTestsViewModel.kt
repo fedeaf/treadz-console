@@ -2,6 +2,7 @@ package com.treadz.console.training
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.userdata.DataResult
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 data class FitnessTestsUiState(
     val loaded: Boolean = false,
@@ -28,12 +30,18 @@ data class FitnessTestsUiState(
     /** The active user's fitness profile as of today (VO2max, MAS, measured maximum heart rate). */
     val profile: FitnessProfile? = null,
     val heartRateMax: HeartRateMaxDecision? = null,
+    /** The active user's five training zones in bpm and where they come from; `null` without a user. */
+    val zones: ZoneSet? = null,
     val confirmingDeleteId: String? = null,
     val failed: Boolean = false,
 )
 
 /** The fitness tests entry: the two tests to choose from, the user's fitness figures and the list of their past tests. */
-class FitnessTestsViewModel(private val userData: UserData) : ViewModel() {
+class FitnessTestsViewModel(
+    private val userData: UserData,
+    /** The date the age (and so the estimated maximum heart rate) is computed on. */
+    private val today: () -> LocalDate = LocalDate::now,
+) : ViewModel() {
 
     private data class Local(val confirmingDeleteId: String? = null, val failed: Boolean = false)
 
@@ -44,23 +52,27 @@ class FitnessTestsViewModel(private val userData: UserData) : ViewModel() {
         val results: List<FitnessTestRecord>,
         val profile: FitnessProfile?,
         val hrMax: HeartRateMaxDecision?,
+        val zones: ZoneSet?,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val content: Flow<Content> = userData.profiles.activeUser.flatMapLatest { user ->
         if (user == null) {
-            flowOf(Content(null, emptyList(), null, null))
+            flowOf(Content(null, emptyList(), null, null, null))
         } else {
             combine(
                 userData.fitnessTests.results(user.id),
                 userData.fitnessTests.liveFitnessProfile(user.id),
                 userData.fitnessTests.heartRateMax(user.id),
-            ) { results, profile, hrMax -> Content(user, results, profile, hrMax) }
+                userData.restingHeartRates.reference(user.id),
+            ) { results, profile, hrMax, resting ->
+                Content(user, results, profile, hrMax, UserZones.compute(user, profile, hrMax, resting?.bpm, today()))
+            }
         }
     }
 
     val uiState: StateFlow<FitnessTestsUiState> = combine(content, local) { c, local ->
-        FitnessTestsUiState(true, c.user, c.results, c.profile, c.hrMax, local.confirmingDeleteId, local.failed)
+        FitnessTestsUiState(true, c.user, c.results, c.profile, c.hrMax, c.zones, local.confirmingDeleteId, local.failed)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, FitnessTestsUiState())
 
     fun requestDelete(testId: String) = local.update { it.copy(confirmingDeleteId = testId) }

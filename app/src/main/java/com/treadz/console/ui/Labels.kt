@@ -37,6 +37,17 @@ fun FitnessLevel.label(): String = stringResource(
     },
 )
 
+/** The line under a fitness level that says what it means. */
+@Composable
+@ReadOnlyComposable
+fun FitnessLevel.help(): String = stringResource(
+    when (this) {
+        FitnessLevel.Beginner -> R.string.fitness_beginner_help
+        FitnessLevel.Intermediate -> R.string.fitness_intermediate_help
+        FitnessLevel.Advanced -> R.string.fitness_advanced_help
+    },
+)
+
 @Composable
 @ReadOnlyComposable
 fun Goal.label(): String = stringResource(

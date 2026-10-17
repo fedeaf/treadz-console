@@ -252,7 +252,7 @@ class PersonalisedUiTest {
         rule.onNodeWithTag("test_card_${FitnessTestType.MaxHeartRateWalk.name}").assertIsDisplayed()
         click("choose_${FitnessTestType.MaxHeartRateWalk.name}")
 
-        rule.onNodeWithTag("test_walk_measures").assertTextContains("only your maximum heart rate", substring = true)
+        rule.onNodeWithTag("test_walk_measures").assertTextContains("estimates your VO2max", substring = true)
         rule.onNodeWithTag("test_walk_duration").assertIsDisplayed()
         rule.onNodeWithTag("test_speed").assertTextContains("5.5", substring = true)
         rule.onNodeWithTag("test_incline").assertTextContains("5", substring = true)

@@ -120,6 +120,7 @@ private fun Intro(state: ProgramStartUiState, actions: ProgramStartActions) {
                     )
                 }
                 if (details.isNotEmpty()) Text(details.joinToString(" · "), Modifier.testTag("generated_inputs"), style = MaterialTheme.typography.bodyLarge)
+                GeneratedZoneOrigin(inputs)
                 Text(stringResource(R.string.generated_repeat_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 RowButton(stringResource(R.string.saved_regenerate), actions.onRegenerate, Modifier.testTag("regenerate_button"))
             }

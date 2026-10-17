@@ -11,6 +11,7 @@ import com.treadz.console.programs.fitness.FitnessTestPhase
 import com.treadz.console.programs.fitness.FitnessTestType
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.fitness.MaxHeartRateWalkMeasurements
+import com.treadz.console.programs.fitness.Vo2MaxMethod
 import com.treadz.console.programs.fitness.MaxHeartRateWalkParameters
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.fitness.Validity
@@ -237,7 +238,13 @@ class WalkTestTest {
         val stored = checkNotNull(rig.userData.fitnessTests.get(id)).result
         assertEquals(FitnessTestType.MaxHeartRateWalk, stored.testType)
         assertEquals(Validity.Valid, stored.validity)
-        assertNull(stored.outputs) // no VO2max, no MAS
+        // The walking test gives a VO2max (ACSM at the load of the last minute) and an estimated MAS.
+        val outputs = checkNotNull(stored.outputs)
+        assertEquals(Vo2MaxMethod.AcsmWalkRamp, outputs.method)
+        assertEquals(3.5, outputs.vo2maxSeeMlKgMin, 0.0)
+        assertTrue(outputs.vo2maxMlKgMin in 20.0..70.0)
+        assertTrue(outputs.masIsEstimated)
+        assertEquals(outputs.vo2maxMlKgMin / 3.5, checkNotNull(outputs.masKmh), 0.01)
         val measurements = stored.measurements as MaxHeartRateWalkMeasurements
         assertEquals(5.6, measurements.startSpeedKmh, 0.001)
         assertEquals(6.0, measurements.startInclinePercent, 0.001)

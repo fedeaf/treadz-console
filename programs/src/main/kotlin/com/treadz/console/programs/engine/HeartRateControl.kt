@@ -1,5 +1,7 @@
 package com.treadz.console.programs.engine
 
+import com.treadz.console.analysis.heartrate.HeartRateBands
+import com.treadz.console.analysis.thresholds.Alpha1Evaluation
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
 import com.treadz.console.programs.heartrate.HeartRateProfile
@@ -73,6 +75,12 @@ enum class HeartRateAdjustReason {
 
     /** Between repetitions: the repetition starts corrected by the heart rate at the end of the previous one. */
     NextRepetition,
+
+    /**
+     * The real-time α1 brake: DFA-α1 stayed below the trigger for several evaluations in a row while the heart rate was
+     * in or above the zone, so the load went one small step down (see [Alpha1BrakeConfig]). It only ever lowers the load.
+     */
+    Alpha1Brake,
 }
 
 /** Rules of the heart-rate control (decided 2026-10-14). Times are milliseconds of the injected clock. */
@@ -117,6 +125,47 @@ data class HeartRateControlConfig(
     /** The settled value of a continuous block needs at least this much time in the zone (after the first 90 s). */
     val settledMinInZoneMs: Long = 60_000,
     val plausibility: PlausibilityConfig = PlausibilityConfig(),
+    /** The real-time DFA-α1 brake. */
+    val alpha1Brake: Alpha1BrakeConfig = Alpha1BrakeConfig(),
+)
+
+/**
+ * The real-time DFA-α1 brake of heart-rate-guided blocks (phase F3 of the thresholds plan). It is one more input of
+ * the block control and only ever lowers the load; the order goes through the same path as every other heart-rate
+ * adjustment. Times are milliseconds of the injected clock.
+ *
+ * **Where it is active**: continuous heart-rate blocks that are easy enough and only with RR from a strap connected to
+ * the app (never with the console's heart rate, which carries no RR). Easy enough means the zone ceiling is at or below
+ * VT1 ([HeartRateProfile.vt1Bpm]: measured, else the typical one of the user's level, i.e. the top of zone 2 of the
+ * zone model). [vt1ToleranceBpm] covers zones stored as whole percentages of the reserve and converted back with a
+ * resting rate that has changed a little since (a 5-bpm change moves the top of zone 2 by about 2 bpm); zone 3 ends at
+ * VT2, far above. Without any VT1, at or below [zone2CeilingReservePercent] % of the heart-rate reserve (the top of
+ * zone 2 of the highest fitness level, 65 %; without a resting heart rate the equivalent % of the maximum). The fitness tests run on their own runner and never
+ * get the brake.
+ *
+ * **Trigger**: [consecutiveEvaluations] evaluations in a row (the estimator evaluates every 10 s over the last 120 s)
+ * with α1 below [triggerAlpha1], a window of at most [maxArtifactFraction] artifacts and the 10-s heart rate at or
+ * above the zone's lower limit. Then one reduction: [inclineStepPercent] of incline when the block adjusts the incline
+ * (walking) or [speedStepKmh] when it adjusts the speed (running), never below the block's minimum, and at least
+ * [minReductionIntervalMs] after the previous one. Any evaluation that does not meet the conditions (α1 not low, a
+ * window that is not valid or has too many artifacts, no RR, heart rate under the zone) restarts the count, so the
+ * brake is off while RR are missing or noisy and the heart-rate regulation goes on alone.
+ *
+ * Sources of the thresholds: Rogers B, Giles D, Draper N, Hoos O, Gronwald T. A new detection method defining the
+ * aerobic threshold for endurance exercise and training prescription based on fractal correlation properties of heart
+ * rate variability. Front Physiol. 2021;12:596567 (α1 = 0.75 at the aerobic threshold, 0.5 at the anaerobic one); the
+ * 0.70 trigger, the counts and the steps are design assumptions (a margin under the population cut of 0.75).
+ */
+data class Alpha1BrakeConfig(
+    val enabled: Boolean = true,
+    val triggerAlpha1: Double = 0.70,
+    val consecutiveEvaluations: Int = 3,
+    val maxArtifactFraction: Double = 0.03,
+    val minReductionIntervalMs: Long = 90_000,
+    val inclineStepPercent: Double = 1.0,
+    val speedStepKmh: Double = 0.3,
+    val vt1ToleranceBpm: Int = 3,
+    val zone2CeilingReservePercent: Int = 65,
 )
 
 /** What the UI shows about the heart-rate control of the current block. */
@@ -177,6 +226,19 @@ data class HeartRateBlockSummary(
     val secondsWithoutHeartRate: Int,
     /** The source that provided most of the block's valid readings. */
     val source: HeartRateSourceKind?,
+    /**
+     * Reductions made by the real-time α1 brake ([HeartRateAdjustReason.Alpha1Brake]; they are also counted in
+     * [adjustments]). `null` when the brake could not act in this block (zone above VT1 / zone 2, between repetitions,
+     * no valid α1 window from a strap), `0` when it was active, had valid windows and never fired.
+     */
+    val alpha1Reductions: Int? = null,
+    /**
+     * Mean DFA-α1 of the valid 120-s windows evaluated during the block (only windows entirely inside the running
+     * block); `null` without any. Recorded for every heart-rate block with strap RR, whether the brake was active or not.
+     */
+    val alpha1Mean: Double? = null,
+    /** Number of valid windows behind [alpha1Mean] (evaluations every 10 s, so they overlap); `null` without any. */
+    val alpha1Windows: Int? = null,
 )
 
 /** Something the control did, for the runner to turn into program events. */
@@ -253,6 +315,17 @@ internal class HeartRateTracker(profile: HeartRateProfile, private val config: H
     }
 }
 
+/** Which blocks get the α1 brake (see [Alpha1BrakeConfig]). */
+internal object Alpha1BrakePolicy {
+
+    fun appliesTo(zone: HeartRateZoneBpm, mode: HeartRateControlMode, profile: HeartRateProfile, config: Alpha1BrakeConfig): Boolean {
+        if (!config.enabled || mode != HeartRateControlMode.Continuous) return false
+        val ceiling = profile.usableVt1Bpm?.let { it + config.vt1ToleranceBpm }
+            ?: HeartRateBands.reserveBpm(profile.maxBpm, profile.usableRestingBpm, config.zone2CeilingReservePercent)
+        return zone.highBpm <= ceiling
+    }
+}
+
 /**
  * Heart-rate control of one block (pure logic on the injected clock). The runner feeds it the filtered readings and
  * asks it at every tick what the adjusted quantity should be; it never talks to the treadmill.
@@ -272,6 +345,21 @@ internal class HeartRateTracker(profile: HeartRateProfile, private val config: H
  * restored if it is lower than the current one; the control resumes after 10 s of valid readings.
  *
  * **Manual change**: [manualOverride] switches it off until the block ends or [reEnable] is called.
+ *
+ * **α1 brake** (when [alpha1BrakeActive], see [Alpha1BrakeConfig]): the runner passes every real-time α1 evaluation to
+ * [onAlpha1]. It is one more input of this control, evaluated in [decide] after the safety rules and the no-heart-rate
+ * hold and before the regular decision, so it combines with the other decisions like this:
+ *  - Safety wins: a ceiling or maximum-heart-rate reduction returns first, and the brake waits at least a decision
+ *    interval (20 s) after *any* change made by this control (a regular correction counts too), so two reductions never
+ *    pile up on the same stale heart rate.
+ *  - An α1 reduction counts as a decision: the next regular decision waits a full interval, and, like a safety
+ *    reduction, it restarts the 90-s window without upward corrections, so the load is not raised back at once while
+ *    the heart rate settles.
+ *  - It never raises the load, never goes below the block's minimum, and is off while the control is off after a
+ *    manual change (until the next block or [reEnable]), while the heart rate is missing and while the last evaluations
+ *    were not valid.
+ *  - Only windows entirely inside the running block count (not the warm-up before it, nor the time before a pause,
+ *    a resume or a re-enable): the heart-rate regulation alone covers the first 2 min.
  */
 internal class HeartRateBlockControl(
     val blockIndex: Int,
@@ -288,6 +376,8 @@ internal class HeartRateBlockControl(
     private val tracker: HeartRateTracker,
     private val config: HeartRateControlConfig,
     startedAt: Long,
+    /** The α1 brake applies to this block ([Alpha1BrakePolicy]). The evaluations in [onAlpha1] are recorded either way. */
+    private val alpha1BrakeActive: Boolean = false,
 ) {
     val ceilingBpm: Int = zone.highBpm + config.ceilingMarginBpm
 
@@ -307,6 +397,16 @@ internal class HeartRateBlockControl(
     private var maxAlerted = false
     private var lastSafetyAt: Long? = null
     private var lastState: HeartRateControlState? = null
+
+    // -- α1 brake
+    /** Windows must start at or after this time (block start, last resume or re-enable). */
+    private var alpha1FloorMs = startedAt
+    private var alpha1LowRun = 0
+    private var lastAlpha1ReductionAt: Long? = null
+    private var lastChangeAt: Long? = null
+    private var alpha1Reductions = 0
+    private var alpha1Sum = 0.0
+    private var alpha1Count = 0
 
     /** The value the control last asked for (kept through a manual change). */
     var controlValue: Double = initialValue
@@ -362,6 +462,7 @@ internal class HeartRateBlockControl(
         off = true
         manual = true
         waiting = false
+        alpha1LowRun = 0
         signalState()
     }
 
@@ -373,6 +474,8 @@ internal class HeartRateBlockControl(
         nextDecisionAt = t
         aboveCeilingSince = null
         atMaxSince = null
+        alpha1FloorMs = t
+        alpha1LowRun = 0
         if (!tracker.hasValid(t)) {
             holding = true
             holdSince = tracker.lastValidAt ?: t
@@ -389,7 +492,32 @@ internal class HeartRateBlockControl(
         aboveCeilingSince = null
         atMaxSince = null
         lastAccountT = t
+        alpha1FloorMs = t
+        alpha1LowRun = 0
         if (holding) holdSince = t
+    }
+
+    /**
+     * A real-time α1 evaluation ([e]) at [t]. It is recorded for the block summary when it is valid and its window lies
+     * inside the running block; it counts towards the brake only if the brake is active, the control is on and has a
+     * heart rate from a strap connected to the app, α1 is below the trigger in a window with few artifacts and the
+     * 10-s heart rate is at or above the zone's lower limit. Anything else restarts the count.
+     */
+    fun onAlpha1(t: Long, e: Alpha1Evaluation) {
+        val alpha = e.alpha1
+        if (e.windowStartMillis < alpha1FloorMs || !e.valid || alpha == null) {
+            alpha1LowRun = 0
+            return
+        }
+        alpha1Sum += alpha
+        alpha1Count++
+        val brake = config.alpha1Brake
+        val hr = tracker.mean(t, config.meanWindowMs)
+        val counts = alpha1BrakeActive && !off && !holding && tracker.hasValid(t) &&
+            tracker.lastSource == HeartRateSourceKind.DirectStrap &&
+            alpha < brake.triggerAlpha1 && e.artifactFraction <= brake.maxArtifactFraction + EPS &&
+            hr != null && hr >= zone.lowBpm
+        alpha1LowRun = if (counts) alpha1LowRun + 1 else 0
     }
 
     /**
@@ -459,6 +587,9 @@ internal class HeartRateBlockControl(
             }
         }
 
+        // ---- α1 brake: one more input, below the safety rules and above the regular decision
+        alpha1Reduction(t, blockMs, current)?.let { return it }
+
         // ---- regular decision
         if (mode == HeartRateControlMode.BetweenRepetitions) return null
         if (t < nextDecisionAt) return null
@@ -489,6 +620,23 @@ internal class HeartRateBlockControl(
         return change(current, snap(target), if (isAbove) HeartRateAdjustReason.AboveZone else HeartRateAdjustReason.BelowZone, t, safety = false)
     }
 
+    private fun alpha1Reduction(t: Long, blockMs: Long, current: Double): Double? {
+        val brake = config.alpha1Brake
+        if (!alpha1BrakeActive || alpha1LowRun < brake.consecutiveEvaluations) return null
+        if (lastAlpha1ReductionAt?.let { t - it < brake.minReductionIntervalMs } == true) return null
+        if (lastChangeAt?.let { t - it < config.decisionIntervalMs } == true) return null
+        val step = if (adjust == HeartRateAdjust.Incline) brake.inclineStepPercent else brake.speedStepKmh
+        val target = snap(max(minimum, current - step))
+        if (target >= current - EPS) return null
+        alpha1LowRun = 0
+        lastAlpha1ReductionAt = t
+        alpha1Reductions++
+        // It counts as a decision: the regular one waits a full interval and no upward correction follows at once.
+        nextDecisionAt = max(nextDecisionAt, t + config.decisionIntervalMs)
+        noUpwardUntilBlockMs = max(noUpwardUntilBlockMs, blockMs + config.noUpwardMs)
+        return change(current, target, HeartRateAdjustReason.Alpha1Brake, t, safety = false)
+    }
+
     /** With the control off (manual change) nothing is reduced, but the user is still told once per episode. */
     private fun alertWhileOff(t: Long) {
         if (!tracker.hasValid(t)) return
@@ -506,6 +654,7 @@ internal class HeartRateBlockControl(
 
     private fun change(from: Double, to: Double, reason: HeartRateAdjustReason, t: Long, safety: Boolean): Double {
         adjustments++
+        lastChangeAt = t
         if (safety) {
             safetyReductions++
             // The heart rate needs time to respond: the next regular decision waits a full interval.
@@ -634,6 +783,9 @@ internal class HeartRateBlockControl(
             manualOverride = manual,
             secondsWithoutHeartRate = (noHrMs / 1000).toInt(),
             source = sourceCounts.maxByOrNull { it.value }?.key,
+            alpha1Reductions = if (alpha1BrakeActive && alpha1Count > 0) alpha1Reductions else null,
+            alpha1Mean = if (alpha1Count > 0) (alpha1Sum / alpha1Count * 100).roundToInt() / 100.0 else null,
+            alpha1Windows = alpha1Count.takeIf { it > 0 },
         )
     }
 

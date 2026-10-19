@@ -10,8 +10,11 @@ import com.treadz.console.programs.engine.RunnerResult
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.plan.ProgramResolver
 import com.treadz.console.training.StartOutcome
+import com.treadz.console.training.UserZones
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.TreadmillState
+import com.treadz.console.userdata.FitnessLevel
+import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.RestingHeartRateInput
 import com.treadz.console.userdata.RestingHeartRateSource
 import com.treadz.console.userdata.memory.DemoPrograms
@@ -50,16 +53,39 @@ class HeartRateProfileTest {
         return events.filterIsInstance<ProgramEvent.Started>().single().options.heartRateProfile
     }
 
+    /** The VT1 of the user's zones today (measured, else the typical one of their level), as the generators see it. */
+    private fun zonesVt1(): Int = runBlocking {
+        val user = data.profiles.profile(userId).first()!!
+        UserZones.compute(
+            user,
+            data.fitnessTests.liveFitnessProfile(userId).first(),
+            data.fitnessTests.heartRateMax(userId).first(),
+            data.restingHeartRates.reference(userId).first()?.bpm,
+            app.today(),
+        ).vt1Bpm
+    }
+
     @Test fun theProfileHasTheEstimatedMaximumAndNoRestingWithoutMeasurements() {
         // The generic user is 40: Tanaka gives 180.
-        assertEquals(HeartRateProfile(180, null), startedOptions())
+        assertEquals(HeartRateProfile(180, null, zonesVt1()), startedOptions())
+    }
+
+    @Test fun theVt1OfTheUsersZonesFollowsTheirLevel() {
+        val beginnerVt1 = zonesVt1()
+        runBlocking {
+            val u = data.profiles.profile(userId).first()!!
+            data.profiles.update(userId, ProfileInput(u.name, u.sex, u.heightCm, u.birthDate, null, null, FitnessLevel.Advanced, u.goal))
+        }
+        val trained = checkNotNull(startedOptions()?.vt1Bpm)
+        assertEquals(zonesVt1(), trained)
+        assertTrue("$beginnerVt1 -> $trained", trained > beginnerVt1)
     }
 
     @Test fun theRestingReferenceOfTheHistoryIsPassedToo() {
         runBlocking {
             for (daysAgo in 1..3) data.restingHeartRates.add(userId, RestingHeartRateInput(app.nowMillis() - daysAgo * 86_400_000L, 56 + daysAgo, RestingHeartRateSource.Manual))
         }
-        assertEquals(HeartRateProfile(180, 58), startedOptions())
+        assertEquals(HeartRateProfile(180, 58, zonesVt1()), startedOptions())
     }
 
     @Test fun theMaximumIsTheOneOfThePolicyNotTheEstimate() {
@@ -67,7 +93,7 @@ class HeartRateProfileTest {
         runBlocking { data.fitnessTests.save(userId, DemoPrograms.maxTest(startedAtMillis = app.nowMillis() - 5 * 86_400_000L, peakBpm = 192, ageYears = 40)) }
         val max = runBlocking { data.fitnessTests.heartRateMax(userId).first()!!.bpm }
         assertTrue(max != 180)
-        assertEquals(HeartRateProfile(max, null), startedOptions())
+        assertEquals(HeartRateProfile(max, null, zonesVt1()), startedOptions())
     }
 
     @Test fun aGuidedBlockIsControlledNotUnavailable() {

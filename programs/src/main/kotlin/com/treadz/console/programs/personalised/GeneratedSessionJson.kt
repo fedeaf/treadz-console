@@ -16,7 +16,10 @@ import java.time.format.DateTimeParseException
 /**
  * JSON document of a [GeneratedSessionRecord], stored next to the workout and synced. Same rules as the other
  * documents: mandatory `schemaVersion` (a newer one is rejected), units in the field names, ISO-8601 UTC times, lower
- * camel case enumerations, absent values left out, unknown fields ignored.
+ * camel case enumerations, absent values left out, unknown fields ignored. The heart-rate summary's
+ * `alpha1Reductions` (reductions by the real-time α1 brake; absent when the brake could not act in the block),
+ * `alpha1Mean` and `alpha1Windows` (mean DFA-α1 of the valid windows evaluated in the block, and how many) were added
+ * without a version change: records written before them read with these fields absent.
  *
  * ```
  * {
@@ -31,6 +34,7 @@ import java.time.format.DateTimeParseException
  *      "plannedSpeedKmh": 7.0, "plannedInclinePercent": 1.0, "finalSpeedKmh": 7.0, "finalInclinePercent": 1.0,
  *      "manualSpeedReductions": 0, "manualChanges": 0, "endHeartRateBpm": 141.5,
  *      "heartRate": {"adjust": "speed", "mode": "betweenRepetitions", "zoneLowBpm": 108, "zoneHighBpm": 153, "startValue": 7.0, ...}},
+ *     {"blockIndex": 2, ..., "heartRate": {"adjust": "incline", "mode": "continuous", ..., "alpha1Reductions": 1, "alpha1Mean": 0.82, "alpha1Windows": 40}},
  *     ...
  *   ]
  * }
@@ -101,6 +105,9 @@ object GeneratedSessionJson {
             "manualOverride" to s.manualOverride,
             "secondsWithoutHeartRate" to s.secondsWithoutHeartRate,
             "source" to s.source,
+            "alpha1Reductions" to s.alpha1Reductions,
+            "alpha1Mean" to s.alpha1Mean,
+            "alpha1Windows" to s.alpha1Windows,
         ),
     )
 
@@ -168,6 +175,9 @@ object GeneratedSessionJson {
         manualOverride = s.boolean("manualOverride", false),
         secondsWithoutHeartRate = s.optInt("secondsWithoutHeartRate") ?: 0,
         source = s.optEnum("source", HeartRateSourceKind.entries.toTypedArray()),
+        alpha1Reductions = s.optInt("alpha1Reductions"),
+        alpha1Mean = s.optDouble("alpha1Mean"),
+        alpha1Windows = s.optInt("alpha1Windows"),
     )
 
     private fun iso(millis: Long): String = Instant.ofEpochMilli(millis).toString()

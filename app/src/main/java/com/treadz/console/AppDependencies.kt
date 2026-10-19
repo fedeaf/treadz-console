@@ -130,6 +130,7 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
             userData = userData,
             scope = scope,
             onError = { Log.e("TreadZ", "Generated session record", it) },
+            today = ::today,
         ).also { coordinator -> TreadZTreadmill.routeNotificationStop(context, coordinator::stopFromNotification) }
     }
     override val appLifecycle: AppLifecycle by lazy { TreadZTreadmill.lifecycle(context) }

@@ -75,11 +75,15 @@ fun hrSummary(
     end: Double? = null,
     safetyReductions: Int = 0,
     zoneHighBpm: Int = 126,
+    alpha1Reductions: Int? = null,
+    alpha1Mean: Double? = null,
+    alpha1Windows: Int? = null,
 ) = HeartRateBlockSummary(
     blockIndex = blockIndex, adjust = adjust, mode = mode, zoneLowBpm = 108, zoneHighBpm = zoneHighBpm,
     startValue = 6.0, initialValue = 6.0, endValue = 6.0, settledValue = settled, secondsInZone = 300,
     meanHeartRateBpm = 118.0, endHeartRateBpm = end, adjustments = 2, safetyReductions = safetyReductions,
     manualOverride = false, secondsWithoutHeartRate = 0, source = null,
+    alpha1Reductions = alpha1Reductions, alpha1Mean = alpha1Mean, alpha1Windows = alpha1Windows,
 )
 
 fun blockRecord(

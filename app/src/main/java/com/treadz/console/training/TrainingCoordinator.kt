@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 
 /** How a start (of a program or of a fitness test) ended. */
@@ -113,6 +114,8 @@ class TrainingCoordinator(
     private val newTestId: () -> String = { java.util.UUID.randomUUID().toString() },
     /** Something went wrong in the background (storing the record of a generated session): logged, never shown. */
     private val onError: (Throwable) -> Unit = {},
+    /** Today's date, for the user's zones (age, recent tests). */
+    private val today: () -> LocalDate = LocalDate::now,
 ) {
 
     /** Owner of the test that is running or ran last: its result is stored for this user. */
@@ -374,12 +377,17 @@ class TrainingCoordinator(
 
     /**
      * The user's heart-rate references for heart-rate-guided blocks: the effective maximum (`HeartRateMaxPolicy`: manual,
-     * else measured, else estimated) and the resting reference of the history. `null` when the maximum is unknown.
+     * else measured, else estimated), the resting reference of the history and the VT1 of the user's zones (measured,
+     * else the typical one of their level: the top of zone 2, the same the generators use), which tells the real-time
+     * α1 brake which blocks are easy enough. `null` when the maximum is unknown.
      */
     private suspend fun heartRateProfile(userId: Long): HeartRateProfile? {
-        val max = userData.fitnessTests.heartRateMax(userId).first()?.bpm ?: return null
+        val maxDecision = userData.fitnessTests.heartRateMax(userId).first() ?: return null
         val resting = userData.restingHeartRates.reference(userId).first()?.bpm
-        return HeartRateProfile(max, resting)
+        val vt1 = userData.profiles.profile(userId).first()?.let { user ->
+            UserZones.compute(user, userData.fitnessTests.liveFitnessProfile(userId).first(), maxDecision, resting, today()).vt1Bpm
+        }
+        return HeartRateProfile(maxDecision.bpm, resting, vt1)
     }
 
     /** "Resume heart-rate control" after a manual change switched it off: the runner decides whether it applies. */

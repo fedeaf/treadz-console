@@ -112,7 +112,9 @@ stays meaningful if the program is later edited or deleted. Workouts without the
 A workout done with a personalised (generated) program also has `generator_id` (which generator made the program) and
 `session_record`: how the session went (outcome, manual speed reductions, per block the planned and final values and the
 heart rate at the end, and where the heart rate settled in heart-rate blocks), which the generators read to adapt the
-next session.
+next session. Heart-rate blocks run with a chest strap connected to the app may also carry `alpha1Reductions` (load
+reductions made by the real-time DFA-α1 brake; absent when the brake could not act in the block), `alpha1Mean` and
+`alpha1Windows` (mean DFA-α1 of the valid 2-min windows evaluated in the block, and how many).
 
 `programs/<uuid>.json`: `uuid`, `user_uuid`, and the program itself under `program` (a free or personalised program:
 blocks that end by time or distance, with absolute or relative speed and incline; standard programs are built into the

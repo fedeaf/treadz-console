@@ -452,6 +452,33 @@ class ProgramRunner(
     }.await()
 
     /**
+     * "+1": makes the current block longer, by [RunnerConfig.extendBlockSeconds] for a time block or
+     * [RunnerConfig.extendBlockMeters] for a distance block. The plan the progress reports changes with it (the block,
+     * its estimate and the totals), so the time left and the charts follow, and [ProgramEvent.BlockExtended] carries the
+     * new plan for the history. A repetition of a block is extended alone; restarting the block keeps the extension.
+     * Nothing is sent to the treadmill. Valid while running or paused.
+     */
+    fun extendCurrentBlock(): RunnerResult {
+        synchronized(lock) {
+            if (runState != RunState.Running && runState != RunState.Paused) return notAllowedState("extending a block needs a running or paused program")
+            accumulate()
+            val p = checkNotNull(plan)
+            val block = p.blocks[blockIndex]
+            val (end, addedSeconds, addedMeters) = when (val e = block.end) {
+                is BlockEnd.Duration -> Triple(BlockEnd.Duration(e.seconds + config.extendBlockSeconds), config.extendBlockSeconds, null)
+                is BlockEnd.Distance -> Triple(BlockEnd.Distance(e.meters + config.extendBlockMeters), null, config.extendBlockMeters)
+            }
+            val extended = block.copy(end = end, estimatedDurationSeconds = ResolvedPlan.estimatedSecondsOf(end, block.speedKmh))
+            val newPlan = p.replacingBlock(extended)
+            plan = newPlan
+            emit(ProgramEvent.BlockExtended(clock.nowMillis(), programSeconds(), blockIndex, addedSeconds, addedMeters, extended, newPlan))
+            publish()
+        }
+        wake()
+        return RunnerResult.Success
+    }
+
+    /**
      * Stops the belt and ends the program ([RunOutcome.StoppedByUser]). Valid in any active state; it ends the
      * program even if the stop command fails (then the result says so and the controller raises its alert). [origin] is
      * who asked for it (the app's STOP or the notification's), for the recording.

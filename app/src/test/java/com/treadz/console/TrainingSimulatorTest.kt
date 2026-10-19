@@ -5,6 +5,7 @@ import com.treadz.console.controls.SessionKind
 import com.treadz.console.fakes.SimTrainingRig
 import com.treadz.console.programs.engine.RunOutcome
 import com.treadz.console.programs.engine.RunState
+import com.treadz.console.programs.engine.RunnerResult
 import com.treadz.console.programs.fitness.EbbelingParameters
 import com.treadz.console.programs.fitness.FitnessSubject
 import com.treadz.console.programs.fitness.FitnessTestPhase
@@ -38,6 +39,24 @@ class TrainingSimulatorTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     private suspend fun SimTrainingRig.activeUser() = userData.profiles.activeUserId()!!
+
+    @Test fun plusOneLinksTheLongerPlanToTheWorkout() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val rig = SimTrainingRig(this)
+        rig.connect()
+        val std = checkNotNull(StandardPrograms.byId("standard-pyramid"))
+        val plan = ProgramResolver.resolve(std.program, std.defaultParameters)
+        assertEquals(StartOutcome.Started, rig.training.startProgram(rig.activeUser(), plan, plan.parameters))
+        delay(10_000)
+
+        assertEquals(RunnerResult.Success, rig.programRunner.extendCurrentBlock())
+        delay(1_000)
+        val linked = rig.links.linked.last().plan!!
+        assertEquals(2, rig.links.linked.size)
+        assertEquals(plan.estimatedDurationSeconds + 60, linked.estimatedDurationSeconds)
+        assertEquals(rig.programRunner.progress.value.plan, linked)
+        rig.training.commands.stop()
+    }
 
     @Test fun aProgramRunsOnTheSimulatorAndTheControlsGoThroughTheRunner() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))

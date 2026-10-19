@@ -13,7 +13,6 @@ import com.treadz.console.treadmill.SafetyLimits
 import com.treadz.console.treadmill.ValueRange
 import com.treadz.console.treadmill.control.SafetyClamp
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** What the treadmill and the user allow: the ranges read from the treadmill and the active safety limits. */
 data class ResolutionEnvironment(
@@ -83,10 +82,7 @@ object ProgramResolver {
                 is BlockEnd.Duration -> BlockEnd.Duration(durations.getValue(index))
                 is BlockEnd.Distance -> end
             }
-            val estimated = when (end) {
-                is BlockEnd.Duration -> end.seconds
-                is BlockEnd.Distance -> (end.meters / (speed / 3.6)).roundToInt()
-            }
+            val estimated = ResolvedPlan.estimatedSecondsOf(end, speed)
             if (estimated < SHORT_BLOCK_SECONDS) {
                 warnings += PlanWarning(
                     WarningCode.ShortBlock, index, estimated.toDouble(), null,
@@ -110,18 +106,12 @@ object ProgramResolver {
             )
         }
 
-        val meters = blocks.sumOf { b ->
-            when (val end = b.end) {
-                is BlockEnd.Duration -> b.speedKmh / 3.6 * end.seconds
-                is BlockEnd.Distance -> end.meters.toDouble()
-            }
-        }
         return ResolvedPlan(
             source = PlanSource(program.id, program.name, program.kind, program.schemaVersion, program.origin),
             parameters = parameters,
             blocks = blocks,
             estimatedDurationSeconds = blocks.sumOf { it.estimatedDurationSeconds },
-            estimatedDistanceMeters = meters.roundToInt(),
+            estimatedDistanceMeters = ResolvedPlan.estimatedDistanceMetersOf(blocks),
             warnings = warnings,
         )
     }

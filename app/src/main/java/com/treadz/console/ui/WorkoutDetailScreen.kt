@@ -314,17 +314,13 @@ private fun UnassignedBanner(actions: WorkoutDetailActions) {
 @Composable
 private fun PlannedVersusActual(plan: com.treadz.console.programs.plan.ResolvedPlan, samples: List<WorkoutSample>, modifier: Modifier) {
     val segments = androidx.compose.runtime.remember(plan) { plan.segments() }
-    val speed = androidx.compose.runtime.remember(samples) { runningSeries(samples) { it.speedKmh } }
-    val incline = androidx.compose.runtime.remember(samples) { runningSeries(samples) { it.inclinePercent } }
+    val speed = androidx.compose.runtime.remember(samples) { ChartMath.downsample(runningSeries(samples) { it.speedKmh }, MAX_PLAN_CHART_POINTS) }
+    val incline = androidx.compose.runtime.remember(samples) { ChartMath.downsample(runningSeries(samples) { it.inclinePercent }, MAX_PLAN_CHART_POINTS) }
     val title = stringResource(R.string.detail_plan_chart, programDisplayName(plan.source.programId, plan.source.programName))
     Panel(modifier.fillMaxWidth().testTag("chart_plan")) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            PlanChart(
-                segments = segments, description = title, modifier = Modifier.weight(1f).fillMaxWidth(),
-                actualSpeed = ChartMath.downsample(speed, MAX_CHART_POINTS), actualIncline = ChartMath.downsample(incline, MAX_CHART_POINTS),
-            )
-            PlanLegend(stringResource(R.string.detail_plan_speed), stringResource(R.string.detail_plan_incline), actualLabel = stringResource(R.string.detail_plan_actual))
+            PlannedVersusActualChart(segments, speed, incline, description = title, modifier = Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
@@ -353,6 +349,22 @@ private fun SessionRecordPanel(record: com.treadz.console.programs.personalised.
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text("$end · $settled", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    // The real-time α1 brake: how often it lowered the load, and the α1 it saw (only when there was any).
+                    hr.alpha1Reductions?.let { count ->
+                        Text(
+                            stringResource(R.string.record_alpha1_reductions, count),
+                            Modifier.testTag("record_alpha1_reductions_${block.blockIndex}"),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    hr.alpha1Mean?.let { mean ->
+                        val value = Format.number("%.2f", mean)
+                        Text(
+                            hr.alpha1Windows?.let { stringResource(R.string.record_alpha1_mean, value, it) } ?: stringResource(R.string.record_alpha1_mean_only, value),
+                            Modifier.testTag("record_alpha1_mean_${block.blockIndex}"),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
                 }
             }
         }

@@ -15,6 +15,10 @@ data class PlanSegment(
     val phase: BlockPhase,
     /** Set for a block guided by heart rate: [speedKmh] and [inclinePercent] are then its starting values. */
     val heartRate: HeartRateGuidance? = null,
+    /** The block keeps the speed in force when it starts: [speedKmh] is only the expected value (drawn as such). */
+    val keepsSpeed: Boolean = false,
+    /** Same as [keepsSpeed] for the incline. */
+    val keepsIncline: Boolean = false,
 ) {
     val durationSeconds: Int get() = endSeconds - startSeconds
 }
@@ -23,7 +27,10 @@ data class PlanSegment(
 fun ResolvedPlan.segments(): List<PlanSegment> {
     var start = 0
     return blocks.map { b ->
-        PlanSegment(b.index, start, start + b.estimatedDurationSeconds, b.speedKmh, b.inclinePercent, b.phase, b.heartRate).also { start = it.endSeconds }
+        PlanSegment(
+            b.index, start, start + b.estimatedDurationSeconds, b.speedKmh, b.inclinePercent, b.phase, b.heartRate,
+            keepsSpeed = b.keepsSpeed, keepsIncline = b.keepsIncline,
+        ).also { start = it.endSeconds }
     }
 }
 

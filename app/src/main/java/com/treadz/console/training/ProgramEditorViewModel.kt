@@ -185,6 +185,15 @@ class ProgramEditorViewModel(
         return block.copy(heartRate = hr.withAutoBounds(block, env.speedRange.max, env.inclineRange.max))
     }
 
+    /**
+     * "Keep" for the speed ([speed]) or the incline of a block: it starts with the value the treadmill has. Refused on the
+     * first block (nothing to keep with the belt stopped), except to switch it off.
+     */
+    fun setKeep(step: Int, block: Int?, speed: Boolean, keep: Boolean) {
+        if (keep && ProgramDrafts.isFirstBlock(step, block)) return
+        editBlock(step, block) { if (speed) it.copy(keepSpeed = keep) else it.copy(keepIncline = keep) }
+    }
+
     // ---- heart-rate targets
 
     /** Switches a block between "speed and incline" and "heart rate" (its speed and incline stay as the starting values). */

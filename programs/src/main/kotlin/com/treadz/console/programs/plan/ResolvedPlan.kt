@@ -6,6 +6,7 @@ import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.model.HeartRateZone
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.model.ProgramOrigin
+import kotlin.math.roundToInt
 
 /**
  * What the user chooses when starting a program.
@@ -86,6 +87,33 @@ data class ResolvedPlan(
         /** The lowest plan version that can hold these [blocks]. */
         fun planSchemaVersionFor(blocks: List<ResolvedBlock>): Int =
             if (blocks.any { it.keepsSpeed || it.keepsIncline }) PLAN_SCHEMA_VERSION else BASE_PLAN_SCHEMA_VERSION
+
+        /** Estimated distance of [blocks]: time blocks at their target speed, distance blocks as planned. */
+        fun estimatedDistanceMetersOf(blocks: List<ResolvedBlock>): Int = blocks.sumOf { b ->
+            when (val end = b.end) {
+                is BlockEnd.Duration -> b.speedKmh / 3.6 * end.seconds
+                is BlockEnd.Distance -> end.meters.toDouble()
+            }
+        }.roundToInt()
+
+        /** Estimated duration of a block that ends at [end], at [speedKmh] for a distance block. */
+        fun estimatedSecondsOf(end: BlockEnd, speedKmh: Double): Int = when (end) {
+            is BlockEnd.Duration -> end.seconds
+            is BlockEnd.Distance -> (end.meters / (speedKmh / 3.6)).roundToInt()
+        }
+    }
+
+    /**
+     * This plan with [block] in place of the block at its index, and the estimates of the whole plan updated (used when
+     * the user makes the current block longer during the run).
+     */
+    fun replacingBlock(block: ResolvedBlock): ResolvedPlan {
+        val updated = blocks.toMutableList().also { it[block.index] = block }
+        return copy(
+            blocks = updated,
+            estimatedDurationSeconds = updated.sumOf { it.estimatedDurationSeconds },
+            estimatedDistanceMeters = estimatedDistanceMetersOf(updated),
+        )
     }
 }
 

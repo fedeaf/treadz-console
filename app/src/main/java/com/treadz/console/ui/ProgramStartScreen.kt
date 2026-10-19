@@ -240,12 +240,13 @@ private fun PlanPreview(state: ProgramStartUiState, onSaveAsFree: (String) -> Un
             PlanLegend(
                 stringResource(R.string.chart_speed), stringResource(R.string.chart_incline),
                 heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+                kept = segments.any { it.keepsSpeed || it.keepsIncline },
             )
             if (plan != null) {
                 PlanTotals(plan)
                 PlanWarnings(plan.warnings)
-                // The blocks with their zones in bpm, where heart rate is involved.
-                if (state.origin != null || segments.any { it.heartRate != null }) PlanBlockList(plan, state.heartRateProfile)
+                // The blocks with their zones in bpm, or with "keep" where a block keeps a value.
+                if (state.origin != null || segments.any { it.heartRate != null || it.keepsSpeed || it.keepsIncline }) PlanBlockList(plan, state.heartRateProfile)
                 val copyName = stringResource(R.string.program_copy_name, programDisplayName(state.programId, state.name))
                 RowButton(stringResource(R.string.start_save_as_free), { onSaveAsFree(copyName) }, Modifier.testTag("save_as_free_button"), enabled = !state.savingCopy)
                 if (state.saveCopyFailed) ErrorText(stringResource(R.string.error_storage))

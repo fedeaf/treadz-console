@@ -227,6 +227,7 @@ fun EditorProblem.text(field: EditorField, adjust: com.treadz.console.programs.m
     EditorProblem.ZoneOrder -> stringResource(R.string.err_zone_order)
     EditorProblem.MinAboveMax -> stringResource(R.string.err_min_above_max)
     EditorProblem.StartOutsideBounds -> stringResource(R.string.err_start_outside_bounds)
+    EditorProblem.FirstBlockKeeps -> stringResource(R.string.err_first_block_keeps)
     EditorProblem.OutOfRange -> when (field) {
         EditorField.ZoneLow -> stringResource(R.string.err_percent_range, 0, 99)
         EditorField.ZoneHigh -> stringResource(R.string.err_percent_range, 1, 100)

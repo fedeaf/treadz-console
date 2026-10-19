@@ -301,6 +301,62 @@ class ProgramRunnerTest {
         rig.runner.stop()
     }
 
+    // ------------------------------------------------------------------ +1
+
+    @Test
+    fun `plus one adds a minute to a time block and the plan, the time left and the history follow`() = runTest {
+        val rig = ProgramRig(this)
+        rig.connect()
+        val plan = planOf(timed(60, 6.0), timed(60, 8.0))
+        rig.start(plan)
+        delay(10_000)
+        val before = rig.progress.totalRemainingSeconds
+
+        assertEquals(RunnerResult.Success, rig.runner.extendCurrentBlock())
+        // The earlier value may have been published up to a tick before.
+        assertTrue(rig.progress.totalRemainingSeconds in before + 59..before + 60, "${rig.progress.totalRemainingSeconds} after $before")
+        assertEquals(120, rig.progress.plan!!.blocks[0].estimatedDurationSeconds)
+        assertEquals(plan.estimatedDurationSeconds + 60, rig.progress.plan!!.estimatedDurationSeconds)
+        assertEquals(plan.estimatedDistanceMeters + 100, rig.progress.plan!!.estimatedDistanceMeters)
+        rig.awaitTrue(message = "extension event") { rig.eventsOf<ProgramEvent.BlockExtended>().isNotEmpty() }
+        val event = rig.eventsOf<ProgramEvent.BlockExtended>().single()
+        assertEquals(0, event.blockIndex)
+        assertEquals(60, event.addedSeconds)
+        assertNull(event.addedMeters)
+        assertEquals(rig.progress.plan, event.plan)
+
+        // The first block now ends at 2 min of program time.
+        rig.awaitTrue(message = "second block") { rig.progress.currentBlockIndex == 1 }
+        val done = rig.eventsOf<ProgramEvent.BlockCompleted>().first()
+        assertEquals(BlockChangeReason.Completed, done.reason)
+        assertTrue(done.elapsedSeconds in 120..121, "took ${done.elapsedSeconds} s")
+        rig.runner.stop()
+    }
+
+    @Test
+    fun `plus one adds 100 m to a distance block, also while paused, and is refused when not running`() = runTest {
+        val rig = ProgramRig(this)
+        assertTrue(rig.runner.extendCurrentBlock() is RunnerResult.NotAllowed)
+        rig.connect()
+        rig.start(planOf(distance(100, 12.0), timed(20, 6.0)))
+        delay(5_000)
+        rig.runner.pause()
+        assertEquals(RunnerResult.Success, rig.runner.extendCurrentBlock())
+        rig.awaitTrue(message = "extension event") { rig.eventsOf<ProgramEvent.BlockExtended>().isNotEmpty() }
+        val event = rig.eventsOf<ProgramEvent.BlockExtended>().single()
+        assertEquals(100, event.addedMeters)
+        assertNull(event.addedSeconds)
+        assertEquals(com.treadz.console.programs.model.BlockEnd.Distance(200), rig.progress.plan!!.blocks[0].end)
+        assertEquals(60, rig.progress.plan!!.blocks[0].estimatedDurationSeconds)
+        rig.runner.resume()
+
+        rig.awaitTrue(message = "second block") { rig.progress.currentBlockIndex == 1 }
+        val done = rig.eventsOf<ProgramEvent.BlockCompleted>().first()
+        assertTrue(done.meters in 200..220, "ended at ${done.meters} m")
+        rig.awaitState(RunState.Finished)
+        assertTrue(rig.runner.extendCurrentBlock() is RunnerResult.NotAllowed)
+    }
+
     // ------------------------------------------------------------------ stop
 
     @Test

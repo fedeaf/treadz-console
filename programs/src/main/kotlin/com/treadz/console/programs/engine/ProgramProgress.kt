@@ -179,6 +179,20 @@ sealed interface ProgramEvent {
         val reason: BlockChangeReason,
     ) : ProgramEvent
 
+    /**
+     * The user made the current block longer ("+1": [addedSeconds] to a time block or [addedMeters] to a distance
+     * block). [block] is the block as it is now and [plan] the whole plan with it: what the history keeps from now on.
+     */
+    data class BlockExtended(
+        override val atMillis: Long,
+        override val programSeconds: Int,
+        val blockIndex: Int,
+        val addedSeconds: Int?,
+        val addedMeters: Int?,
+        val block: ResolvedBlock,
+        val plan: ResolvedPlan,
+    ) : ProgramEvent
+
     /** The engine sent the targets of a block (only the quantities that differed from the treadmill's). */
     data class TargetsApplied(
         override val atMillis: Long,

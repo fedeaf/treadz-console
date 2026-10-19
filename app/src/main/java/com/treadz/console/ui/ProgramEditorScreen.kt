@@ -34,6 +34,7 @@ import com.treadz.console.training.BlockDraft
 import com.treadz.console.training.EditorField
 import com.treadz.console.training.FieldRef
 import com.treadz.console.training.HeartRateDraft
+import com.treadz.console.training.ProgramDrafts
 import com.treadz.console.training.ProgramEditorUiState
 import com.treadz.console.training.RepeatStepDraft
 import com.treadz.console.training.SingleStepDraft
@@ -74,6 +75,8 @@ data class ProgramEditorActions(
     val onHeartRateBound: (step: Int, block: Int?, maximum: Boolean, text: String) -> Unit = { _, _, _, _ -> },
     val onEditHeartRate: (step: Int, block: Int?, edit: (HeartRateDraft) -> HeartRateDraft) -> Unit = { _, _, _ -> },
     val onOpenResting: () -> Unit = {},
+    /** "Keep" for the speed ([speed] true) or the incline of a block: it starts with the value the treadmill has. */
+    val onKeep: (step: Int, block: Int?, speed: Boolean, keep: Boolean) -> Unit = { _, _, _, _ -> },
 )
 
 /** Editor of a free program: name, blocks by time or distance, repeats, and a live preview. */
@@ -276,11 +279,15 @@ private fun BlockCard(
                     )
                 }
             }
+            // "Keep" starts the block with the value the treadmill has; not on the first block (only to switch it off).
+            val first = ProgramDrafts.isFirstBlock(stepIndex, blockIndex)
+            val keepNote = stringResource(if (hr != null) R.string.editor_keep_hr_note else R.string.editor_keep_note)
             val speedField: @Composable (Modifier) -> Unit = { m ->
                 StepperField(
                     label = stringResource(if (hr != null) R.string.editor_hr_start_speed else R.string.chart_speed), value = block.speed, onValue = { v -> edit { it.copy(speed = v) } },
                     onStep = { d -> edit { it.stepSpeed(d) } }, unit = null, tag = "${tag}_speed",
                     error = problem(state, stepIndex, blockIndex, EditorField.Speed, hr?.adjust), modifier = m,
+                    keep = KeepOption(block.keepSpeed, enabled = !first || block.keepSpeed, note = keepNote) { actions.onKeep(stepIndex, blockIndex, true, it) },
                 )
             }
             val inclineField: @Composable (Modifier) -> Unit = { m ->
@@ -288,6 +295,7 @@ private fun BlockCard(
                     label = stringResource(if (hr != null) R.string.editor_hr_start_incline else R.string.chart_incline), value = block.incline, onValue = { v -> edit { it.copy(incline = v) } },
                     onStep = { d -> edit { it.stepIncline(d) } }, unit = null, tag = "${tag}_incline",
                     error = problem(state, stepIndex, blockIndex, EditorField.Incline, hr?.adjust), keyboardType = KeyboardType.Number, modifier = m,
+                    keep = KeepOption(block.keepIncline, enabled = !first || block.keepIncline, note = keepNote) { actions.onKeep(stepIndex, blockIndex, false, it) },
                 )
             }
             if (wide) {
@@ -362,6 +370,7 @@ private fun Preview(state: ProgramEditorUiState, modifier: Modifier, fill: Boole
             PlanLegend(
                 stringResource(R.string.chart_speed), stringResource(R.string.chart_incline),
                 heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+                kept = segments.any { it.keepsSpeed || it.keepsIncline },
             )
             if (plan != null) {
                 PlanTotals(plan)

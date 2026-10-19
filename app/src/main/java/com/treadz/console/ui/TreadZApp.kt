@@ -198,6 +198,7 @@ fun TreadZRoot(
                                 onResumeHeartRateControl = runVm::resumeHeartRateControl,
                                 onRampSpeedStep = runVm::stepRampSpeed,
                                 onRampInclineStep = runVm::stepRampIncline,
+                                onExtendBlock = runVm::extendCurrentBlock,
                             )
                             if (visible == SessionKind.Program) ProgramRunScreen(ui, run, controlActions, runActions)
                             else FitnessRunScreen(ui, run, controlActions, runActions)
@@ -605,6 +606,7 @@ fun TreadZRoot(
                                 onDiscard = navigation::pop,
                                 onCancelDiscard = vm::cancelDiscard,
                                 onHeartRateTarget = vm::setHeartRateTarget,
+                                onKeep = vm::setKeep,
                                 onZone = vm::setZone,
                                 onReserve = vm::setReserve,
                                 onAdjust = vm::setAdjust,

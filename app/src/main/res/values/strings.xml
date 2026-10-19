@@ -796,6 +796,7 @@
     <string name="detail_plan_speed">Planned speed (km/h)</string>
     <string name="detail_plan_incline">Planned incline (%)</string>
     <string name="detail_plan_actual">Actual speed</string>
+    <string name="detail_plan_actual_incline">Actual incline</string>
     <string name="finished_belt_running">The belt keeps running. Press Done to control it by hand, or STOP.</string>
 
     <!-- Milestone 5, phase C1: home, devices, heart-rate strap, resting heart rate, maximum heart rate -->
@@ -940,7 +941,7 @@
     <string name="block_list_hr_zone_bpm">Heart rate %1$d–%2$d bpm</string>
     <string name="block_list_hr_zone_max">Heart rate %1$d–%2$d %% of the maximum</string>
     <string name="block_list_hr_zone_reserve">Heart rate %1$d–%2$d %% of the reserve</string>
-    <string name="block_list_hr_start">Starts at %1$s km/h and %2$s %% · adjusts the %3$s between %4$s and %5$s</string>
+    <string name="block_list_hr_start">Starts at %1$s and %2$s · adjusts the %3$s between %4$s and %5$s</string>
     <string name="block_repetition_short">repetition %1$d</string>
     <string name="chart_heart_rate_blocks">Guided by heart rate</string>
     <string name="value_percent">%1$s %%</string>
@@ -1254,4 +1255,24 @@
     <string name="analysis_note_invalid_max">The maximum heart rate of the profile cannot be used, so the training load and the fitness index are not calculated.</string>
     <string name="analysis_note_no_rr">No beat-to-beat (RR) data: the time below your aerobic threshold needs a chest strap connected to the app.</string>
     <string name="analysis_note_no_windows">The beat-to-beat data were too short or too noisy to measure the time below your aerobic threshold.</string>
+    <!-- Live screens batch: "+1", "keep" values and the α1 brake in the session record. -->
+    <string name="block_extend_minutes">+%1$d min</string>
+    <string name="block_extend_meters">+%1$d m</string>
+    <string name="block_extend_minutes_description">Add %1$d min to this block</string>
+    <string name="block_extend_meters_description">Add %1$d m to this block</string>
+    <string name="record_alpha1_reductions">Reductions by α1: %1$d</string>
+    <string name="record_alpha1_mean">Mean α1: %1$s (%2$d windows)</string>
+    <string name="record_alpha1_mean_only">Mean α1: %1$s</string>
+    <string name="chart_kept">Kept value (approximate)</string>
+    <string name="target_pair">%1$s · %2$s</string>
+    <string name="target_keep_speed">keep speed</string>
+    <string name="target_keep_incline">keep incline</string>
+    <string name="target_keep_approx">%1$s (≈ %2$s)</string>
+    <string name="hr_start_speed_kept">the current speed (≈ %1$s km/h)</string>
+    <string name="hr_start_incline_kept">the current incline (≈ %1$s %%)</string>
+    <string name="editor_keep">Keep</string>
+    <string name="editor_keep_value">Kept</string>
+    <string name="editor_keep_note">Starts with the value the treadmill has when the block begins.</string>
+    <string name="editor_keep_hr_note">Starts from the value the treadmill has, brought within the block\'s bounds.</string>
+    <string name="err_first_block_keeps">Not on the first block: the belt starts stopped, so there is nothing to keep.</string>
 </resources>

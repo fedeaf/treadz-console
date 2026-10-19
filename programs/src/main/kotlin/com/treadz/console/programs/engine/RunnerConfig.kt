@@ -13,6 +13,10 @@ data class RunnerConfig(
      * button of a media player); earlier than that it goes back to the previous block.
      */
     val previousRestartsBlockAfterMs: Long = 5_000,
+    /** What "+1" adds to the current block: this many seconds to a time block... */
+    val extendBlockSeconds: Int = 60,
+    /** ...and this many metres to a distance block. */
+    val extendBlockMeters: Int = 100,
     /** Rules of the heart-rate-guided blocks. */
     val heartRate: HeartRateControlConfig = HeartRateControlConfig(),
 )

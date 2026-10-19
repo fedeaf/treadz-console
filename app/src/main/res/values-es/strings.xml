@@ -796,6 +796,7 @@
     <string name="detail_plan_speed">Velocidad planificada (km/h)</string>
     <string name="detail_plan_incline">Inclinación planificada (%)</string>
     <string name="detail_plan_actual">Velocidad real</string>
+    <string name="detail_plan_actual_incline">Inclinación real</string>
     <string name="finished_belt_running">La banda sigue en marcha. Pulsa Hecho para controlarla a mano, o STOP.</string>
 
     <!-- Milestone 5, phase C1: home, devices, heart-rate strap, resting heart rate, maximum heart rate -->
@@ -940,7 +941,7 @@
     <string name="block_list_hr_zone_bpm">Pulso %1$d–%2$d ppm</string>
     <string name="block_list_hr_zone_max">Pulso %1$d–%2$d %% del máximo</string>
     <string name="block_list_hr_zone_reserve">Pulso %1$d–%2$d %% de la reserva</string>
-    <string name="block_list_hr_start">Empieza a %1$s km/h y %2$s %% · ajusta la %3$s entre %4$s y %5$s</string>
+    <string name="block_list_hr_start">Empieza a %1$s y %2$s · ajusta la %3$s entre %4$s y %5$s</string>
     <string name="block_repetition_short">repetición %1$d</string>
     <string name="chart_heart_rate_blocks">Guiado por pulso</string>
     <string name="value_percent">%1$s %%</string>
@@ -1254,4 +1255,24 @@
     <string name="analysis_note_invalid_max">El pulso máximo del perfil no es utilizable, así que no se calculan la carga ni el índice de forma.</string>
     <string name="analysis_note_no_rr">Sin datos de latido a latido (RR): el tiempo bajo tu umbral aeróbico necesita una banda de pecho conectada a la app.</string>
     <string name="analysis_note_no_windows">Los datos de latido a latido fueron demasiado cortos o con demasiado ruido para medir el tiempo bajo tu umbral aeróbico.</string>
+    <!-- Live screens batch: "+1", "keep" values and the α1 brake in the session record. -->
+    <string name="block_extend_minutes">+%1$d min</string>
+    <string name="block_extend_meters">+%1$d m</string>
+    <string name="block_extend_minutes_description">Añadir %1$d min a este bloque</string>
+    <string name="block_extend_meters_description">Añadir %1$d m a este bloque</string>
+    <string name="record_alpha1_reductions">Bajadas por α1: %1$d</string>
+    <string name="record_alpha1_mean">α1 medio: %1$s (%2$d ventanas)</string>
+    <string name="record_alpha1_mean_only">α1 medio: %1$s</string>
+    <string name="chart_kept">Valor mantenido (aproximado)</string>
+    <string name="target_pair">%1$s · %2$s</string>
+    <string name="target_keep_speed">mantener velocidad</string>
+    <string name="target_keep_incline">mantener inclinación</string>
+    <string name="target_keep_approx">%1$s (≈ %2$s)</string>
+    <string name="hr_start_speed_kept">la velocidad que lleve (≈ %1$s km/h)</string>
+    <string name="hr_start_incline_kept">la inclinación que lleve (≈ %1$s %%)</string>
+    <string name="editor_keep">Mantener</string>
+    <string name="editor_keep_value">Mantiene</string>
+    <string name="editor_keep_note">Empieza con el valor que tenga la cinta al empezar el bloque.</string>
+    <string name="editor_keep_hr_note">Empieza con el valor que tenga la cinta, dentro de los límites del bloque.</string>
+    <string name="err_first_block_keeps">No en el primer bloque: la cinta empieza parada, así que no hay nada que mantener.</string>
 </resources>

@@ -46,10 +46,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -160,6 +162,15 @@ class TrainingCoordinator(
     /** Where the manual controls send their commands. */
     val commands: TreadmillCommands = RoutedCommands()
 
+    private val _programSeries = MutableStateFlow(ProgramSeries())
+
+    /**
+     * What the treadmill really did during the current program (or the last one, until another starts): the live
+     * chart and the chart at the end draw it over the plan. It lives here, not in a screen, so leaving and reopening
+     * the program screen keeps it.
+     */
+    val programSeries: StateFlow<ProgramSeries> = _programSeries
+
     /** What the manual controls may do now. */
     val controls: StateFlow<SessionControls> = combine(programRunner.progress, fitnessRunner.progress) { p, t -> controlsOf(p, t) }
         .distinctUntilChanged()
@@ -189,6 +200,9 @@ class TrainingCoordinator(
         scope.launch { programRunner.progress.map { it.state.isActive() }.distinctUntilChanged().collect { if (it) programResultSeen.value = false } }
         scope.launch { fitnessRunner.progress.map { it.phase.isActive() }.distinctUntilChanged().collect { if (it) testResultSeen.value = false } }
         scope.launch { followSessions() }
+        scope.launch { followProgramSeries() }
+        // "+1" changes the plan: the workout keeps the plan as it was run, so the history compares like with like.
+        scope.launch { programRunner.events.filterIsInstance<ProgramEvent.BlockExtended>().collect { links.link(WorkoutLink(plan = it.plan)) } }
         // The test result is stored as soon as it exists (during the cool-down) and again if it changes until the end.
         scope.launch {
             fitnessRunner.progress.map { it.result }.filterNotNull().distinctUntilChanged().collect { result ->
@@ -212,6 +226,23 @@ class TrainingCoordinator(
             keep(finished)
         } else if (controller.state.value.status != BeltStatus.Running) {
             keepWhenEnded = inProgressId
+        }
+    }
+
+    /**
+     * Fills [programSeries]: emptied when a program starts, a sample per program second while the program clock runs
+     * (never while starting, paused or interrupted), and none while the treadmill data are not current.
+     */
+    private suspend fun followProgramSeries() {
+        var wasActive = false
+        programRunner.progress.collect { p ->
+            val active = p.state.isActive()
+            if (active && !wasActive) _programSeries.value = ProgramSeries()
+            wasActive = active
+            if (p.state == RunState.Running && !controller.state.value.isStale) {
+                val sample = ActualSample(p.totalElapsedSeconds, p.actualSpeedKmh, p.actualInclinePercent)
+                _programSeries.update { it.appended(sample) }
+            }
         }
     }
 

@@ -47,6 +47,8 @@ fun MetricCard(
     unitInline: Boolean = true,
     /** Small content at the right of the label (the heart-rate source icon). */
     labelTrailing: (@Composable () -> Unit)? = null,
+    /** The figure is always [maxValueSize] (the speed and the incline); otherwise it shrinks to fit. */
+    fixedValueSize: Boolean = false,
 ) {
     val valueColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
     Surface(
@@ -92,7 +94,8 @@ fun MetricCard(
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Clip,
-                        autoSize = TextAutoSize.StepBased(
+                        fontSize = if (fixedValueSize) maxValueSize else TextUnit.Unspecified,
+                        autoSize = if (fixedValueSize) null else TextAutoSize.StepBased(
                             minFontSize = 24.sp,
                             maxFontSize = maxValueSize,
                             stepSize = 2.sp,

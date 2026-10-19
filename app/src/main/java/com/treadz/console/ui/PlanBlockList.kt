@@ -62,7 +62,8 @@ private fun BlockLine(block: ResolvedBlock, profile: HeartRateProfile?, fromHist
             )
             if (guidance == null) {
                 Text(
-                    stringResource(R.string.block_target, Format.speed(block.speedKmh), Format.incline(block.inclinePercent)),
+                    plannedTargetText(block),
+                    Modifier.testTag("plan_block_target_${block.index}"),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
@@ -73,7 +74,8 @@ private fun BlockLine(block: ResolvedBlock, profile: HeartRateProfile?, fromHist
                 Text(
                     stringResource(
                         R.string.block_list_hr_start,
-                        Format.speed(block.speedKmh), Format.incline(block.inclinePercent),
+                        if (block.keepsSpeed) stringResource(R.string.hr_start_speed_kept, Format.speed(block.speedKmh)) else stringResource(R.string.value_kmh, Format.speed(block.speedKmh)),
+                        if (block.keepsIncline) stringResource(R.string.hr_start_incline_kept, Format.incline(block.inclinePercent)) else stringResource(R.string.value_percent, Format.incline(block.inclinePercent)),
                         guidance.adjust.label(),
                         adjustedValueText(guidance.adjust, guidance.minimum), adjustedValueText(guidance.adjust, guidance.maximum),
                     ),
@@ -85,6 +87,30 @@ private fun BlockLine(block: ResolvedBlock, profile: HeartRateProfile?, fromHist
             }
         }
     }
+}
+
+/** "8.0 km/h · 2 %": what a block asks for now (the engine's real targets during a run). */
+@Composable
+fun targetText(speedKmh: Double, inclinePercent: Double): String =
+    stringResource(R.string.block_target, Format.speed(speedKmh), Format.incline(inclinePercent))
+
+/**
+ * What a block of a plan asks for, with "keep" for a value it keeps instead of presenting the expected number as planned:
+ * the real one is whatever is in force when the block starts. With [approximate] the expected value follows, marked as
+ * approximate ("keep speed (≈ 8.0 km/h) · 2 %").
+ */
+@Composable
+fun plannedTargetText(block: ResolvedBlock, approximate: Boolean = true): String {
+    val speed = stringResource(R.string.value_kmh, Format.speed(block.speedKmh))
+    val incline = stringResource(R.string.value_percent, Format.incline(block.inclinePercent))
+    @Composable
+    fun kept(keep: Int, expected: String) =
+        if (approximate) stringResource(R.string.target_keep_approx, stringResource(keep), expected) else stringResource(keep)
+    return stringResource(
+        R.string.target_pair,
+        if (block.keepsSpeed) kept(R.string.target_keep_speed, speed) else speed,
+        if (block.keepsIncline) kept(R.string.target_keep_incline, incline) else incline,
+    )
 }
 
 /** "Heart rate 118–134 bpm", or the percentages when the user's maximum is not known. */

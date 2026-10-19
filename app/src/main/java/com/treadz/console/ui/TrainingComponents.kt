@@ -1,6 +1,7 @@
 package com.treadz.console.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.treadz.console.R
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.model.BlockPhase
@@ -48,7 +50,16 @@ fun StepSymbolButton(symbol: String, description: String, onClick: () -> Unit, t
     }
 }
 
-/** A number the user can type, with − / + buttons around it. [unit] is shown after the number. */
+/**
+ * "Keep" next to a value of a block: [kept] means the block starts with the value the treadmill has; [note] explains it
+ * under the field while it is on. Not [enabled] where nothing can be kept (the first block), unless it is on.
+ */
+data class KeepOption(val kept: Boolean, val enabled: Boolean, val note: String, val onChange: (Boolean) -> Unit)
+
+/**
+ * A number the user can type, with − / + buttons around it. [unit] is shown after the number. With [keep] a "Keep"
+ * switch goes next to the label; while it is on the number is replaced by "Keep" (the typed value stays behind it).
+ */
 @Composable
 fun StepperField(
     label: String,
@@ -63,27 +74,65 @@ fun StepperField(
     keyboardType: KeyboardType = KeyboardType.Decimal,
     lessDescription: String = stringResource(R.string.stepper_less, label),
     moreDescription: String = stringResource(R.string.stepper_more, label),
+    keep: KeepOption? = null,
 ) {
+    val kept = keep?.kept == true
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            StepSymbolButton("−", lessDescription, { onStep(-1) }, "${tag}_minus")
-            OutlinedTextField(
-                value = value,
-                onValueChange = onValue,
-                isError = error != null,
-                suffix = if (unit != null) ({ Text(unit) }) else null,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Center),
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag(tag),
-            )
-            StepSymbolButton("+", moreDescription, { onStep(+1) }, "${tag}_plus")
+            StepSymbolButton("−", lessDescription, { onStep(-1) }, "${tag}_minus", enabled = !kept)
+            if (kept) {
+                // The value is whatever the treadmill has when the block starts: nothing to type.
+                androidx.compose.foundation.layout.Box(
+                    Modifier.weight(1f).heightIn(min = 56.dp)
+                        .border(1.dp, if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+                        .testTag("${tag}_kept"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.editor_keep_value),
+                        Modifier.padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 11.sp, maxFontSize = MaterialTheme.typography.titleLarge.fontSize, stepSize = 1.sp),
+                    )
+                }
+            } else {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValue,
+                    isError = error != null,
+                    suffix = if (unit != null) ({ Text(unit) }) else null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                    textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Center),
+                    modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag(tag),
+                )
+            }
+            StepSymbolButton("+", moreDescription, { onStep(+1) }, "${tag}_plus", enabled = !kept)
         }
-        val text = error ?: supporting
+        // Under the field (so that fields side by side stay aligned): the "Keep" switch.
+        if (keep != null) {
+            androidx.compose.material3.FilterChip(
+                selected = kept,
+                onClick = { keep.onChange(!kept) },
+                enabled = keep.enabled,
+                label = { Text(stringResource(R.string.editor_keep), style = MaterialTheme.typography.labelLarge) },
+                modifier = Modifier.heightIn(min = 40.dp).testTag("${tag}_keep"),
+                colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            )
+        }
+        val text = error ?: supporting ?: keep?.note?.takeIf { kept }
         if (text != null) {
             Text(
                 text,
+                Modifier.testTag("${tag}_note"),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = if (error != null) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,

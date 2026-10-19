@@ -135,8 +135,10 @@ fun StepButton(
 }
 
 /**
- * Speed or incline: −/+ around the figure, with the requested target next to it while it is not reached, a thin
- * progress line while the treadmill verifies a command, and a [footer] (the presets).
+ * Speed or incline: the figure at its fixed size ([LiveSizes.figure]) with −/+ and a [footer] (the presets), in a panel
+ * of fixed height ([LiveSizes.adjustPanelHeight]) so that nothing around it moves or resizes the figure. The requested
+ * target shows next to the label while it is not reached, a thin line while the treadmill verifies a command, and a
+ * failed command's [message] takes the place of the footer until the next command.
  */
 @Composable
 fun AdjustPanel(
@@ -170,76 +172,102 @@ fun AdjustPanel(
         onStep = step,
         testTag = "${tag}_$suffix",
         modifier = mod,
-        symbolSize = if (sizes.wide) 72.sp else 48.sp,
+        symbolSize = sizes.stepSymbol,
     )
 
     @Composable
-    fun figure(modifier: Modifier) = Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
-            Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-            Text(unit, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(
-                value,
-                modifier = Modifier.testTag("${tag}_value"),
-                color = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.SansSerif,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                textAlign = TextAlign.Center,
-                autoSize = TextAutoSize.StepBased(minFontSize = 24.sp, maxFontSize = sizes.stepValue, stepSize = 2.sp),
-            )
-        }
-        // The line is always there so the figure does not jump when a target appears.
-        Text(
-            target ?: " ",
-            modifier = Modifier.testTag("${tag}_target"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.extra.warning,
-            maxLines = 1,
-        )
+    fun labelText() = Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
+        Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(unit, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 
-    Panel(modifier.testTag(tag)) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.fillMaxWidth().height(3.dp)) {
-                if (busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("${tag}_busy"), color = MaterialTheme.colorScheme.primary)
+    @Composable
+    fun targetText(style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier) = Text(
+        // Always there (a blank line without a target) so that nothing moves when one appears.
+        target ?: " ",
+        modifier = modifier.testTag("${tag}_target"),
+        style = style,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.extra.warning,
+        maxLines = 1,
+    )
+
+    Panel(modifier.height(sizes.adjustPanelHeight).testTag(tag)) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (sizes.wide) {
+                    // Tablet: label and target on one line, the figure, the two big buttons side by side under it.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { labelText() }
+                        targetText(MaterialTheme.typography.headlineSmall)
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        LiveFigureText(value, sizes, "${tag}_value", dimmed = dimmed)
+                    }
+                    Row(Modifier.fillMaxWidth().height(sizes.stepButton), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        button("−", lessDescription, onLessPress, onLessStep, "minus", Modifier.weight(1f).fillMaxHeight())
+                        button("+", moreDescription, onMorePress, onMoreStep, "plus", Modifier.weight(1f).fillMaxHeight())
+                    }
+                } else {
+                    // Phone: the buttons on both sides of the figure.
+                    Row(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        button("−", lessDescription, onLessPress, onLessStep, "minus", Modifier.width(sizes.stepButton).fillMaxHeight())
+                        Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            labelText()
+                            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                LiveFigureText(value, sizes, "${tag}_value", dimmed = dimmed)
+                            }
+                            targetText(MaterialTheme.typography.titleMedium)
+                        }
+                        button("+", moreDescription, onMorePress, onMoreStep, "plus", Modifier.width(sizes.stepButton).fillMaxHeight())
+                    }
+                }
+                Box(Modifier.fillMaxWidth().height(sizes.presetHeight), contentAlignment = Alignment.CenterStart) {
+                    if (message != null) {
+                        Text(
+                            message,
+                            modifier = Modifier.fillMaxWidth().testTag("${tag}_failure").semantics { liveRegion = LiveRegionMode.Assertive },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else {
+                        footer()
+                    }
                 }
             }
-            if (sizes.wide) {
-                // Tablet: the figure takes the room, the two big buttons side by side under it.
-                figure(Modifier.weight(1f).fillMaxWidth())
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    button("−", lessDescription, onLessPress, onLessStep, "minus", Modifier.weight(1f).height(sizes.stepButton))
-                    button("+", moreDescription, onMorePress, onMoreStep, "plus", Modifier.weight(1f).height(sizes.stepButton))
-                }
-            } else {
-                // Phone: the buttons on both sides of the figure.
-                Row(
-                    Modifier.fillMaxWidth().height(sizes.stepRowHeight),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    button("−", lessDescription, onLessPress, onLessStep, "minus", Modifier.width(sizes.stepButton).fillMaxHeight())
-                    figure(Modifier.weight(1f).fillMaxHeight())
-                    button("+", moreDescription, onMorePress, onMoreStep, "plus", Modifier.width(sizes.stepButton).fillMaxHeight())
-                }
-            }
-            if (message != null) {
-                Text(
-                    message,
-                    modifier = Modifier.fillMaxWidth().testTag("${tag}_failure").semantics { liveRegion = LiveRegionMode.Assertive },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error,
+            // The verification line runs along the top edge: it takes no room from the figure.
+            if (busy) {
+                LinearProgressIndicator(
+                    Modifier.align(Alignment.TopCenter).padding(horizontal = 28.dp, vertical = 4.dp).fillMaxWidth().height(3.dp).testTag("${tag}_busy"),
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
-            footer()
+        }
+    }
+}
+
+/**
+ * The speed and incline panels of the free workout and of a program: incline on the left and speed on the right on the
+ * tablet (in a row of fixed height), incline above speed on the phone (the same reading order).
+ */
+@Composable
+fun SpeedInclinePanels(ui: MainUiState, controls: ControlActions, sizes: LiveSizes) {
+    if (sizes.wide) {
+        Row(Modifier.fillMaxWidth().height(sizes.adjustPanelHeight), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
+            InclinePanel(ui, controls, sizes, Modifier.weight(1f))
+            SpeedPanel(ui, controls, sizes, Modifier.weight(1f))
+        }
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
+            InclinePanel(ui, controls, sizes, Modifier.fillMaxWidth())
+            SpeedPanel(ui, controls, sizes, Modifier.fillMaxWidth())
         }
     }
 }
@@ -393,6 +421,8 @@ fun PauseResumeButton(ui: MainUiState, actions: ControlActions, sizes: LiveSizes
         enabled = enabled,
         modifier = modifier.height(sizes.pauseHeight).testTag("pause_resume_button"),
         shape = RoundedCornerShape(24.dp),
+        // A narrow slot (the phone's row of block buttons) keeps the word big.
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (paused) colors.primary else MaterialTheme.extra.warning,
             contentColor = if (paused) colors.onPrimary else MaterialTheme.extra.onWarning,

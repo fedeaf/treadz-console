@@ -55,6 +55,13 @@ data class BlockDraft(
     val name: String = "",
     /** Set when the block's target is a heart-rate zone instead of a speed and an incline. */
     val heartRate: HeartRateDraft? = null,
+    /**
+     * "Keep": the block starts with the speed the treadmill has (for a heart-rate block, its start value, brought within
+     * the bounds). [speed] is then left as it was, unused, so switching "Keep" off brings it back.
+     */
+    val keepSpeed: Boolean = false,
+    /** "Keep" for the incline, like [keepSpeed]. */
+    val keepIncline: Boolean = false,
 )
 
 /** A step of the draft: a block, or a group of blocks repeated. */
@@ -92,6 +99,9 @@ enum class EditorProblem {
 
     /** Heart-rate block: the starting value is outside the bounds. */
     StartOutsideBounds,
+
+    /** "Keep" on the first block: the belt is stopped when it starts, so there is no value to keep. */
+    FirstBlockKeeps,
 }
 
 data class ParsedProgram(val program: Program?, val problems: Map<FieldRef, EditorProblem>)
@@ -103,6 +113,9 @@ object ProgramDrafts {
 
     /** A heart-rate block shorter than this is too short for the heart rate to respond (a warning only). */
     const val HEART_RATE_MIN_SECONDS = 180
+
+    /** The block a run starts with: the first step, or the first block of a repeat that is the first step. */
+    fun isFirstBlock(step: Int, block: Int?): Boolean = step == 0 && (block == null || block == 0)
 
     /** A new program starts with a warm-up, a main part and a cool-down, easy to change. */
     fun starter(nextKey: () -> Long) = ProgramDraft(
@@ -116,7 +129,7 @@ object ProgramDrafts {
     /**
      * Programs with relative targets cannot be edited here, nor can the personalised ones (their values come from the
      * generator: duplicate one to get a free program that can be edited). Absolute and heart-rate targets (with an absolute
-     * start) can, unless they keep a value (the editor does not handle "keep" yet).
+     * start) can, also when they keep a value.
      */
     fun isEditable(program: Program): Boolean = program.kind != ProgramKind.Personalised && program.steps.all { step ->
         when (step) {
@@ -126,28 +139,40 @@ object ProgramDrafts {
     }
 
     private fun isEditable(target: BlockTarget): Boolean = when (target) {
-        is BlockTarget.Absolute -> !target.keepsSpeed && !target.keepsIncline
+        is BlockTarget.Absolute -> true
         is BlockTarget.Relative -> false
-        is BlockTarget.HeartRate -> target.start is BlockTarget.Absolute && !target.keepsSpeed && !target.keepsIncline
+        is BlockTarget.HeartRate -> target.start is BlockTarget.Absolute
     }
 
-    /** The draft of an editable [program] (see [isEditable]). */
+    /**
+     * The draft of an editable [program] (see [isEditable]). A kept value shows, behind its "Keep", the value of the block
+     * before it (the default of a new block for the first one), which is what it gets if "Keep" is switched off.
+     */
     fun draftOf(program: Program, nextKey: () -> Long): ProgramDraft {
+        val defaults = BlockDraft(0)
+        var lastSpeed = defaults.speed
+        var lastIncline = defaults.incline
         fun block(b: Block): BlockDraft {
             val target = b.target
             val hr = target as? BlockTarget.HeartRate
             val start = (hr?.start ?: target) as BlockTarget.Absolute
             val end = b.end
+            val speed = start.speedKmh?.let(Decimals::format) ?: lastSpeed
+            val incline = start.inclinePercent?.roundToInt()?.toString() ?: lastIncline
+            lastSpeed = speed
+            lastIncline = incline
             return BlockDraft(
                 key = nextKey(),
                 phase = b.phase,
                 byDistance = end is BlockEnd.Distance,
                 duration = if (end is BlockEnd.Duration) formatDuration(end.seconds) else "5:00",
                 distance = if (end is BlockEnd.Distance) end.meters.toString() else "1000",
-                speed = Decimals.format(requireNotNull(start.speedKmh) { "A program that keeps a value is not editable" }),
-                incline = requireNotNull(start.inclinePercent) { "A program that keeps a value is not editable" }.roundToInt().toString(),
+                speed = speed,
+                incline = incline,
                 name = b.name.orEmpty(),
                 heartRate = hr?.let { draftOf(it) },
+                keepSpeed = start.speedKmh == null,
+                keepIncline = start.inclinePercent == null,
             )
         }
         return ProgramDraft(
@@ -232,7 +257,11 @@ object ProgramDrafts {
         if (inRepeat && seconds < HeartRateControlConfig().continuousMinBlockSeconds) HeartRateControlMode.BetweenRepetitions
         else HeartRateControlMode.Continuous
 
-    /** Seconds a block lasts as written; a block that ends by distance at its starting speed. `null` while a number is not valid. */
+    /**
+     * Seconds a block lasts as written; a block that ends by distance at its starting speed. `null` while a number is not
+     * valid. A distance block that keeps the speed is estimated at the value behind its "Keep" (the previous block's when
+     * the draft was opened), like the plan estimates it at the expected speed.
+     */
     fun blockSeconds(b: BlockDraft): Double? =
         if (b.byDistance) {
             val meters = b.distance.trim().toIntOrNull()
@@ -265,13 +294,17 @@ object ProgramDrafts {
                 if (seconds == null) problems[ref(EditorField.Duration)] = if (b.duration.isBlank()) EditorProblem.Required else EditorProblem.NotANumber
                 BlockEnd.Duration(seconds ?: ProgramLimits.MIN_DURATION_SECONDS)
             }
-            val speed = Decimals.parse(b.speed)
-            if (speed == null) problems[ref(EditorField.Speed)] = if (b.speed.isBlank()) EditorProblem.Required else EditorProblem.NotANumber
-            val incline = b.incline.trim().toIntOrNull()
-            if (incline == null) problems[ref(EditorField.Incline)] = if (b.incline.isBlank()) EditorProblem.Required else EditorProblem.NotWhole
+            // A kept value is not read: whatever is behind its "Keep" does not count.
+            val speed = if (b.keepSpeed) null else Decimals.parse(b.speed)
+            if (!b.keepSpeed && speed == null) problems[ref(EditorField.Speed)] = if (b.speed.isBlank()) EditorProblem.Required else EditorProblem.NotANumber
+            val incline = if (b.keepIncline) null else b.incline.trim().toIntOrNull()
+            if (!b.keepIncline && incline == null) problems[ref(EditorField.Incline)] = if (b.incline.isBlank()) EditorProblem.Required else EditorProblem.NotWhole
             val label = b.name.trim()
             if (label.length > ProgramLimits.MAX_BLOCK_NAME_LENGTH) problems[ref(EditorField.BlockName)] = EditorProblem.TooLong
-            val absolute = BlockTarget.Absolute(speed?.let { (it * 10).roundToInt() / 10.0 } ?: ProgramLimits.MIN_SPEED_KMH, (incline ?: 0).toDouble())
+            val absolute = BlockTarget.Absolute(
+                speedKmh = if (b.keepSpeed) null else speed?.let { (it * 10).roundToInt() / 10.0 } ?: ProgramLimits.MIN_SPEED_KMH,
+                inclinePercent = if (b.keepIncline) null else (incline ?: 0).toDouble(),
+            )
             val target: BlockTarget = b.heartRate?.let { hr ->
                 fun percent(text: String, field: EditorField): Int {
                     val v = text.trim().toIntOrNull()
@@ -357,6 +390,12 @@ object ProgramDrafts {
                         }
                         if (rest == "target.bounds") {
                             result += placeBoundsIssue(step, block, draftBlock?.heartRate)
+                            continue
+                        }
+                        // "Keep" on the first block: said next to the value that keeps.
+                        if (issue.message == ProgramValidator.FIRST_BLOCK_KEEPS) {
+                            val field = if (rest.endsWith("inclinePercent")) EditorField.Incline else EditorField.Speed
+                            result[FieldRef(step, block, field)] = EditorProblem.FirstBlockKeeps
                             continue
                         }
                         val (ref, problem) = when {

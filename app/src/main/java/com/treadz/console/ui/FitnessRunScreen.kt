@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -48,8 +51,7 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
     val test = run.test
     val layout = LocalLayout.current
     val wide = layout.wide
-    val base = liveSizes(wide)
-    val sizes = if (wide) base.copy(stepButton = 84.dp, stepRowHeight = 88.dp, stepValue = 96.sp, presetHeight = 52.dp, stopHeight = 112.dp, stopText = 72.sp) else base
+    val sizes = liveSizes(wide)
     val type = test.testType ?: FitnessTestType.EbbelingWalk
 
     Column(modifier.fillMaxSize().testTag("fitness_run"), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -80,46 +82,73 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                 FinishedBar(ui, controls, actions)
             }
         } else if (wide) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                Column(Modifier.weight(2.1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
+            LiveWideLayout(
+                sizes, Modifier.weight(1f),
+                main = {
                     InstructionPanel(test, Modifier.weight(1f).fillMaxWidth())
-                    Row(Modifier.weight(1.5f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                        SpeedFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
-                        InclineFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
-                        HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
+                    // Incline, speed and heart rate: the same order and the same fixed size as the other live screens.
+                    Row(Modifier.fillMaxWidth().height(sizes.adjustPanelHeight), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
+                        InclineFigure(ui, test, controls, sizes, Modifier.weight(1f))
+                        SpeedFigure(ui, test, controls, sizes, Modifier.weight(1f))
+                        HeartRateFigure(test, run, sizes, Modifier.weight(1f))
                     }
                     RampStartPanel(test, actions)
                     TestInfo(test, run)
-                }
-                Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
+                },
+                sideTop = {
                     ControlHintText(controlHint(ui), reserveLines = false)
-                    TestButtons(test, actions, sizes)
-                    StopSection(ui, controls, sizes, Modifier.fillMaxWidth().weight(1f).heightIn(min = sizes.stopHeight))
-                }
-            }
-        } else {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                InstructionPanel(test, Modifier.fillMaxWidth())
-                // On a phone the ramp start controls come first: they only exist during the warm-up and the figures would push them off screen.
-                RampStartPanel(test, actions)
-                SpeedFigure(ui, test, controls, sizes, Modifier.fillMaxWidth().heightIn(min = 120.dp))
-                if (test.manualChangesAllowed) {
-                    // The incline with − / + needs the whole width, like the speed.
-                    InclineFigure(ui, test, controls, sizes, Modifier.fillMaxWidth().heightIn(min = 120.dp))
-                    HeartRateFigure(test, run, sizes, Modifier.fillMaxWidth().height(120.dp))
-                } else {
-                    Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                        InclineFigure(ui, test, controls, sizes, Modifier.weight(1f).fillMaxSize())
-                        HeartRateFigure(test, run, sizes, Modifier.weight(1f).fillMaxSize())
+                    TestNotes(test)
+                    if (test.canEndTest) {
+                        EndTestButton(actions, Modifier.fillMaxWidth())
+                        Text(stringResource(R.string.test_end_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                }
-                controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
-                TestInfo(test, run)
-            }
-            TestButtons(test, actions, sizes)
-            StopSection(
-                ui, controls, sizes,
-                Modifier.fillMaxWidth().then(if (ui.stopUnreachable) Modifier.heightIn(min = sizes.stopHeight) else Modifier.height(sizes.stopHeight)),
+                },
+                sideBottom = {
+                    // "+1" does not apply to a test: shown disabled where a program has it, so the column looks the same.
+                    BlockButtonsRow(sizes, extend = { m -> ExtendBlockButton(byDistance = false, enabled = false, onClick = {}, modifier = m) })
+                    // "Exhausted" takes the place of Pause.
+                    if (test.canReportExhaustion) ExhaustedButton(test, actions, sizes, Modifier.fillMaxWidth())
+                    LiveStop(ui, controls, sizes)
+                },
+            )
+        } else {
+            LiveCompactLayout(
+                sizes, Modifier.weight(1f).fillMaxWidth(),
+                content = {
+                    InstructionPanel(test, Modifier.fillMaxWidth())
+                    // On a phone the ramp start controls come first: they only exist during the warm-up and the figures would push them off screen.
+                    RampStartPanel(test, actions)
+                    // Incline above speed, as in the other live screens.
+                    if (test.manualChangesAllowed) {
+                        // The incline with − / + needs the whole width, like the speed.
+                        InclineFigure(ui, test, controls, sizes, Modifier.fillMaxWidth())
+                        SpeedFigure(ui, test, controls, sizes, Modifier.fillMaxWidth())
+                        HeartRateFigure(test, run, sizes, Modifier.fillMaxWidth())
+                    } else {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
+                            InclineFigure(ui, test, controls, sizes, Modifier.weight(1f))
+                            HeartRateFigure(test, run, sizes, Modifier.weight(1f))
+                        }
+                        SpeedFigure(ui, test, controls, sizes, Modifier.fillMaxWidth())
+                    }
+                    controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
+                    TestInfo(test, run)
+                    TestNotes(test)
+                },
+                bottom = {
+                    // "+1" disabled where a program has it, next to the test's main button.
+                    val exhausted = test.canReportExhaustion
+                    Row(Modifier.fillMaxWidth().height(sizes.pauseHeight), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ExtendBlockButton(byDistance = false, enabled = false, onClick = {}, modifier = Modifier.width(sizes.extendWidth).fillMaxHeight())
+                        when {
+                            exhausted -> ExhaustedButton(test, actions, sizes, Modifier.weight(1f))
+                            test.canEndTest -> EndTestButton(actions, Modifier.weight(1f).fillMaxHeight())
+                            else -> Spacer(Modifier.weight(1f))
+                        }
+                    }
+                    if (exhausted && test.canEndTest) EndTestButton(actions, Modifier.fillMaxWidth())
+                    LiveStop(ui, controls, sizes)
+                },
             )
         }
     }
@@ -192,7 +221,7 @@ private fun InstructionPanel(test: FitnessTestProgress, modifier: Modifier) {
 
 /**
  * The speed: with − / + while the Ebbeling speed may still change and during the cool-down (manual changes allowed),
- * otherwise a figure with the target.
+ * otherwise a figure with the target. Both at the fixed size of the live figures.
  */
 @Composable
 private fun SpeedFigure(ui: MainUiState, test: FitnessTestProgress, controls: ControlActions, sizes: LiveSizes, modifier: Modifier) {
@@ -218,15 +247,18 @@ private fun SpeedFigure(ui: MainUiState, test: FitnessTestProgress, controls: Co
             sizes = sizes,
             tag = "speed",
             modifier = modifier,
+            message = ui.controls.failure?.takeIf { it.action == com.treadz.console.controls.ControlAction.Speed }?.let { failureMessage(it) },
         )
     } else {
-        MetricCard(
+        LiveFigurePanel(
             label = stringResource(R.string.metric_speed),
-            value = Format.speed(test.actualSpeedKmh),
             unit = stringResource(R.string.unit_speed),
-            modifier = modifier.testTag("speed_figure"),
+            value = Format.speed(test.actualSpeedKmh),
+            sizes = sizes,
+            tag = "speed_figure",
+            modifier = modifier,
             note = test.targetSpeedKmh?.let { stringResource(R.string.test_target, Format.speed(it)) },
-            maxValueSize = sizes.maxValue, unitSize = sizes.unit, unitInline = sizes.unitInline,
+            dimmed = ui.treadmill.isStale,
         )
     }
 }
@@ -253,16 +285,19 @@ private fun InclineFigure(ui: MainUiState, test: FitnessTestProgress, controls: 
             sizes = sizes,
             tag = "incline",
             modifier = modifier,
+            message = ui.controls.failure?.takeIf { it.action == com.treadz.console.controls.ControlAction.Incline }?.let { failureMessage(it) },
         )
         return
     }
-    MetricCard(
+    LiveFigurePanel(
         label = stringResource(R.string.metric_incline),
-        value = Format.incline(test.actualInclinePercent),
         unit = stringResource(R.string.unit_incline),
-        modifier = modifier.testTag("incline_figure"),
+        value = Format.incline(test.actualInclinePercent),
+        sizes = sizes,
+        tag = "incline_figure",
+        modifier = modifier,
         note = test.targetInclinePercent?.let { stringResource(R.string.test_target, Format.incline(it)) },
-        maxValueSize = sizes.maxValue, unitSize = sizes.unit, unitInline = sizes.unitInline,
+        dimmed = ui.treadmill.isStale,
     )
 }
 
@@ -275,13 +310,14 @@ private fun HeartRateFigure(test: FitnessTestProgress, run: RunUiState, sizes: L
         test.heartRateLimitBpm != null -> stringResource(R.string.test_hr_limit, test.heartRateLimitBpm!!)
         else -> null
     }
-    MetricCard(
+    LiveFigurePanel(
         label = stringResource(R.string.metric_heart_rate),
-        value = Format.heartRate(test.heartRateBpm),
         unit = if (test.heartRateBpm != null) stringResource(R.string.unit_heart_rate) else null,
-        modifier = modifier.testTag("heart_rate_figure"),
+        value = Format.heartRate(test.heartRateBpm),
+        sizes = sizes,
+        tag = "heart_rate_figure",
+        modifier = modifier,
         note = note,
-        maxValueSize = sizes.maxValue, unitSize = sizes.unit, unitInline = sizes.unitInline,
         labelTrailing = run.heartRateSource?.takeIf { test.heartRateBpm != null }?.let { source -> { HeartRateSourceIcon(source, size = 18.dp) } },
     )
 }
@@ -325,39 +361,46 @@ private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
     }
 }
 
-/** "I'm exhausted" (maximal test) and "End test" (invalidates it), when they apply. */
+/** "I'm exhausted" (maximal tests): in the place of Pause, with its height. */
 @Composable
-private fun TestButtons(test: FitnessTestProgress, actions: RunActions, sizes: LiveSizes) {
+private fun ExhaustedButton(test: FitnessTestProgress, actions: RunActions, sizes: LiveSizes, modifier: Modifier) {
+    Button(
+        onClick = actions.onExhausted,
+        enabled = exhaustedReady(test),
+        modifier = modifier.height(sizes.pauseHeight).testTag("exhausted_button"),
+        shape = RoundedCornerShape(24.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.extra.warning, contentColor = MaterialTheme.extra.onWarning),
+    ) {
+        Text(
+            stringResource(R.string.test_exhausted), fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = sizes.pauseText, stepSize = 1.sp),
+        )
+    }
+}
+
+/** "End test" (it makes the test invalid). */
+@Composable
+private fun EndTestButton(actions: RunActions, modifier: Modifier) {
+    BigOutlinedButton(stringResource(R.string.test_end), actions.onEndTest, modifier.testTag("end_test_button"))
+}
+
+/** The walking test counts exhaustion only after 3 minutes of ramp; earlier it would make the test invalid. */
+private fun exhaustedReady(test: FitnessTestProgress): Boolean =
+    test.testType != FitnessTestType.MaxHeartRateWalk || test.phaseElapsedSeconds >= FitnessTestConfig().minIncrementalSeconds
+
+/** What to know about the test's buttons: when "Exhausted" counts, and that the walking ramp is not changed by hand. */
+@Composable
+private fun TestNotes(test: FitnessTestProgress) {
     val walk = test.testType == FitnessTestType.MaxHeartRateWalk
-    // The walking test counts exhaustion only after 3 minutes of ramp; earlier it would make the test invalid.
-    val minRamp = FitnessTestConfig().minIncrementalSeconds
-    val exhaustedReady = !walk || test.phaseElapsedSeconds >= minRamp
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (test.canReportExhaustion) {
-            Button(
-                onClick = actions.onExhausted,
-                enabled = exhaustedReady,
-                modifier = Modifier.fillMaxWidth().height(sizes.pauseHeight).testTag("exhausted_button"),
-                shape = RoundedCornerShape(24.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.extra.warning, contentColor = MaterialTheme.extra.onWarning),
-            ) {
-                Text(stringResource(R.string.test_exhausted), fontSize = sizes.pauseText, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            }
-            if (walk && !exhaustedReady) {
-                Text(stringResource(R.string.test_exhausted_after_ramp, minRamp / 60), Modifier.testTag("exhausted_wait_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else if (!LocalLayout.current.compact) {
-                Text(stringResource(R.string.test_exhausted_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+    if (test.canReportExhaustion) {
+        if (!exhaustedReady(test)) {
+            Text(stringResource(R.string.test_exhausted_after_ramp, FitnessTestConfig().minIncrementalSeconds / 60), Modifier.testTag("exhausted_wait_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (!LocalLayout.current.compact) {
+            Text(stringResource(R.string.test_exhausted_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (walk && test.phase == FitnessTestPhase.Incremental) {
-            Text(stringResource(R.string.test_walk_manual_note), Modifier.testTag("walk_manual_note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.warning)
-        }
-        if (test.canEndTest) {
-            BigOutlinedButton(stringResource(R.string.test_end), actions.onEndTest, Modifier.fillMaxWidth().testTag("end_test_button"))
-            if (!LocalLayout.current.compact) {
-                Text(stringResource(R.string.test_end_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+    }
+    if (walk && test.phase == FitnessTestPhase.Incremental) {
+        Text(stringResource(R.string.test_walk_manual_note), Modifier.testTag("walk_manual_note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.extra.warning)
     }
 }
 

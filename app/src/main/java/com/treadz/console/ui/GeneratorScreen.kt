@@ -268,6 +268,7 @@ private fun Preview(state: GeneratorUiState, actions: GeneratorActions) {
                 PlanLegend(
                     stringResource(R.string.chart_speed), stringResource(R.string.chart_incline),
                     heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+                kept = segments.any { it.keepsSpeed || it.keepsIncline },
                 )
                 PlanTotals(plan)
                 GeneratedZoneOrigin(generated.program.origin?.inputs.orEmpty())

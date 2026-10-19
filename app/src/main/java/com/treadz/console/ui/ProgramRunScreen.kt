@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,6 +70,8 @@ data class RunActions(
     /** Walking heart-rate test, warm-up: one − / + step of the speed the ramp starts at (0.1 km/h) or of its incline (1 %). */
     val onRampSpeedStep: (Int) -> Unit = {},
     val onRampInclineStep: (Int) -> Unit = {},
+    /** "+1": a minute more in a time block, 100 m more in a distance block. */
+    val onExtendBlock: () -> Unit = {},
 )
 
 /**
@@ -78,12 +81,10 @@ data class RunActions(
 @Composable
 fun ProgramRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions, actions: RunActions, modifier: Modifier = Modifier) {
     val progress = run.program
-    val layout = LocalLayout.current
-    val wide = layout.wide
-    val base = liveSizes(wide)
-    // The block and the plan need room next to the speed and incline panels: slightly smaller controls on the tablet.
-    val sizes = if (wide) base.copy(stepButton = 84.dp, stepRowHeight = 88.dp, stepValue = 96.sp, presetHeight = 52.dp, stopHeight = 112.dp, stopText = 72.sp, pauseHeight = 72.dp) else base
+    val wide = LocalLayout.current.wide
+    val sizes = liveSizes(wide)
     val plan = progress.plan
+    // The published plan is the plan as it runs: "+1" makes it longer, and the chart follows.
     val segments = remember(plan) { plan?.segments().orEmpty() }
     val title = plan?.let { planTitle(it) }.orEmpty()
 
@@ -139,31 +140,55 @@ private fun RunHeader(title: String, progress: ProgramProgress) {
 // ---------------------------------------------------------------------------------------------------------------
 // Layouts
 
+/** What the treadmill really did, as the two chart series drawn over the plan. */
+private data class ActualSeries(val speed: List<ChartPoint>, val incline: List<ChartPoint>)
+
+@Composable
+private fun rememberActual(run: RunUiState): ActualSeries = remember(run.programSeries) {
+    ActualSeries(run.programSeries.points { it.speedKmh }, run.programSeries.points { it.inclinePercent })
+}
+
+/** The program can take "+1", previous and next: running or paused. */
+private fun ProgramProgress.blockButtonsEnabled() = state == RunState.Running || state == RunState.Paused
+
 @Composable
 private fun ProgramWide(
     ui: MainUiState, run: RunUiState, controls: ControlActions, actions: RunActions, sizes: LiveSizes,
     segments: List<com.treadz.console.training.PlanSegment>, modifier: Modifier,
 ) {
     val progress = run.program
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        Column(Modifier.weight(2.1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            Row(Modifier.weight(2.3f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                SpeedPanel(ui, controls, sizes, Modifier.weight(1f).fillMaxSize())
-                InclinePanel(ui, controls, sizes, Modifier.weight(1f).fillMaxSize())
-            }
+    val actual = rememberActual(run)
+    LiveWideLayout(
+        sizes, modifier,
+        main = {
+            SpeedInclinePanels(ui, controls, sizes)
             HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
-            BlockPanel(progress, segments, Modifier.weight(2f).fillMaxWidth(), chartFills = true)
-        }
-        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            TotalsPanel(progress, big = true)
+            BlockPanel(progress, segments, actual, Modifier.weight(1f).fillMaxWidth(), chartFills = true)
+        },
+        sideTop = {
+            TotalsPanel(progress, sizes)
             ControlHintText(controlHint(ui), reserveLines = false)
+        },
+        sideBottom = {
             if (progress.state != RunState.Interrupted) {
-                SkipRow(progress, actions, Modifier.fillMaxWidth())
+                val enabled = progress.blockButtonsEnabled()
+                BlockButtonsRow(
+                    sizes,
+                    extend = { m -> ExtendBlockButton(progress.currentBlock?.end is BlockEnd.Distance, enabled, actions.onExtendBlock, m) },
+                    previous = { m ->
+                        val text = stringResource(R.string.block_previous)
+                        SkipButton("◀", text, text, enabled, actions.onSkipPrevious, "skip_previous_button", m)
+                    },
+                    next = { m ->
+                        val text = stringResource(R.string.block_skip)
+                        SkipButton("▶", text, text, enabled, actions.onSkipNext, "skip_next_button", m)
+                    },
+                )
                 PauseResumeButton(ui, controls, sizes, Modifier.fillMaxWidth())
             }
-            StopSection(ui, controls, sizes, Modifier.fillMaxWidth().weight(1f).heightIn(min = sizes.stopHeight))
-        }
-    }
+            LiveStop(ui, controls, sizes)
+        },
+    )
 }
 
 @Composable
@@ -172,49 +197,41 @@ private fun ProgramCompact(
     segments: List<com.treadz.console.training.PlanSegment>, modifier: Modifier,
 ) {
     val progress = run.program
+    val actual = rememberActual(run)
     val previousText = stringResource(R.string.block_previous)
     val nextText = stringResource(R.string.block_skip)
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            BlockPanel(progress, segments, Modifier.fillMaxWidth(), chartFills = false, showChart = false)
+    LiveCompactLayout(
+        sizes, modifier,
+        content = {
+            BlockPanel(progress, segments, actual, Modifier.fillMaxWidth(), chartFills = false, showChart = false)
             HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
-            SpeedPanel(ui, controls, sizes, Modifier.fillMaxWidth())
-            InclinePanel(ui, controls, sizes, Modifier.fillMaxWidth())
+            SpeedInclinePanels(ui, controls, sizes)
             controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
-            TotalsPanel(progress, big = false)
+            TotalsPanel(progress, sizes)
             Panel(Modifier.fillMaxWidth().testTag("block_chart_panel")) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    RunChart(progress, segments, Modifier.height(170.dp).fillMaxWidth())
+                    RunChart(progress, segments, actual, Modifier.height(200.dp).fillMaxWidth())
                 }
             }
-        }
-        if (progress.state != RunState.Interrupted) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                val enabled = progress.state == RunState.Running || progress.state == RunState.Paused
-                BigOutlinedButton(
-                    "◀", actions.onSkipPrevious,
-                    Modifier.width(76.dp).semantics { contentDescription = previousText }.testTag("skip_previous_button"), enabled = enabled,
-                )
-                PauseResumeButton(ui, controls, sizes, Modifier.weight(1f))
-                BigOutlinedButton(
-                    "▶", actions.onSkipNext,
-                    Modifier.width(76.dp).semantics { contentDescription = nextText }.testTag("skip_next_button"), enabled = enabled,
-                )
+        },
+        bottom = {
+            if (progress.state != RunState.Interrupted) {
+                // ◀, "+1", Pause and ▶: "+1" between previous and next, next to Pause.
+                Row(Modifier.fillMaxWidth().height(sizes.skipHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val enabled = progress.blockButtonsEnabled()
+                    SkipButton("◀", null, previousText, enabled, actions.onSkipPrevious, "skip_previous_button", Modifier.width(sizes.skipWidth).fillMaxHeight())
+                    ExtendBlockButton(progress.currentBlock?.end is BlockEnd.Distance, enabled, actions.onExtendBlock, Modifier.width(sizes.extendWidth).fillMaxHeight())
+                    PauseResumeButton(ui, controls, sizes, Modifier.weight(1f))
+                    SkipButton("▶", null, nextText, enabled, actions.onSkipNext, "skip_next_button", Modifier.width(sizes.skipWidth).fillMaxHeight())
+                }
             }
-        }
-        StopSection(
-            ui, controls, sizes,
-            Modifier.fillMaxWidth().then(if (ui.stopUnreachable) Modifier.heightIn(min = sizes.stopHeight) else Modifier.height(sizes.stopHeight)),
-        )
-    }
+            LiveStop(ui, controls, sizes)
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Block, totals, skip
-
-@Composable
-private fun blockTargetText(block: ResolvedBlock): String =
-    stringResource(R.string.block_target, Format.speed(block.speedKmh), Format.incline(block.inclinePercent))
 
 @Composable
 private fun blockLengthText(block: ResolvedBlock): String = when (val e = block.end) {
@@ -222,11 +239,17 @@ private fun blockLengthText(block: ResolvedBlock): String = when (val e = block.
     is BlockEnd.Distance -> stringResource(R.string.value_km, Format.distanceKm(e.meters))
 }
 
-/** The current block: phase, name, how much is left, what it asks for, what comes next, and the plan with the position. */
+/**
+ * The current block: phase, name, how much is left, what it asks for, what comes next, and the plan with the position
+ * and what was really done. What it asks for is the engine's real target ([ProgramProgress.targetSpeedKmh]): a block
+ * that keeps a value, a heart-rate adjustment or a manual change make it differ from the plan's number. The next block
+ * says "keep" for a value it keeps.
+ */
 @Composable
 private fun BlockPanel(
     progress: ProgramProgress,
     segments: List<com.treadz.console.training.PlanSegment>,
+    actual: ActualSeries,
     modifier: Modifier,
     chartFills: Boolean,
     showChart: Boolean = true,
@@ -248,19 +271,19 @@ private fun BlockPanel(
                             fontWeight = FontWeight.Bold,
                         )
                         progress.blockRemainingMeters?.let {
-                            Text(stringResource(R.string.block_distance_left, Format.distanceKm(it)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.block_distance_left, Format.distanceKm(it)), Modifier.testTag("block_remaining_distance"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            blockTargetText(block),
+                            targetText(progress.targetSpeedKmh ?: block.speedKmh, progress.targetInclinePercent ?: block.inclinePercent),
                             Modifier.testTag("block_target"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         progress.nextBlock?.let { next ->
                             Text(
-                                stringResource(R.string.block_next, next.phase.label(), blockTargetText(next), blockLengthText(next)),
+                                stringResource(R.string.block_next, next.phase.label(), plannedTargetText(next, approximate = false), blockLengthText(next)),
                                 Modifier.testTag("block_next"),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -271,25 +294,29 @@ private fun BlockPanel(
                 }
                 LinearProgressIndicator(
                     progress = { if (total <= 0) 0f else (progress.blockElapsedSeconds.toFloat() / total).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
+                    modifier = Modifier.fillMaxWidth().height(6.dp).testTag("block_progress"),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.outlineVariant,
                 )
             } else {
                 Text(stringResource(R.string.run_state_starting), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
-            if (showChart) RunChart(progress, segments, (if (chartFills) Modifier.weight(1f) else Modifier.height(170.dp)).fillMaxWidth())
+            if (showChart) RunChart(progress, segments, actual, (if (chartFills) Modifier.weight(1f) else Modifier.height(170.dp)).fillMaxWidth())
         }
     }
 }
 
+/** The plan with the position of the program and, as it fills, what the treadmill really did. */
 @Composable
-private fun RunChart(progress: ProgramProgress, segments: List<com.treadz.console.training.PlanSegment>, modifier: Modifier) {
-    PlanChart(
+private fun RunChart(progress: ProgramProgress, segments: List<com.treadz.console.training.PlanSegment>, actual: ActualSeries, modifier: Modifier) {
+    PlannedVersusActualChart(
         segments = segments,
+        actualSpeed = actual.speed,
+        actualIncline = actual.incline,
         description = stringResource(R.string.run_plan_description),
-        modifier = modifier.testTag("run_chart"),
+        modifier = modifier,
         positionSeconds = progress.positionSeconds(segments),
+        chartTag = "run_chart",
     )
 }
 
@@ -317,14 +344,23 @@ private fun BlockHeader(progress: ProgramProgress, block: ResolvedBlock, blockCo
     }
 }
 
+/** Elapsed, remaining, distance and heart rate of the program: two lines of two. */
 @Composable
-private fun TotalsPanel(progress: ProgramProgress, big: Boolean) {
+private fun TotalsPanel(progress: ProgramProgress, sizes: LiveSizes) {
     Panel(Modifier.fillMaxWidth().testTag("run_totals")) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Total(stringResource(R.string.run_elapsed), Format.duration(progress.totalElapsedSeconds), "run_elapsed", big)
-            Total(stringResource(R.string.run_remaining), Format.duration(progress.totalRemainingSeconds), "run_remaining", big)
-            Total(stringResource(R.string.metric_distance), Format.distanceKm(progress.totalElapsedMeters), "run_distance", big)
-            Total(stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm), "run_heart_rate", big, badge = progress.heartRateSource.takeIf { progress.heartRateBpm != null })
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Total(stringResource(R.string.run_elapsed), Format.duration(progress.totalElapsedSeconds), "run_elapsed", sizes)
+                Total(stringResource(R.string.run_remaining), Format.duration(progress.totalRemainingSeconds), "run_remaining", sizes)
+            }
+            Row(Modifier.fillMaxWidth()) {
+                Total(stringResource(R.string.metric_distance), Format.distanceKm(progress.totalElapsedMeters), "run_distance", sizes, unit = stringResource(R.string.unit_distance))
+                Total(
+                    stringResource(R.string.metric_heart_rate), Format.heartRate(progress.heartRateBpm), "run_heart_rate", sizes,
+                    unit = if (progress.heartRateBpm != null) stringResource(R.string.unit_heart_rate) else null,
+                    badge = progress.heartRateSource.takeIf { progress.heartRateBpm != null },
+                )
+            }
         }
     }
 }
@@ -334,13 +370,17 @@ private fun androidx.compose.foundation.layout.RowScope.Total(
     label: String,
     value: String,
     tag: String,
-    big: Boolean,
+    sizes: LiveSizes,
+    unit: String? = null,
     badge: com.treadz.console.programs.fitness.HeartRateSourceKind? = null,
 ) {
-    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, Modifier.testTag(tag), fontSize = if (big) 28.sp else 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(value, Modifier.testTag(tag), fontSize = sizes.totalValue, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (unit != null) Text(unit, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
         }
     }
@@ -374,41 +414,64 @@ private fun HeartRateBlockPanel(progress: ProgramProgress, actions: RunActions, 
         HeartRateControlState.Unavailable -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.extra.warning
     }
+    val compact = LocalLayout.current.compact
+    val wide = LocalLayout.current.wide
+    val valueStyle = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
+
+    @Composable
+    fun zone(modifier: Modifier) = Column(modifier) {
+        Text(stringResource(R.string.hr_block_zone), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (low != null && high != null) stringResource(R.string.hr_block_zone_value, low, high) else Format.NO_VALUE,
+            Modifier.testTag("hr_zone"),
+            style = valueStyle,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+
+    @Composable
+    fun now(modifier: Modifier) = Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.hr_block_now), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            progress.heartRateSource?.takeIf { bpm != null }?.let { HeartRateSourceIcon(it, size = 14.dp) }
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(Format.heartRate(bpm), Modifier.testTag("hr_now"), style = valueStyle, fontWeight = FontWeight.Bold, color = color)
+            if (bpm != null) Text(stringResource(R.string.unit_heart_rate), Modifier.padding(bottom = 3.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    fun title(modifier: Modifier) = Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(stringResource(R.string.hr_block_title), Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Tag(control.state.shortLabel(), stateColor, Modifier.testTag("hr_control_state").semantics { liveRegion = LiveRegionMode.Polite })
+    }
+
+    @Composable
+    fun explanation() = Text(control.state.explanation(control.adjust), Modifier.testTag("hr_control_text"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
     Panel(modifier.testTag("hr_block_panel"), borderColor = stateColor) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    stringResource(R.string.hr_block_title),
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Tag(control.state.shortLabel(), stateColor, Modifier.testTag("hr_control_state").semantics { liveRegion = LiveRegionMode.Polite })
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.hr_block_zone), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        if (low != null && high != null) stringResource(R.string.hr_block_zone_value, low, high) else Format.NO_VALUE,
-                        Modifier.testTag("hr_zone"),
-                        style = if (LocalLayout.current.compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(stringResource(R.string.hr_block_now), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        progress.heartRateSource?.takeIf { bpm != null }?.let { HeartRateSourceIcon(it, size = 14.dp) }
+            if (wide) {
+                // Tablet: one band (title and what the control does, the zone, the heart rate now), so the block and its
+                // chart keep their room under the fixed speed and incline panels.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1.6f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        title(Modifier.fillMaxWidth())
+                        explanation()
                     }
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(Format.heartRate(bpm), Modifier.testTag("hr_now"), style = if (LocalLayout.current.compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = color)
-                        if (bpm != null) Text(stringResource(R.string.unit_heart_rate), Modifier.padding(bottom = 3.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    zone(Modifier.weight(1f))
+                    now(Modifier.weight(0.8f))
                 }
-            }
-            // On a phone the controls need the room: while all is well the state tag says enough.
-            if (!LocalLayout.current.compact || control.state != HeartRateControlState.Active) {
-                Text(control.state.explanation(control.adjust), Modifier.testTag("hr_control_text"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                title(Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    zone(Modifier.weight(1f))
+                    now(Modifier.weight(1f))
+                }
+                // On a phone the controls need the room: while all is well the state tag says enough.
+                if (!compact || control.state != HeartRateControlState.Active) explanation()
             }
             if (control.state == HeartRateControlState.OffByManualChange) {
                 BigButton(stringResource(R.string.hr_block_resume), actions.onResumeHeartRateControl, Modifier.fillMaxWidth().testTag("hr_resume_button"))
@@ -443,16 +506,6 @@ private fun HeartRateControlState.explanation(adjust: com.treadz.console.program
         },
         what,
     )
-}
-
-/** Previous / next block, like a media player. */
-@Composable
-private fun SkipRow(progress: ProgramProgress, actions: RunActions, modifier: Modifier) {
-    val enabled = progress.state == RunState.Running || progress.state == RunState.Paused
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        BigOutlinedButton("◀  " + stringResource(R.string.block_previous), actions.onSkipPrevious, Modifier.weight(1f).testTag("skip_previous_button"), enabled = enabled)
-        BigOutlinedButton(stringResource(R.string.block_skip) + "  ▶", actions.onSkipNext, Modifier.weight(1f).testTag("skip_next_button"), enabled = enabled)
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -521,10 +574,15 @@ private fun ProgramFinished(
                         Text(next.decision.text(), Modifier.testTag("couch_next_reason"), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
-                PlanChart(
+                // The plan as it was run ("+1" included) and what was really done, drawn as the history will show it.
+                val actual = rememberActual(run)
+                PlannedVersusActualChart(
                     segments = segments,
+                    actualSpeed = actual.speed,
+                    actualIncline = actual.incline,
                     description = stringResource(R.string.run_plan_description),
-                    modifier = Modifier.weight(1f).fillMaxWidth().heightIn(min = 120.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().heightIn(min = 160.dp),
+                    chartTag = "finished_chart",
                 )
             }
         }

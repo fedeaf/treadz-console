@@ -56,6 +56,8 @@ data class RunUiState(
     val heartRateSource: HeartRateSourceKind? = null,
     /** After a Couch to 5K session: what comes next, once the record of the session that has just ended is stored. */
     val couchNext: CouchToFiveKSelection? = null,
+    /** What the treadmill really did during the program (see [TrainingCoordinator.programSeries]). */
+    val programSeries: ProgramSeries = ProgramSeries(),
 ) {
     val testResultShown: Boolean get() = kind == SessionKind.FitnessTest && test.phase == FitnessTestPhase.Finished
 }
@@ -123,9 +125,9 @@ class RunViewModel(
     val uiState: StateFlow<RunUiState> = combine(
         combine(training.visible, training.programRunner.progress, training.fitnessRunner.progress) { kind, program, test -> Triple(kind, program, test) },
         combine(local, training.saveFailed, extras) { local, saveFailed, extras -> Triple(local, saveFailed, extras) },
-        combine(heartRateSource, couchNext) { source, next -> source to next },
-    ) { (kind, program, test), (local, saveFailed, extras), (source, next) ->
-        RunUiState(kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax, source, next)
+        combine(heartRateSource, couchNext, training.programSeries) { source, next, series -> Triple(source, next, series) },
+    ) { (kind, program, test), (local, saveFailed, extras), (source, next, series) ->
+        RunUiState(kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax, source, next, series)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RunUiState())
 
     // ------------------------------------------------------------------ program
@@ -136,6 +138,11 @@ class RunViewModel(
 
     fun skipToPrevious() {
         viewModelScope.launch { training.programRunner.skipToPrevious() }
+    }
+
+    /** "+1": a minute more in a time block, 100 m more in a distance block. */
+    fun extendCurrentBlock() {
+        training.programRunner.extendCurrentBlock()
     }
 
     /** Continues an interrupted program; a refusal is kept in the state for the screen to explain. */

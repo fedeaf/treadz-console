@@ -116,6 +116,21 @@ object TrainingFixtures {
         ),
     )
 
+    /**
+     * A free program with a distance block and values kept from the block before: a warm-up, 1 km at 10 km/h and 2 %, a
+     * recovery that keeps the speed (flat), a block that keeps the incline, and a cool-down.
+     */
+    fun keepProgram() = Program(
+        id = "5c7d2e3f-6a8b-4c9d-8e0f-1a2b3c4d5e6f", name = "Keep and distance", kind = ProgramKind.Free,
+        steps = listOf(
+            Block(BlockPhase.WarmUp, BlockEnd.Duration(300), BlockTarget.Absolute(5.0, 0.0), name = "Warm-up"),
+            Block(BlockPhase.Work, BlockEnd.Distance(1000), BlockTarget.Absolute(10.0, 2.0), name = "1 km"),
+            Block(BlockPhase.Recovery, BlockEnd.Duration(180), BlockTarget.Absolute(null, 0.0), name = "Easy"),
+            Block(BlockPhase.Work, BlockEnd.Duration(300), BlockTarget.Absolute(9.0, null), name = "Steady"),
+            Block(BlockPhase.CoolDown, BlockEnd.Duration(240), BlockTarget.Absolute(4.5, 0.0), name = "Cool-down"),
+        ),
+    )
+
     fun invalidEbbeling(base: FitnessTestResult): FitnessTestResult = base.copy(
         validity = Validity.Invalid,
         flags = listOf(FitnessTestFlag.SpeedAdjustedByUser, FitnessTestFlag.HeartRateNotResponsive, FitnessTestFlag.ManualChange),

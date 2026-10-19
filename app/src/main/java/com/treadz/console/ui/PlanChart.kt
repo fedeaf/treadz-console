@@ -25,13 +25,23 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import com.treadz.console.R
+import com.treadz.console.training.ActualSample
 import com.treadz.console.training.PlanSegment
+import com.treadz.console.training.ProgramSeries
 
 /**
  * The speed and the incline of a plan over its time line, as steps: the incline as a filled area (its own scale, on the
  * right) and the speed as a line (left). With [positionSeconds] the part already done is dimmed and a marker shows where
- * the program is. [actualSpeed] / [actualIncline] (x in seconds) are drawn over the plan, for the history. Without
- * [showAxes] only the shape is drawn (the small previews of the lists).
+ * the program is. [actualSpeed] / [actualIncline] (x in seconds) are drawn over the plan (history, live program). A block
+ * that keeps a value ([PlanSegment.keepsSpeed], [PlanSegment.keepsIncline]) has it drawn dashed at its expected level:
+ * the real value is only known when the block starts. Without [showAxes] only the shape is drawn (the small previews of
+ * the lists).
  */
 @Composable
 fun PlanChart(
@@ -124,7 +134,7 @@ fun PlanChart(
                 }
             }
 
-            // Incline: filled steps.
+            // Incline: filled steps, with the top of a kept value dashed.
             val inclinePath = Path().apply {
                 moveTo(px(0.0), pyIncline(0.0))
                 segments.forEach { s ->
@@ -135,16 +145,12 @@ fun PlanChart(
                 close()
             }
             drawPath(inclinePath, inclineColor.copy(alpha = 0.28f))
-            drawPath(inclinePath, inclineColor.copy(alpha = 0.8f), style = Stroke(width = (if (showAxes) 1.5f else 1f).dp.toPx(), join = StrokeJoin.Round))
+            val (inclineSolid, inclineKept) = steps(segments, { it.inclinePercent }, { it.keepsIncline }, ::px, ::pyIncline, fromZero = true)
+            drawSteps(inclineSolid, inclineKept, inclineColor.copy(alpha = 0.8f), (if (showAxes) 1.5f else 1f).dp.toPx())
 
-            // Speed: stepped line.
-            val speedPath = Path().apply {
-                segments.forEachIndexed { i, s ->
-                    if (i == 0) moveTo(px(s.startSeconds.toDouble()), pySpeed(s.speedKmh)) else lineTo(px(s.startSeconds.toDouble()), pySpeed(s.speedKmh))
-                    lineTo(px(s.endSeconds.toDouble()), pySpeed(s.speedKmh))
-                }
-            }
-            drawPath(speedPath, speedColor, style = Stroke(width = (if (showAxes) 3f else 2f).dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            // Speed: stepped line, with a kept value dashed.
+            val (speedSolid, speedKept) = steps(segments, { it.speedKmh }, { it.keepsSpeed }, ::px, ::pySpeed, fromZero = false)
+            drawSteps(speedSolid, speedKept, speedColor, (if (showAxes) 3f else 2f).dp.toPx())
 
             // What really happened.
             drawActual(actualIncline, ::px, ::pyIncline, inclineColor, 1.5f)
@@ -159,6 +165,47 @@ fun PlanChart(
             }
         }
     }
+}
+
+/**
+ * The stepped line of a plan quantity as two paths: the solid one (the planned levels and every vertical step) and the
+ * one of the levels that are only expected because the block keeps the value ([kept]), to be drawn dashed.
+ */
+private fun steps(
+    segments: List<PlanSegment>,
+    value: (PlanSegment) -> Double,
+    kept: (PlanSegment) -> Boolean,
+    px: (Double) -> Float,
+    py: (Double) -> Float,
+    fromZero: Boolean,
+): Pair<Path, Path> {
+    val solid = Path()
+    val dashed = Path()
+    var previousY = if (fromZero) py(0.0) else null
+    segments.forEach { s ->
+        val x0 = px(s.startSeconds.toDouble())
+        val x1 = px(s.endSeconds.toDouble())
+        val y = py(value(s))
+        if (previousY != null) {
+            solid.moveTo(x0, previousY!!)
+            solid.lineTo(x0, y)
+        }
+        val level = if (kept(s)) dashed else solid
+        level.moveTo(x0, y)
+        level.lineTo(x1, y)
+        previousY = y
+    }
+    if (fromZero && segments.isNotEmpty()) {
+        val x = px(segments.last().endSeconds.toDouble())
+        solid.moveTo(x, previousY!!)
+        solid.lineTo(x, py(0.0))
+    }
+    return solid to dashed
+}
+
+private fun DrawScope.drawSteps(solid: Path, dashed: Path, color: Color, width: Float) {
+    drawPath(solid, color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    drawPath(dashed, color, style = Stroke(width = width, cap = StrokeCap.Butt, pathEffect = PathEffect.dashPathEffect(floatArrayOf(width * 2.5f, width * 2f))))
 }
 
 private fun DrawScope.drawActual(points: List<ChartPoint>, px: (Double) -> Float, py: (Double) -> Float, color: Color, width: Float) {
@@ -176,8 +223,12 @@ fun PlanLegend(
     inclineLabel: String,
     modifier: Modifier = Modifier,
     actualLabel: String? = null,
+    /** The real incline, drawn as a thin line in the incline colour over the planned area. */
+    actualInclineLabel: String? = null,
     /** Shown when the plan has blocks guided by heart rate. */
     heartRateLabel: String? = null,
+    /** The plan has blocks that keep a value: the dashed line is explained. */
+    kept: Boolean = false,
 ) {
     androidx.compose.foundation.layout.FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -186,17 +237,62 @@ fun PlanLegend(
         LegendItem(MaterialTheme.colorScheme.primary, speedLabel)
         LegendItem(MaterialTheme.colorScheme.secondary, inclineLabel)
         if (actualLabel != null) LegendItem(MaterialTheme.colorScheme.onSurface, actualLabel)
+        if (actualInclineLabel != null) LegendItem(MaterialTheme.colorScheme.secondary, actualInclineLabel, thin = true)
         if (heartRateLabel != null) LegendItem(MaterialTheme.colorScheme.error, heartRateLabel)
+        if (kept) LegendItem(MaterialTheme.colorScheme.onSurfaceVariant, stringResource(R.string.chart_kept), dashed = true, modifier = Modifier.testTag("legend_kept"))
     }
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Canvas(Modifier.size(width = 18.dp, height = 4.dp)) { drawRect(color) }
+private fun LegendItem(color: Color, label: String, dashed: Boolean = false, thin: Boolean = false, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Canvas(Modifier.size(width = 18.dp, height = if (thin) 2.dp else 4.dp)) {
+            if (dashed) {
+                drawRect(color, size = Size(size.width * 0.4f, size.height))
+                drawRect(color, topLeft = Offset(size.width * 0.6f, 0f), size = Size(size.width * 0.4f, size.height))
+            } else {
+                drawRect(color)
+            }
+        }
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
+
+/**
+ * The plan with what was really done drawn over it (speed and incline), and its legend: the same picture in the
+ * history of a workout, during a program and at its end. [positionSeconds] marks where a running program is.
+ */
+@Composable
+fun PlannedVersusActualChart(
+    segments: List<PlanSegment>,
+    actualSpeed: List<ChartPoint>,
+    actualIncline: List<ChartPoint>,
+    description: String,
+    modifier: Modifier = Modifier,
+    positionSeconds: Double? = null,
+    chartTag: String = "plan_versus_actual_chart",
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        PlanChart(
+            segments = segments, description = description, modifier = Modifier.weight(1f).fillMaxWidth().testTag(chartTag),
+            positionSeconds = positionSeconds, actualSpeed = actualSpeed, actualIncline = actualIncline,
+        )
+        PlanLegend(
+            stringResource(R.string.detail_plan_speed), stringResource(R.string.detail_plan_incline),
+            actualLabel = stringResource(R.string.detail_plan_actual),
+            actualInclineLabel = if (actualIncline.size >= 2) stringResource(R.string.detail_plan_actual_incline) else null,
+            heartRateLabel = if (segments.any { it.heartRate != null }) stringResource(R.string.chart_heart_rate_blocks) else null,
+            kept = segments.any { it.keepsSpeed || it.keepsIncline },
+        )
+    }
+}
+
+/** Most points drawn for a real series over a plan (the line looks the same and the drawing stays cheap). */
+const val MAX_PLAN_CHART_POINTS = 400
+
+/** One quantity of what the treadmill did during a program, as chart points on the program clock. */
+fun ProgramSeries.points(value: (ActualSample) -> Double): List<ChartPoint> =
+    ChartMath.downsample(samples.map { ChartPoint(it.seconds.toDouble(), value(it)) }, MAX_PLAN_CHART_POINTS)
 
 /**
  * A value of the samples on the program's clock: it runs only while the belt is running, like the program's, so the

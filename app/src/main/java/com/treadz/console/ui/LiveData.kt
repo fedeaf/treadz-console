@@ -40,45 +40,6 @@ import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionState
 import androidx.compose.ui.graphics.Color
 
-/** Sizes that change with the window size class. */
-data class LiveSizes(
-    val maxValue: androidx.compose.ui.unit.TextUnit,
-    val unit: androidx.compose.ui.unit.TextUnit,
-    val startHeight: Dp,
-    val startText: androidx.compose.ui.unit.TextUnit,
-    val gap: Dp,
-    /** The unit goes next to the figure (tablet) or on the label line (phone, where width is short). */
-    val unitInline: Boolean,
-    /** Two panes (tablet in landscape): the controls fill the height they are given. */
-    val wide: Boolean,
-    /** Width of the −/+ buttons (their height is at least this too). */
-    val stepButton: Dp,
-    /** Height of the −/+ row on the phone (on the tablet the row takes the free height). */
-    val stepRowHeight: Dp,
-    /** Biggest size of the speed/incline figure between the −/+ buttons. */
-    val stepValue: androidx.compose.ui.unit.TextUnit,
-    val presetHeight: Dp,
-    val pauseHeight: Dp,
-    val pauseText: androidx.compose.ui.unit.TextUnit,
-    val stopHeight: Dp,
-    val stopText: androidx.compose.ui.unit.TextUnit,
-)
-
-/** The sizes of the live screens: the big ones of the tablet in landscape, the smaller ones of the phone. */
-fun liveSizes(wide: Boolean): LiveSizes = if (wide) {
-    LiveSizes(
-        maxValue = 120.sp, unit = 30.sp, startHeight = 112.dp, startText = 56.sp, gap = 16.dp, unitInline = true,
-        wide = true, stepButton = 108.dp, stepRowHeight = 112.dp, stepValue = 120.sp, presetHeight = 64.dp,
-        pauseHeight = 88.dp, pauseText = 40.sp, stopHeight = 128.dp, stopText = 88.sp,
-    )
-} else {
-    LiveSizes(
-        maxValue = 52.sp, unit = 22.sp, startHeight = 88.dp, startText = 34.sp, gap = 12.dp, unitInline = false,
-        wide = false, stepButton = 72.dp, stepRowHeight = 100.dp, stepValue = 60.sp, presetHeight = 52.dp,
-        pauseHeight = 64.dp, pauseText = 26.sp, stopHeight = 92.dp, stopText = 52.sp,
-    )
-}
-
 @Composable
 fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSizes, modifier: Modifier = Modifier) {
     val reconnecting = ui.connection is ConnectionState.Reconnecting
@@ -88,80 +49,78 @@ fun LiveData(ui: MainUiState, actions: MainActions, wide: Boolean, sizes: LiveSi
             // The belt is not at rest: the controls, with STOP always in the same place.
             ui.beltActive && wide -> ActiveWide(ui, actions, sizes, Modifier.weight(1f).fillMaxWidth())
             ui.beltActive -> ActiveCompact(ui, actions, sizes, Modifier.weight(1f).fillMaxWidth())
-            wide -> Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                MetricsGrid(ui, sizes, Modifier.weight(2.1f).fillMaxSize())
-                Column(
-                    Modifier.weight(1f).fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(sizes.gap),
-                ) {
+            // At rest: Start in the slot of STOP, "Programs and tests" above it.
+            wide -> LiveWideLayout(
+                sizes, Modifier.weight(1f).fillMaxWidth(),
+                main = { MetricsGrid(ui, sizes, Modifier.weight(1f).fillMaxWidth()) },
+                sideTop = {
                     BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth())
                     FinishedWorkoutNotice(ui, actions)
                     RecordingNotice(ui, actions)
-                    // On the tablet the button takes all the free height: it is the only thing to press.
-                    StartSection(ui, actions, sizes, fillHeight = true, modifier = Modifier.weight(1f))
-                }
-            }
-            else -> {
+                },
+                sideBottom = {
+                    StartHint(ui, showHint = true)
+                    ProgramsButton(actions)
+                    LiveStart(ui, actions.onStart, sizes)
+                },
+            )
+            else -> Column(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
                 BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth(), compact = true)
                 // While reconnecting the figures are stale zeros and the banner needs the room.
                 if (reconnecting) Spacer(Modifier.weight(1f)) else MetricsGrid(ui, sizes, Modifier.weight(1f).fillMaxWidth())
                 FinishedWorkoutNotice(ui, actions)
                 RecordingNotice(ui, actions)
-                StartSection(ui, actions, sizes, showHint = ui.recordingNotice == null && ui.finishedWorkout == null && !reconnecting)
+                StartHint(ui, showHint = ui.recordingNotice == null && ui.finishedWorkout == null && !reconnecting)
+                ProgramsButton(actions)
+                LiveStart(ui, actions.onStart, sizes)
             }
         }
     }
 }
 
-/** Tablet, belt not at rest: speed and incline with their controls on the left, status, pause and STOP on the right. */
+/** Tablet, belt not at rest: incline and speed with their controls on the left, status, Pause and STOP on the right. */
 @Composable
 private fun ActiveWide(ui: MainUiState, actions: MainActions, sizes: LiveSizes, modifier: Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        Column(Modifier.weight(2.1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            Row(Modifier.weight(2.4f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-                SpeedPanel(ui, actions.controls, sizes, Modifier.weight(1f).fillMaxSize())
-                InclinePanel(ui, actions.controls, sizes, Modifier.weight(1f).fillMaxSize())
-            }
-            SecondaryMetrics(ui, sizes, Modifier.weight(2f).fillMaxWidth())
-        }
-        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
+    LiveWideLayout(
+        sizes, modifier,
+        main = {
+            SpeedInclinePanels(ui, actions.controls, sizes)
+            SecondaryMetrics(ui, sizes, Modifier.weight(1f).fillMaxWidth())
+        },
+        sideTop = {
             BeltStatusCard(ui.treadmill.status, Modifier.fillMaxWidth())
             RecordingNotice(ui, actions)
             ControlHintText(controlHint(ui))
+        },
+        sideBottom = {
             PauseResumeButton(ui, actions.controls, sizes, Modifier.fillMaxWidth())
-            // STOP takes all the free height: the biggest target on the screen.
-            StopSection(ui, actions.controls, sizes, Modifier.fillMaxWidth().weight(1f).heightIn(min = sizes.stopHeight))
-        }
-    }
+            LiveStop(ui, actions.controls, sizes)
+        },
+    )
 }
 
 /**
- * Phone, belt not at rest. Pause and STOP stay at the bottom, always in view; speed, incline and the other figures
+ * Phone, belt not at rest. Pause and STOP stay at the bottom, always in view; incline, speed and the other figures
  * scroll above them if the screen is short.
  */
 @Composable
 private fun ActiveCompact(ui: MainUiState, actions: MainActions, sizes: LiveSizes, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(sizes.gap),
-        ) {
-            SpeedPanel(ui, actions.controls, sizes, Modifier.fillMaxWidth())
-            InclinePanel(ui, actions.controls, sizes, Modifier.fillMaxWidth())
+    LiveCompactLayout(
+        sizes, modifier,
+        content = {
+            SpeedInclinePanels(ui, actions.controls, sizes)
             controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
             SecondaryMetrics(ui, sizes, Modifier.fillMaxWidth())
             RecordingNotice(ui, actions)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap), verticalAlignment = Alignment.CenterVertically) {
-            BeltStateLabel(ui.treadmill.status, Modifier.weight(0.85f))
-            PauseResumeButton(ui, actions.controls, sizes, Modifier.weight(1.15f))
-        }
-        StopSection(
-            ui, actions.controls, sizes,
-            // The instruction that replaces STOP may need more lines than the button is tall.
-            Modifier.fillMaxWidth().then(if (ui.stopUnreachable) Modifier.heightIn(min = sizes.stopHeight) else Modifier.height(sizes.stopHeight)),
-        )
-    }
+        },
+        bottom = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap), verticalAlignment = Alignment.CenterVertically) {
+                BeltStateLabel(ui.treadmill.status, Modifier.weight(0.85f))
+                PauseResumeButton(ui, actions.controls, sizes, Modifier.weight(1.15f))
+            }
+            LiveStop(ui, actions.controls, sizes)
+        },
+    )
 }
 
 /** Distance, time, calories and heart rate: below the controls, smaller than the speed and the incline. */
@@ -192,7 +151,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
         unit = unitRes?.let { stringResource(it) },
         modifier = Modifier.weight(1f).fillMaxSize(),
         note = note,
-        maxValueSize = 72.sp,
+        maxValueSize = sizes.secondaryMax,
         unitSize = 24.sp,
         unitInline = true,
         dimmed = stale,
@@ -254,13 +213,15 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
         note: String? = null,
         dimmed: Boolean = false,
         labelTrailing: (@Composable () -> Unit)? = null,
+        fixed: Boolean = false,
     ) = MetricCard(
         label = stringResource(labelRes),
         value = value,
         unit = unitRes?.let { stringResource(it) },
         modifier = mod,
         note = note,
-        maxValueSize = sizes.maxValue,
+        maxValueSize = if (fixed) sizes.figure else sizes.metricMax,
+        fixedValueSize = fixed,
         unitSize = sizes.unit,
         unitInline = sizes.unitInline,
         dimmed = dimmed || stale,
@@ -268,9 +229,12 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
     )
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
-        Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            card(R.string.metric_speed, Format.speed(t.speedKmh), R.string.unit_speed, Modifier.weight(1f).fillMaxSize())
-            card(R.string.metric_incline, Format.incline(t.inclinePercent), R.string.unit_incline, Modifier.weight(1f).fillMaxSize())
+        // Incline and speed at the fixed size of the live figures (on the phone in a row of fixed height, so a notice
+        // below never squeezes them); the other figures share what is left.
+        val figureRow = if (sizes.wide) Modifier.weight(1f) else Modifier.height(sizes.figurePanelHeight)
+        Row(figureRow.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
+            card(R.string.metric_incline, Format.incline(t.inclinePercent), R.string.unit_incline, Modifier.weight(1f).fillMaxSize(), fixed = true)
+            card(R.string.metric_speed, Format.speed(t.speedKmh), R.string.unit_speed, Modifier.weight(1f).fillMaxSize(), fixed = true)
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
             card(R.string.metric_distance, Format.distanceKm(t.distanceMeters), R.string.unit_distance, Modifier.weight(1f).fillMaxSize())
@@ -351,76 +315,39 @@ private fun BeltStatusCard(status: BeltStatus, modifier: Modifier = Modifier, co
     }
 }
 
+/** "Programs and tests", above Start. */
 @Composable
-private fun StartSection(
-    ui: MainUiState,
-    actions: MainActions,
-    sizes: LiveSizes,
-    modifier: Modifier = Modifier,
-    fillHeight: Boolean = false,
-    showHint: Boolean = true,
-) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = actions.onStart,
-            enabled = ui.canStart,
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (fillHeight) Modifier.weight(1f) else Modifier.height(sizes.startHeight))
-                .testTag("start_button"),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        ) {
-            if (ui.startInProgress) {
-                CircularProgressIndicator(
-                    Modifier.size(sizes.startText.value.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    strokeWidth = 4.dp,
-                )
-            } else {
-                Text(
-                    stringResource(R.string.start_button),
-                    fontSize = sizes.startText,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 2.sp,
-                )
-            }
-        }
-        BigOutlinedButton(
-            stringResource(R.string.main_programs),
-            actions.onOpenPrograms,
-            Modifier.fillMaxWidth().testTag("programs_button"),
+private fun ProgramsButton(actions: MainActions) {
+    BigOutlinedButton(stringResource(R.string.main_programs), actions.onOpenPrograms, Modifier.fillMaxWidth().testTag("programs_button"))
+}
+
+/** Above "Programs and tests" and Start: why Start failed, or what to do (when [showHint]). */
+@Composable
+private fun StartHint(ui: MainUiState, showHint: Boolean) {
+    val failure = ui.startFailure
+    if (failure != null) {
+        Text(
+            text = startFailureMessage(failure),
+            modifier = Modifier.fillMaxWidth().testTag("start_failure").semantics { liveRegion = LiveRegionMode.Assertive },
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
         )
-        val failure = ui.startFailure
-        if (failure != null) {
-            Text(
-                text = startFailureMessage(failure),
-                modifier = Modifier.fillMaxWidth().testTag("start_failure").semantics { liveRegion = LiveRegionMode.Assertive },
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-        } else if (showHint) {
-            val hint = when {
-                ui.activeUser == null -> R.string.start_hint_no_user
-                !ui.isConnected -> R.string.start_hint_disconnected
-                ui.startInProgress -> R.string.start_hint_busy
-                else -> R.string.start_hint_idle
-            }
-            Text(
-                text = stringResource(hint),
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+    } else if (showHint) {
+        val hint = when {
+            ui.activeUser == null -> R.string.start_hint_no_user
+            !ui.isConnected -> R.string.start_hint_disconnected
+            ui.startInProgress -> R.string.start_hint_busy
+            else -> R.string.start_hint_idle
         }
+        Text(
+            text = stringResource(hint),
+            modifier = Modifier.fillMaxWidth().testTag("start_hint"),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

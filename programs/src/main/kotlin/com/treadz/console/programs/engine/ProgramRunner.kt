@@ -1,8 +1,11 @@
 package com.treadz.console.programs.engine
 
+import com.treadz.console.analysis.thresholds.RealTimeAlpha1
+import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.ControllerHeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateSource
+import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.HeartRateAdjust
@@ -66,6 +69,11 @@ import kotlin.math.roundToInt
  *    controller like any block target. A manual change switches the control off until the next block;
  *    [resumeHeartRateControl] switches it back on. The heart rate comes from [heartRate] (normally an
  *    `AutomaticHeartRateSource`: strap connected to the app, else console); both sources are treated alike.
+ *  - **Real-time α1 brake**: the runner feeds a [RealTimeAlpha1] estimator with the RR intervals of the readings that
+ *    come from a strap connected to the app and passes each evaluation (every 10 s) to the control of the current
+ *    heart-rate block, which may lower the load one small step (see [Alpha1BrakeConfig] and [HeartRateBlockControl]).
+ *    The reduction is an ordinary heart-rate adjustment: same event, same command path (origin
+ *    `HeartRateControl`), verified by the controller like any other. It needs no support from the caller.
  *
  * Thread safety: all state lives behind one lock and is changed only in short non-suspending sections; controller
  * calls are made outside it. User actions run in [scope] (they are not cancelled with the caller) and are serialised
@@ -125,6 +133,9 @@ class ProgramRunner(
     private var hrTracker: HeartRateTracker? = null
     private var hrControl: HeartRateBlockControl? = null
 
+    /** Real-time DFA-α1 of the strap's RR (one per run, with the tracker). */
+    private var hrAlpha1: RealTimeAlpha1? = null
+
     /** The pending application only carries a heart-rate change: a manual change made meanwhile wins over it. */
     private var hrApplyPending = false
 
@@ -176,6 +187,7 @@ class ProgramRunner(
             lastDistance = controller.state.value.distanceMeters
             lastAccountAt = clock.nowMillis()
             hrTracker = newOptions.heartRateProfile?.takeIf { it.isUsable }?.let { HeartRateTracker(it, config.heartRate) }
+            hrAlpha1 = hrTracker?.let { RealTimeAlpha1() }
             hrControl = null
             hrCarry.clear()
             hrSummaries.clear()
@@ -555,13 +567,18 @@ class ProgramRunner(
             return Step.Wait(0)
         }
         val c = hrControl
-        if (c != null && !needsApply) {
-            val value = c.update(clock.nowMillis(), currentBlockMs(), adjustedTarget(c))
-            drainHeartRate(c)
-            if (value != null) {
-                if (c.adjust == HeartRateAdjust.Speed) targetSpeed = value else targetIncline = value
-                needsApply = true
-                hrApplyPending = true
+        if (c != null) {
+            // The α1 evaluation (every 10 s) is one more input of the control; the order goes out through the same path.
+            val now = clock.nowMillis()
+            hrAlpha1?.poll(now)?.let { c.onAlpha1(now, it) }
+            if (!needsApply) {
+                val value = c.update(now, currentBlockMs(), adjustedTarget(c))
+                drainHeartRate(c)
+                if (value != null) {
+                    if (c.adjust == HeartRateAdjust.Speed) targetSpeed = value else targetIncline = value
+                    needsApply = true
+                    hrApplyPending = true
+                }
             }
         }
         publish()
@@ -698,6 +715,12 @@ class ProgramRunner(
             val t = clock.nowMillis()
             val bpm = tracker.onReading(t, reading)
             hrControl?.onSample(t, bpm)
+            // Only a strap connected to the app provides RR that can be trusted (the console's heart rate has none). They
+            // go in even when the bpm was not plausible: the RR cleaning judges the beats, and dropping them would leave
+            // holes in the series.
+            if (reading.source == HeartRateSourceKind.DirectStrap && reading.validity != HeartRateValidity.Invalid) {
+                hrAlpha1?.append(t, reading.rrIntervalsMs)
+            }
         }
     }
 
@@ -740,11 +763,13 @@ class ProgramRunner(
         val start = clamp(if (speed) block.speedKmh else block.inclinePercent).coerceIn(min, max)
         val carried = if ((block.repetition?.iteration ?: 1) > 1) hrCarry[block.stepIndex to block.blockInStep] else null
         val initial = carried?.first?.coerceIn(min, max) ?: start
+        val mode = HeartRateBlockControl.modeOf(block.repetition != null, block.estimatedDurationSeconds, config.heartRate)
+        val zoneBpm = HeartRateZones.toBpm(g.zone, profile)
         val c = HeartRateBlockControl(
             blockIndex = block.index,
             adjust = g.adjust,
-            mode = HeartRateBlockControl.modeOf(block.repetition != null, block.estimatedDurationSeconds, config.heartRate),
-            zone = HeartRateZones.toBpm(g.zone, profile),
+            mode = mode,
+            zone = zoneBpm,
             maxBpm = profile.maxBpm,
             minimum = min,
             maximum = max,
@@ -754,6 +779,7 @@ class ProgramRunner(
             tracker = tracker,
             config = config.heartRate,
             startedAt = clock.nowMillis(),
+            alpha1BrakeActive = hrAlpha1 != null && Alpha1BrakePolicy.appliesTo(zoneBpm, mode, profile, config.heartRate.alpha1Brake),
         )
         hrControl = c
         if (speed) targetSpeed = initial else targetIncline = initial
@@ -942,6 +968,7 @@ class ProgramRunner(
         plan = null
         hrControl = null
         hrTracker = null
+        hrAlpha1 = null
         interruption = null
         initialStart = false
         busy = false

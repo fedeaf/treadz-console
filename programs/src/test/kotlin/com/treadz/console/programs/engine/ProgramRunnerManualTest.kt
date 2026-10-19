@@ -1,6 +1,7 @@
 package com.treadz.console.programs.engine
 
 import com.treadz.console.programs.engine.ProgramRig.Companion.SET_SPEED
+import com.treadz.console.programs.model.BlockPhase
 import com.treadz.console.treadmill.CommandResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -56,6 +57,64 @@ class ProgramRunnerManualTest {
         assertEquals(8.0, rig.sim.currentSpeedKmh, 0.001)
         rig.awaitTrue(message = "back to the block's speed") { rig.progress.currentBlockIndex == 1 && rig.sim.currentSpeedKmh == 6.0 }
         assertFalse(rig.progress.manualOverride)
+        rig.runner.stop()
+    }
+
+    // ------------------------------------------------------------------ E: recovery and cool-down never raise the load
+
+    @Test
+    fun `a cool-down keeps a speed lowered during the effort instead of raising it to its plan`() = runTest {
+        val rig = ProgramRig(this)
+        rig.connect()
+        // The zone 2 walk of a real session: the effort and the cool-down both plan 5.6 km/h.
+        rig.start(planOf(timed(60, 5.6, 12.0), timed(60, 5.6, 0.0, BlockPhase.CoolDown)))
+        delay(30_000)
+        assertEquals(RunnerResult.Success, rig.runner.adjustSpeed(5.5))
+        rig.awaitTrue(message = "adjusted") { rig.sim.currentSpeedKmh == 5.5 }
+        val sent = rig.count(SET_SPEED)
+
+        rig.awaitTrue(message = "cool-down") { rig.progress.currentBlockIndex == 1 }
+        rig.awaitTrue(message = "flat") { rig.sim.currentInclinePercent == 0.0 }
+        assertEquals(5.5, rig.progress.targetSpeedKmh)
+        assertEquals(0.0, rig.progress.targetInclinePercent)
+        delay(10_000)
+        assertEquals(5.5, rig.sim.currentSpeedKmh, 0.001)
+        assertEquals(sent, rig.count(SET_SPEED), "no speed command: the speed in force is kept")
+        assertFalse(rig.progress.manualOverride)
+        rig.runner.stop()
+    }
+
+    @Test
+    fun `a recovery never goes above the load in force, and the next effort applies its plan again`() = runTest {
+        val rig = ProgramRig(this)
+        rig.connect()
+        rig.start(planOf(timed(60, 8.0, 3.0), timed(40, 6.0, 4.0, BlockPhase.Recovery), timed(60, 8.0, 3.0)))
+        delay(20_000)
+        // Lowered from the console below the recovery's own plan, speed and incline.
+        rig.sim.physicalSetSpeed(5.0)
+        rig.sim.physicalSetIncline(1.0)
+        rig.awaitTrue(message = "console change") { rig.progress.manualOverride && rig.sim.currentSpeedKmh == 5.0 && rig.sim.currentInclinePercent == 1.0 }
+
+        rig.awaitTrue(message = "recovery") { rig.progress.currentBlockIndex == 1 }
+        assertEquals(5.0, rig.progress.targetSpeedKmh)
+        assertEquals(1.0, rig.progress.targetInclinePercent)
+        delay(20_000)
+        assertEquals(5.0, rig.sim.currentSpeedKmh, 0.001)
+        assertEquals(1.0, rig.sim.currentInclinePercent, 0.001)
+
+        rig.awaitTrue(message = "next effort") { rig.progress.currentBlockIndex == 2 }
+        rig.awaitTrue(message = "effort plan") { rig.sim.currentSpeedKmh == 8.0 && rig.sim.currentInclinePercent == 3.0 }
+        rig.runner.stop()
+    }
+
+    @Test
+    fun `a cool-down planned lower than the load in force applies its plan`() = runTest {
+        val rig = ProgramRig(this)
+        rig.connect()
+        rig.start(planOf(timed(40, 8.0, 2.0), timed(60, 5.0, 0.0, BlockPhase.CoolDown)))
+        rig.awaitTrue(message = "cool-down") { rig.progress.currentBlockIndex == 1 }
+        rig.awaitTrue(message = "cool-down plan") { rig.sim.currentSpeedKmh == 5.0 && rig.sim.currentInclinePercent == 0.0 }
+        assertEquals(5.0, rig.progress.targetSpeedKmh)
         rig.runner.stop()
     }
 

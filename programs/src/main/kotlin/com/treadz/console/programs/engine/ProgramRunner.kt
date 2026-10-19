@@ -8,6 +8,7 @@ import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.BlockEnd
+import com.treadz.console.programs.model.BlockPhase
 import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.plan.ResolvedBlock
 import com.treadz.console.programs.plan.ResolvedPlan
@@ -55,6 +56,9 @@ import kotlin.math.roundToInt
  *    and respected until the next block, which applies its own targets again (only the values that differ from what
  *    the treadmill already has are sent). While a program is active the UI must not call the controller's
  *    `setSpeed`/`setIncline` directly.
+ *  - **Recovery and cool-down blocks never raise the load**: each of their targets is the lower of the planned one
+ *    and the one in force when the block starts (a manual reduction during the effort is kept; a higher plan value
+ *    is not applied). A heart-rate-guided one starts the same way and its control then works between its bounds.
  *  - **Interruptions** (safety key, connection lost, the belt stopped/paused/restarted from elsewhere, a command not
  *    executed, a command of the runner that failed, frozen data) stop all commands and move to
  *    [RunState.Interrupted]. The runner never restarts the belt on its own; [continueProgram] or [abandon] are
@@ -745,9 +749,18 @@ class ProgramRunner(
 
     private fun pendingMs(): Long = if (runState == RunState.Running) max(0L, clock.nowMillis() - lastAccountAt) else 0L
 
-    private fun setBlockTargets(block: ResolvedBlock) {
-        targetSpeed = block.speedKmh
-        targetIncline = block.inclinePercent
+    /**
+     * The targets of [block] when it starts. [currentSpeed] and [currentIncline] are the ones in force at the end of the
+     * previous block (`null` for the first one): a recovery or cool-down block never goes above them.
+     */
+    private fun setBlockTargets(block: ResolvedBlock, currentSpeed: Double? = null, currentIncline: Double? = null) {
+        val easing = block.phase == BlockPhase.Recovery || block.phase == BlockPhase.CoolDown
+        val speedCap = currentSpeed?.takeIf { easing }
+        val inclineCap = currentIncline?.takeIf { easing }
+        val startSpeed = speedCap?.let { min(block.speedKmh, it) } ?: block.speedKmh
+        val startIncline = inclineCap?.let { min(block.inclinePercent, it) } ?: block.inclinePercent
+        targetSpeed = startSpeed
+        targetIncline = startIncline
         manualOverride = false
         hrControl = null
         val g = block.heartRate ?: return
@@ -760,9 +773,9 @@ class ProgramRunner(
         val clamp: (Double) -> Double = { v -> if (speed) SafetyClamp.speed(v, range, limits) else SafetyClamp.incline(v, range, limits) }
         val min = clamp(g.minimum)
         val max = maxOf(min, clamp(g.maximum))
-        val start = clamp(if (speed) block.speedKmh else block.inclinePercent).coerceIn(min, max)
+        val start = clamp(if (speed) startSpeed else startIncline).coerceIn(min, max)
         val carried = if ((block.repetition?.iteration ?: 1) > 1) hrCarry[block.stepIndex to block.blockInStep] else null
-        val initial = carried?.first?.coerceIn(min, max) ?: start
+        val initial = carried?.first?.coerceIn(min, max)?.let { if (easing) min(it, start) else it } ?: start
         val mode = HeartRateBlockControl.modeOf(block.repetition != null, block.estimatedDurationSeconds, config.heartRate)
         val zoneBpm = HeartRateZones.toBpm(g.zone, profile)
         val c = HeartRateBlockControl(
@@ -866,7 +879,7 @@ class ProgramRunner(
         blockIndex = index
         blockElapsedMs = carryMs
         blockMeters = carryMeters
-        setBlockTargets(p.blocks[index])
+        setBlockTargets(p.blocks[index], targetSpeed, targetIncline)
         needsApply = true
         hrApplyPending = false
         epoch++

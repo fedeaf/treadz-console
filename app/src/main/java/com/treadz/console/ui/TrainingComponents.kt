@@ -2,9 +2,12 @@ package com.treadz.console.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -12,22 +15,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.treadz.console.R
@@ -101,16 +111,7 @@ fun StepperField(
                     )
                 }
             } else {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onValue,
-                    isError = error != null,
-                    suffix = if (unit != null) ({ Text(unit) }) else null,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                    textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Center),
-                    modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag(tag),
-                )
+                FittedNumberField(value, onValue, unit, error != null, keyboardType, tag, Modifier.weight(1f))
             }
             StepSymbolButton("+", moreDescription, { onStep(+1) }, "${tag}_plus", enabled = !kept)
         }
@@ -139,6 +140,95 @@ fun StepperField(
             )
         }
     }
+}
+
+/** Horizontal padding inside the box of a [FittedNumberField] (the default of a text field, 16 dp, wastes a narrow box). */
+private val FIELD_PADDING = 6.dp
+
+/** The smallest size the number of a [FittedNumberField] shrinks to. */
+private val MIN_FIELD_FONT = 14.sp
+
+/** Room left for the cursor next to the number of a [FittedNumberField]. */
+private val FIELD_CURSOR_ROOM = 4.dp
+
+/** How the number of a [FittedNumberField] is drawn: its size, with or without the unit, and whether it fits whole. */
+private data class FieldFit(val size: TextUnit, val showUnit: Boolean, val fits: Boolean)
+
+/**
+ * The typed number of a [StepperField], with its [unit] after it, always whole: the font shrinks (from the title size
+ * down to [MIN_FIELD_FONT]) until the number and the unit fit the width the box gets; if they never do, the unit is
+ * left out. A single-line text field that is narrower than its text scrolls it out of view: between the − / + buttons,
+ * in a row of fields, "30:00" showed as "3" and "10.0 km/h" as "km/h".
+ */
+@Composable
+private fun FittedNumberField(
+    value: String,
+    onValue: (String) -> Unit,
+    unit: String?,
+    isError: Boolean,
+    keyboardType: KeyboardType,
+    tag: String,
+    modifier: Modifier,
+) {
+    val base = MaterialTheme.typography.titleLarge
+    val unitStyle = MaterialTheme.typography.bodyMedium
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val interaction = remember { MutableInteractionSource() }
+    val colors = OutlinedTextFieldDefaults.colors()
+    BoxWithConstraints(modifier) {
+        // The cursor needs a few pixels next to the text: an exact fit would still scroll it.
+        val available = with(density) { (maxWidth - FIELD_PADDING * 2 - FIELD_CURSOR_ROOM).toPx() }
+        val fit = remember(value, unit, available, base, unitStyle) {
+            fun width(size: TextUnit) = measurer.measure(value.ifEmpty { "0" }, base.copy(fontSize = size)).size.width.toFloat()
+            val unitWidth = unit?.let { measurer.measure(" $it", unitStyle).size.width.toFloat() } ?: 0f
+            val withUnit = fittedFontSize(base.fontSize, MIN_FIELD_FONT, available - unitWidth, ::width)
+            when {
+                width(withUnit) <= available - unitWidth -> FieldFit(withUnit, showUnit = unit != null, fits = true)
+                // Too narrow for the unit as well: the number keeps the room (the label says what it is).
+                else -> fittedFontSize(base.fontSize, MIN_FIELD_FONT, available, ::width).let { size ->
+                    FieldFit(size, showUnit = false, fits = width(size) <= available)
+                }
+            }
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValue,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag(tag),
+            singleLine = true,
+            // Centred when it fits; from the start when even the smallest size does not (centring an overflowing
+            // single line hides all of it).
+            textStyle = base.copy(fontSize = fit.size, textAlign = if (fit.fits) TextAlign.Center else TextAlign.Start, color = MaterialTheme.colorScheme.onSurface),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            cursorBrush = SolidColor(if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
+            interactionSource = interaction,
+            decorationBox = { inner ->
+                OutlinedTextFieldDefaults.DecorationBox(
+                    value = value,
+                    innerTextField = inner,
+                    enabled = true,
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    interactionSource = interaction,
+                    isError = isError,
+                    suffix = unit?.takeIf { fit.showUnit }?.let { { Text(it, style = unitStyle, maxLines = 1, softWrap = false) } },
+                    colors = colors,
+                    contentPadding = PaddingValues(horizontal = FIELD_PADDING, vertical = 16.dp),
+                    container = { OutlinedTextFieldDefaults.Container(enabled = true, isError = isError, interactionSource = interaction, colors = colors) },
+                )
+            },
+        )
+    }
+}
+
+/**
+ * The biggest font size from [max] down to [min], in steps of 1 sp, at which a text [width] fits in [available] pixels
+ * ([min] when not even that fits).
+ */
+internal fun fittedFontSize(max: TextUnit, min: TextUnit, available: Float, width: (TextUnit) -> Float): TextUnit {
+    var size = max
+    while (size > min && width(size) > available) size = maxOf(min.value, size.value - 1f).sp
+    return size
 }
 
 /** A value changed only with − / + (the duration, the intensity adjustment). */

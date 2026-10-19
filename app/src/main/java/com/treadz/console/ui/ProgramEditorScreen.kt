@@ -1,10 +1,12 @@
 package com.treadz.console.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -299,13 +301,29 @@ private fun BlockCard(
                 )
             }
             if (wide) {
-                // One row: what ends the block, the speed and the incline.
+                // One row: what ends the block, the speed and the incline; two rows (the length alone, then speed and
+                // incline) when three fields would be too narrow for their numbers.
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { endTypes() }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        numbers()
-                        speedField(Modifier.weight(1f))
-                        inclineField(Modifier.weight(1f))
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        if (maxWidth >= EDITOR_FIELD_MIN_WIDTH * 3 + 24.dp) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                numbers()
+                                speedField(Modifier.weight(1f))
+                                inclineField(Modifier.weight(1f))
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    numbers()
+                                    Spacer(Modifier.weight(1f))
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    speedField(Modifier.weight(1f))
+                                    inclineField(Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -508,3 +526,6 @@ private fun HeartRateTarget(
         }
     }
 }
+
+/** Narrowest a field of the block row of the editor gets on the tablet; below it the row is split in two. */
+private val EDITOR_FIELD_MIN_WIDTH = 200.dp

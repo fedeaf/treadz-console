@@ -2,12 +2,15 @@ package com.treadz.console.screenshots
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.treadz.console.MainUiState
 import com.treadz.console.controls.ControlsNote
@@ -241,6 +244,23 @@ abstract class LiveScreenshotScenarios(private val prefix: String) {
     @Test fun d03_plan_preview_with_kept_values() {
         val id = storedKeepProgram()
         capture("d03_preview_keep", startAt = listOf(Screen.Programs, Screen.ProgramStart(id))) { scrollTo("plan_block_list") }
+    }
+
+    /** Stepper fields narrower than their numbers: the number shrinks and stays whole ("30:00", not "3"). */
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    @Test fun d04_narrow_stepper_fields() = host("d04_narrow_fields") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.padding(16.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            for (width in listOf(180, 220)) {
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
+                    for ((value, unit) in listOf("30:00" to null, "1000" to null, "10.0" to "km/h", "100" to "%")) {
+                        com.treadz.console.ui.StepperField(
+                            "$value · $width dp", value, {}, {}, unit, "narrow_${width}_$value",
+                            androidx.compose.ui.Modifier.width(width.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // ---- The record of a generated session ----

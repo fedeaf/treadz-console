@@ -37,6 +37,13 @@ object ProgramLimits {
 /** Checks a [Program] and reports every problem with its location. */
 object ProgramValidator {
 
+    /**
+     * Message of the issue for a first block that keeps a value. The issue's path ends in `speedKmh` or
+     * `inclinePercent` (`steps[0].target.speedKmh`, `steps[0].blocks[0].target.start.inclinePercent`…), so an editor can
+     * tell which field to flag.
+     */
+    const val FIRST_BLOCK_KEEPS = "must be set: the first block starts with the belt stopped, so there is no value to keep"
+
     private val UUID_REGEX = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     private val STANDARD_ID_REGEX = Regex("^standard-[a-z0-9]+(-[a-z0-9]+)*$")
@@ -92,11 +99,25 @@ object ProgramValidator {
         if (program.expandedBlockCount > ProgramLimits.MAX_EXPANDED_BLOCKS) {
             issue("steps", "expands to more than ${ProgramLimits.MAX_EXPANDED_BLOCKS} blocks")
         }
+        validateFirstBlock(program, ::issue)
         val seconds = totalDurationSeconds(program)
         if (seconds > ProgramLimits.MAX_DURATION_SECONDS) {
             issue("steps", "the time-based blocks add up to more than ${ProgramLimits.MAX_DURATION_SECONDS / 3_600} hours")
         }
         return issues
+    }
+
+    /**
+     * The first block a run executes starts with the belt stopped: nothing is in force yet, so it cannot keep a speed
+     * or an incline. Blocks anywhere else (inside repeats too) may.
+     */
+    private fun validateFirstBlock(program: Program, issue: (String, String) -> Unit) {
+        val first = program.firstBlock ?: return
+        val path = if (program.steps[0] is Repeat) "steps[0].blocks[0]" else "steps[0]"
+        val target = first.target
+        val targetPath = if (target is BlockTarget.HeartRate) "$path.target.start" else "$path.target"
+        if (target.keepsSpeed) issue("$targetPath.speedKmh", FIRST_BLOCK_KEEPS)
+        if (target.keepsIncline) issue("$targetPath.inclinePercent", FIRST_BLOCK_KEEPS)
     }
 
     /** Throws [InvalidProgramException] if [program] has any problem. */
@@ -133,8 +154,8 @@ object ProgramValidator {
     private fun validateTarget(target: BlockTarget, path: String, issue: (String, String) -> Unit) {
         when (target) {
             is BlockTarget.Absolute -> {
-                absoluteSpeed(target.speedKmh, "$path.speedKmh", issue)
-                absoluteIncline(target.inclinePercent, "$path.inclinePercent", issue)
+                target.speedKmh?.let { absoluteSpeed(it, "$path.speedKmh", issue) }
+                target.inclinePercent?.let { absoluteIncline(it, "$path.inclinePercent", issue) }
             }
             is BlockTarget.Relative -> {
                 percent(target.speedPercent, "$path.speedPercent", issue)
@@ -167,7 +188,7 @@ object ProgramValidator {
                 else if (target.minimum > target.maximum) issue("$path.bounds", "minimum must not be above maximum")
                 else {
                     val startValue = startValueOf(target)
-                    if (startValue.isFinite() && (startValue < target.minimum - 1e-9 || startValue > target.maximum + 1e-9)) {
+                    if (startValue != null && startValue.isFinite() && (startValue < target.minimum - 1e-9 || startValue > target.maximum + 1e-9)) {
                         issue("$path.start", "the starting value ($startValue) must be inside the bounds [${target.minimum}, ${target.maximum}]")
                     }
                 }
@@ -175,8 +196,11 @@ object ProgramValidator {
         }
     }
 
-    /** The starting value of the quantity that a heart-rate block adjusts, in the scale of its bounds. */
-    internal fun startValueOf(t: BlockTarget.HeartRate): Double = when (val s = t.start) {
+    /**
+     * The starting value of the quantity that a heart-rate block adjusts, in the scale of its bounds; `null` when it is
+     * kept (the control then starts from the value in force, within the bounds).
+     */
+    internal fun startValueOf(t: BlockTarget.HeartRate): Double? = when (val s = t.start) {
         is BlockTarget.Absolute -> if (t.adjust == HeartRateAdjust.Speed) s.speedKmh else s.inclinePercent
         is BlockTarget.Relative -> if (t.adjust == HeartRateAdjust.Speed) s.speedPercent else s.inclinePercent
     }

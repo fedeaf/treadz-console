@@ -160,6 +160,14 @@ sealed interface ProgramEvent {
         val blockIndex: Int,
         val block: ResolvedBlock,
         val reason: BlockChangeReason,
+        /**
+         * The speed the engine targets as the block starts: the planned one, or the one in force for a block that keeps
+         * its speed ([ResolvedBlock.keepsSpeed]) or that eases (recovery and cool-down never go above it). `null` only
+         * in events built by hand.
+         */
+        val targetSpeedKmh: Double? = null,
+        /** Same as [targetSpeedKmh] for the incline. */
+        val targetInclinePercent: Double? = null,
     ) : ProgramEvent
 
     data class BlockCompleted(

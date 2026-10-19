@@ -73,10 +73,19 @@ data class ResolvedPlan(
     /** Estimated total distance: time blocks at their target speed, distance blocks as planned. */
     val estimatedDistanceMeters: Int,
     val warnings: List<PlanWarning>,
-    val planSchemaVersion: Int = PLAN_SCHEMA_VERSION,
+    /** By default the lowest version that can hold the plan: 1, or 2 when a block keeps a value ([planSchemaVersionFor]). */
+    val planSchemaVersion: Int = planSchemaVersionFor(blocks),
 ) {
     companion object {
-        const val PLAN_SCHEMA_VERSION = 1
+        /** Newest version of the plan document this code reads and writes. */
+        const val PLAN_SCHEMA_VERSION = 2
+
+        /** Version of every plan that does not use a newer feature. Version 2 adds "keep" blocks. */
+        const val BASE_PLAN_SCHEMA_VERSION = 1
+
+        /** The lowest plan version that can hold these [blocks]. */
+        fun planSchemaVersionFor(blocks: List<ResolvedBlock>): Int =
+            if (blocks.any { it.keepsSpeed || it.keepsIncline }) PLAN_SCHEMA_VERSION else BASE_PLAN_SCHEMA_VERSION
     }
 }
 
@@ -87,7 +96,14 @@ data class ResolvedBlock(
     val phase: BlockPhase,
     val name: String?,
     val end: BlockEnd,
+    /**
+     * Target speed. For a block that [keepsSpeed] it is only the **expected** speed: the one the previous block ended
+     * with in the plan (after the usual clamps). The real speed is only known when the block starts (it is whatever is
+     * in force then: manual changes and heart-rate adjustments included), so previews and estimates use this value but
+     * must show it as "kept", and the run reports the real one (`ProgramEvent.BlockStarted`, `ProgramProgress`).
+     */
     val speedKmh: Double,
+    /** Target incline; the expected one, like [speedKmh], when the block [keepsIncline]. */
     val inclinePercent: Double,
     /**
      * Set for blocks that ask for heart-rate control. [speedKmh] and [inclinePercent] are the starting values; the
@@ -103,6 +119,13 @@ data class ResolvedBlock(
     val repetition: Repetition?,
     /** Planned duration; for distance blocks it is derived from the target speed. */
     val estimatedDurationSeconds: Int,
+    /**
+     * The block starts with the speed in force when it begins instead of a planned one ([speedKmh] is then the
+     * expected value). For a heart-rate block this is its starting speed, and only matters at the start.
+     */
+    val keepsSpeed: Boolean = false,
+    /** Same as [keepsSpeed] for the incline. */
+    val keepsIncline: Boolean = false,
 )
 
 /** Repetition [iteration] (1-based) of [count]. */

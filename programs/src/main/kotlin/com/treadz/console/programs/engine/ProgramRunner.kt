@@ -229,7 +229,7 @@ class ProgramRunner(
             hrControl?.onResume(clock.nowMillis())
             val p = checkNotNull(plan)
             emit(ProgramEvent.Started(clock.nowMillis(), 0, p, options))
-            emit(ProgramEvent.BlockStarted(clock.nowMillis(), 0, 0, p.blocks[0], BlockChangeReason.ProgramStart))
+            emit(ProgramEvent.BlockStarted(clock.nowMillis(), 0, 0, p.blocks[0], BlockChangeReason.ProgramStart, targetSpeed, targetIncline))
             needsApply = true
             hrApplyPending = false
             checkInterruptions()
@@ -751,14 +751,19 @@ class ProgramRunner(
 
     /**
      * The targets of [block] when it starts. [currentSpeed] and [currentIncline] are the ones in force at the end of the
-     * previous block (`null` for the first one): a recovery or cool-down block never goes above them.
+     * previous block (`null` for the first one). A quantity the block keeps starts at that value instead of the planned
+     * (expected) one; a recovery or cool-down block never goes above it. The two rules combine without special cases:
+     * the planned value of a kept quantity *is* the one in force, and the lower of two equal values is that value.
      */
     private fun setBlockTargets(block: ResolvedBlock, currentSpeed: Double? = null, currentIncline: Double? = null) {
         val easing = block.phase == BlockPhase.Recovery || block.phase == BlockPhase.CoolDown
         val speedCap = currentSpeed?.takeIf { easing }
         val inclineCap = currentIncline?.takeIf { easing }
-        val startSpeed = speedCap?.let { min(block.speedKmh, it) } ?: block.speedKmh
-        val startIncline = inclineCap?.let { min(block.inclinePercent, it) } ?: block.inclinePercent
+        // Nothing is in force before the first block (the validator refuses a first block that keeps): its planned value stands.
+        val plannedSpeed = if (block.keepsSpeed && currentSpeed != null) currentSpeed else block.speedKmh
+        val plannedIncline = if (block.keepsIncline && currentIncline != null) currentIncline else block.inclinePercent
+        val startSpeed = speedCap?.let { min(plannedSpeed, it) } ?: plannedSpeed
+        val startIncline = inclineCap?.let { min(plannedIncline, it) } ?: plannedIncline
         targetSpeed = startSpeed
         targetIncline = startIncline
         manualOverride = false
@@ -883,7 +888,7 @@ class ProgramRunner(
         needsApply = true
         hrApplyPending = false
         epoch++
-        emit(ProgramEvent.BlockStarted(clock.nowMillis(), programSeconds(), index, p.blocks[index], reason))
+        emit(ProgramEvent.BlockStarted(clock.nowMillis(), programSeconds(), index, p.blocks[index], reason, targetSpeed, targetIncline))
     }
 
     /** Back to running after a resume or continue: the clock restarts and the block's targets are checked again. */
@@ -1016,7 +1021,11 @@ class ProgramRunner(
         val remainingMeters = (block.end as? BlockEnd.Distance)?.let { max(0, it.meters - blockMeters) }
         val blockRemainingS = when (val end = block.end) {
             is BlockEnd.Duration -> max(0, ceil((end.seconds * 1000L - blockMs) / 1000.0).toInt())
-            is BlockEnd.Distance -> (max(0, end.meters - blockMeters) / (block.speedKmh / 3.6)).roundToInt()
+            // A kept speed is only expected in the plan: the real one is what is targeted now.
+            is BlockEnd.Distance -> {
+                val speed = if (block.keepsSpeed) targetSpeed ?: block.speedKmh else block.speedKmh
+                (max(0, end.meters - blockMeters) / (speed / 3.6)).roundToInt()
+            }
         }
         val rest = p.blocks.drop(index + 1).sumOf { it.estimatedDurationSeconds }
         _progress.value = ProgramProgress(

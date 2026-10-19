@@ -119,9 +119,10 @@ object GeneratedSessionRecords {
             ?: throw IllegalArgumentException("The events of the run must contain the Started event")
         val plan = started.plan
 
-        class Open(val block: ResolvedBlock, val startedAt: Long, val startSeconds: Int) {
-            var speed = block.speedKmh
-            var incline = block.inclinePercent
+        class Open(val block: ResolvedBlock, val startedAt: Long, val startSeconds: Int, startSpeed: Double?, startIncline: Double?) {
+            // The targets the block really started with (a kept value is not the planned one), when the event says.
+            var speed = startSpeed ?: block.speedKmh
+            var incline = startIncline ?: block.inclinePercent
             var reductions = 0
             var changes = 0
         }
@@ -158,7 +159,7 @@ object GeneratedSessionRecords {
             when (e) {
                 is ProgramEvent.BlockStarted -> {
                     open?.let { close(it, false, e.atMillis, e.programSeconds - it.startSeconds) }
-                    val o = Open(e.block, e.atMillis, e.programSeconds)
+                    val o = Open(e.block, e.atMillis, e.programSeconds, e.targetSpeedKmh, e.targetInclinePercent)
                     pendingInitial.remove(e.blockIndex)?.let { (adjust, value) ->
                         if (adjust == HeartRateAdjust.Speed) o.speed = value else o.incline = value
                     }

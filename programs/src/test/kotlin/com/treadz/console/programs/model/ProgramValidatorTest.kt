@@ -125,7 +125,7 @@ class ProgramValidatorTest {
 
     @Test
     fun `an unknown future schema version is invalid for the model`() {
-        assertEquals(listOf("schemaVersion"), issues(norwegian4x4().copy(schemaVersion = 2)).map { it.path })
+        assertEquals(listOf("schemaVersion"), issues(norwegian4x4().copy(schemaVersion = Program.SCHEMA_VERSION + 1)).map { it.path })
         assertEquals(listOf("schemaVersion"), issues(norwegian4x4().copy(schemaVersion = 0)).map { it.path })
     }
 

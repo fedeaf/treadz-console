@@ -395,9 +395,13 @@ class ProgramStartViewModel(
  * (the scaled durations can differ by a second between repetitions, then the blocks are written out).
  */
 fun ResolvedPlan.toFreeProgram(name: String): Program {
-    fun block(b: ResolvedBlock) = Block(b.phase, b.end, BlockTarget.Absolute(b.speedKmh, b.inclinePercent), b.name)
+    // A kept value stays kept: its number in the plan is only the expected one.
+    fun block(b: ResolvedBlock) = Block(
+        b.phase, b.end, BlockTarget.Absolute(b.speedKmh.takeUnless { b.keepsSpeed }, b.inclinePercent.takeUnless { b.keepsIncline }), b.name,
+    )
     fun same(a: ResolvedBlock, b: ResolvedBlock) =
-        a.phase == b.phase && a.name == b.name && a.end == b.end && a.speedKmh == b.speedKmh && a.inclinePercent == b.inclinePercent
+        a.phase == b.phase && a.name == b.name && a.end == b.end && a.speedKmh == b.speedKmh && a.inclinePercent == b.inclinePercent &&
+            a.keepsSpeed == b.keepsSpeed && a.keepsIncline == b.keepsIncline
     val steps = mutableListOf<com.treadz.console.programs.model.ProgramStep>()
     blocks.groupBy { it.stepIndex }.toSortedMap().forEach { (_, group) ->
         val repetition = group.first().repetition

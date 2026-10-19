@@ -22,8 +22,11 @@ data class Program(
     val description: String? = null,
     /** Only for [ProgramKind.Personalised]: what generated the program. */
     val origin: ProgramOrigin? = null,
-    /** Version of the document format this program was written with. */
-    val schemaVersion: Int = SCHEMA_VERSION,
+    /**
+     * Version of the document format this program was written with. By default the lowest version that can hold it
+     * ([schemaVersionFor]): 1, or 2 when a block keeps a value (see [BlockTarget.Absolute]).
+     */
+    val schemaVersion: Int = schemaVersionFor(steps),
 ) {
     /** Number of blocks once every [Repeat] is expanded. */
     val expandedBlockCount: Int
@@ -34,9 +37,33 @@ data class Program(
             }
         }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
+    /** True when some block leaves a speed or an incline empty ("keep"; see [BlockTarget.Absolute]). */
+    val usesKeep: Boolean get() = usesKeep(steps)
+
+    /** The first block a run executes (the first block of the first repeat when the program starts with one). */
+    val firstBlock: Block?
+        get() = when (val first = steps.firstOrNull()) {
+            is Block -> first
+            is Repeat -> first.blocks.firstOrNull()
+            null -> null
+        }
+
     companion object {
-        /** Current version of the JSON document format. */
-        const val SCHEMA_VERSION = 1
+        /** Newest version of the JSON document format this code reads and writes. */
+        const val SCHEMA_VERSION = 2
+
+        /** Version of every document that does not use a newer feature. Version 2 adds "keep" values. */
+        const val BASE_SCHEMA_VERSION = 1
+
+        /** The lowest format version that can hold a program with these [steps]. */
+        fun schemaVersionFor(steps: List<ProgramStep>): Int = if (usesKeep(steps)) SCHEMA_VERSION else BASE_SCHEMA_VERSION
+
+        private fun usesKeep(steps: List<ProgramStep>): Boolean = steps.any { step ->
+            when (step) {
+                is Block -> step.target.keepsSpeed || step.target.keepsIncline
+                is Repeat -> step.blocks.any { it.target.keepsSpeed || it.target.keepsIncline }
+            }
+        }
     }
 }
 
@@ -79,11 +106,31 @@ sealed interface BlockEnd {
 /** What a block asks of the treadmill. */
 sealed interface BlockTarget {
 
+    /**
+     * The block starts with the speed that is in force when it begins (see [Absolute]). Always false for targets that
+     * cannot keep.
+     */
+    val keepsSpeed: Boolean get() = false
+
+    /** The block starts with the incline that is in force when it begins (see [Absolute]). */
+    val keepsIncline: Boolean get() = false
+
     /** Fixed speed and incline, known when the program is written. */
     sealed interface Fixed : BlockTarget
 
-    /** Speed in km/h and incline in %. */
-    data class Absolute(val speedKmh: Double, val inclinePercent: Double) : Fixed
+    /**
+     * Speed in km/h and incline in %. Either one may be `null`, which means **keep**: the block starts with the value
+     * the treadmill has at that moment, i.e. the one in force at the end of the previous block (manual changes from the
+     * app or the console and the last heart-rate adjustment included). Because of that the first block a run executes
+     * cannot keep anything (see [ProgramValidator]).
+     *
+     * For [HeartRate.start], a `null` quantity that the control adjusts starts from the value in force, brought within
+     * the block's bounds; a `null` quantity that it does not adjust is simply kept.
+     */
+    data class Absolute(val speedKmh: Double?, val inclinePercent: Double?) : Fixed {
+        override val keepsSpeed: Boolean get() = speedKmh == null
+        override val keepsIncline: Boolean get() = inclinePercent == null
+    }
 
     /**
      * Speed and incline as a percentage (0-100) of the ranges chosen when the program starts: speed 0 % is the easy
@@ -103,7 +150,10 @@ sealed interface BlockTarget {
         val minimum: Double,
         val maximum: Double,
         val start: Fixed,
-    ) : BlockTarget
+    ) : BlockTarget {
+        override val keepsSpeed: Boolean get() = start.keepsSpeed
+        override val keepsIncline: Boolean get() = start.keepsIncline
+    }
 }
 
 /** Target zone, as a percentage of [basis]. */

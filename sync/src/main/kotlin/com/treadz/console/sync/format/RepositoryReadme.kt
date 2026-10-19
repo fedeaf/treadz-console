@@ -119,6 +119,10 @@ reductions made by the real-time DFA-α1 brake; absent when the brake could not 
 `programs/<uuid>.json`: `uuid`, `user_uuid`, and the program itself under `program` (a free or personalised program:
 blocks that end by time or distance, with absolute or relative speed and incline; standard programs are built into the
 app and are not stored here). A personalised program carries its `origin` (generator, version and the inputs it used).
+In an absolute target (also the `start` of a heart-rate target), an absent `speedKmh` or `inclinePercent` means "keep":
+the block starts with the value the treadmill has at that moment (never in the first block). A program that uses it
+has `schemaVersion` 2, and the plan copy of a workout done with it has `planSchemaVersion` 2, with `keepsSpeed` /
+`keepsIncline` next to the expected value.
 
 `fitness-tests/<id>.json`: `uuid` (the test id), `user_uuid`, and the result under `result`: validity and flags, the
 inputs (age, sex, weight, maximum heart rate), the outputs (VO2max, maximal aerobic speed, measured maximum heart rate,

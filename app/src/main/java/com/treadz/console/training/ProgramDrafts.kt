@@ -116,7 +116,7 @@ object ProgramDrafts {
     /**
      * Programs with relative targets cannot be edited here, nor can the personalised ones (their values come from the
      * generator: duplicate one to get a free program that can be edited). Absolute and heart-rate targets (with an absolute
-     * start) can.
+     * start) can, unless they keep a value (the editor does not handle "keep" yet).
      */
     fun isEditable(program: Program): Boolean = program.kind != ProgramKind.Personalised && program.steps.all { step ->
         when (step) {
@@ -126,9 +126,9 @@ object ProgramDrafts {
     }
 
     private fun isEditable(target: BlockTarget): Boolean = when (target) {
-        is BlockTarget.Absolute -> true
+        is BlockTarget.Absolute -> !target.keepsSpeed && !target.keepsIncline
         is BlockTarget.Relative -> false
-        is BlockTarget.HeartRate -> target.start is BlockTarget.Absolute
+        is BlockTarget.HeartRate -> target.start is BlockTarget.Absolute && !target.keepsSpeed && !target.keepsIncline
     }
 
     /** The draft of an editable [program] (see [isEditable]). */
@@ -144,8 +144,8 @@ object ProgramDrafts {
                 byDistance = end is BlockEnd.Distance,
                 duration = if (end is BlockEnd.Duration) formatDuration(end.seconds) else "5:00",
                 distance = if (end is BlockEnd.Distance) end.meters.toString() else "1000",
-                speed = Decimals.format(start.speedKmh),
-                incline = start.inclinePercent.roundToInt().toString(),
+                speed = Decimals.format(requireNotNull(start.speedKmh) { "A program that keeps a value is not editable" }),
+                incline = requireNotNull(start.inclinePercent) { "A program that keeps a value is not editable" }.roundToInt().toString(),
                 name = b.name.orEmpty(),
                 heartRate = hr?.let { draftOf(it) },
             )

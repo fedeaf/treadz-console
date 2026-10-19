@@ -23,6 +23,9 @@ import com.treadz.console.programs.model.Repeat
  *    half understood. Unknown fields are ignored on reading.
  *  - Enumerations are lower camel case strings (`warmUp`, `maxHeartRate`).
  *  - A block ends by `durationSeconds` or by `distanceMeters` (exactly one of them).
+ *  - An absolute target may leave `speedKmh` and/or `inclinePercent` out, which means **keep**: the block starts with
+ *    the value in force at that moment (this also applies to the `start` of a heart-rate target). `schemaVersion` is 2
+ *    for a document that uses it and 1 for every other, so an older app rejects the former instead of misreading it.
  *  - Heart-rate bounds are named after what they bound and the scale of the starting target:
  *    `minSpeedKmh`/`maxSpeedKmh` (absolute speed), `minSpeedPercent`/`maxSpeedPercent` (relative speed) or
  *    `minInclinePercent`/`maxInclinePercent` (incline, % or % of the range for a relative start).
@@ -60,7 +63,8 @@ object ProgramJson {
     // ------------------------------------------------------------------ writing
 
     internal fun toTree(p: Program): Map<String, Any?> = linkedMapOf(
-        "schemaVersion" to p.schemaVersion,
+        // The version follows the content (not the one the program was read with), so dropping "keep" goes back to 1.
+        "schemaVersion" to Program.schemaVersionFor(p.steps),
         "id" to p.id,
         "name" to p.name,
         "kind" to p.kind,
@@ -97,7 +101,11 @@ object ProgramJson {
     }
 
     private fun targetTree(t: BlockTarget): Map<String, Any?> = when (t) {
-        is BlockTarget.Absolute -> linkedMapOf("type" to "absolute", "speedKmh" to t.speedKmh, "inclinePercent" to t.inclinePercent)
+        is BlockTarget.Absolute -> linkedMapOf<String, Any?>("type" to "absolute").also {
+            // A missing field means "keep" (the value in force when the block starts).
+            t.speedKmh?.let { v -> it["speedKmh"] = v }
+            t.inclinePercent?.let { v -> it["inclinePercent"] = v }
+        }
         is BlockTarget.Relative -> linkedMapOf("type" to "relative", "speedPercent" to t.speedPercent, "inclinePercent" to t.inclinePercent)
         is BlockTarget.HeartRate -> linkedMapOf<String, Any?>(
             "type" to "heartRate",
@@ -191,7 +199,7 @@ object ProgramJson {
     }
 
     private fun fixedFrom(o: JsonObject): BlockTarget.Fixed = when (val type = o.string("type")) {
-        "absolute" -> BlockTarget.Absolute(o.double("speedKmh"), o.double("inclinePercent"))
+        "absolute" -> BlockTarget.Absolute(o.optDouble("speedKmh"), o.optDouble("inclinePercent"))
         "relative" -> BlockTarget.Relative(o.double("speedPercent"), o.double("inclinePercent"))
         else -> throw ProgramFormatException("${o.path}.type", "must be 'absolute' or 'relative' (was '$type')")
     }

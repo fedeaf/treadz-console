@@ -42,7 +42,14 @@ data class ResolutionEnvironment(
  *  6. Every speed and incline is clamped to the treadmill range and to the [SafetyLimits] and rounded to the
  *     treadmill step (0.1 km/h and 1 % on the Z-Tech, ties rounding up) with [SafetyClamp]. A value that had to move
  *     by more than half a step produces a warning; plain rounding does not.
- *  7. Warnings are added for blocks too short to be useful ([SHORT_BLOCK_SECONDS]). Heart-rate blocks get no warning
+ *  7. A speed or incline that a block **keeps** (an absolute target with the value left out) resolves to the value the
+ *     previous resolved block ended with, so previews and the duration and distance estimates keep working. It is only
+ *     the **expected** value, flagged by [ResolvedBlock.keepsSpeed] / [ResolvedBlock.keepsIncline]: the real one is
+ *     whatever is in force when the block starts, and only the runner knows it. The global adjustment, the clamps and
+ *     their warnings do not apply to it (the previous value already went through them); a heart-rate block whose
+ *     adjusted quantity is kept is expected to start from it brought within its bounds. The first block of a program
+ *     cannot keep (the validator refuses it).
+ *  8. Warnings are added for blocks too short to be useful ([SHORT_BLOCK_SECONDS]). Heart-rate blocks get no warning
  *     any more: the runner controls them (with a heart-rate profile; without one they run at their start values and
  *     the runner reports the control as unavailable).
  */
@@ -66,9 +73,12 @@ object ProgramResolver {
         val warnings = mutableListOf<PlanWarning>()
         val ctx = Context(parameters, environment, warnings)
 
+        // The speed and incline the previous block ends with in the plan: what a block that keeps a value is expected to start with.
+        var previous: InForce? = null
         val blocks = expanded.mapIndexed { index, e ->
             val block = e.block
-            val (speed, incline, guidance) = resolveTarget(index, block.target, ctx)
+            val (speed, incline, guidance) = resolveTarget(index, block.target, ctx, previous)
+            previous = InForce(speed, incline)
             val end = when (val end = block.end) {
                 is BlockEnd.Duration -> BlockEnd.Duration(durations.getValue(index))
                 is BlockEnd.Distance -> end
@@ -95,6 +105,8 @@ object ProgramResolver {
                 blockInStep = e.blockInStep,
                 repetition = e.repetition,
                 estimatedDurationSeconds = estimated,
+                keepsSpeed = block.target.keepsSpeed,
+                keepsIncline = block.target.keepsIncline,
             )
         }
 
@@ -237,16 +249,22 @@ object ProgramResolver {
 
     private data class Resolved(val speed: Double, val incline: Double, val guidance: HeartRateGuidance?)
 
-    private fun resolveTarget(index: Int, target: BlockTarget, ctx: Context): Resolved = when (target) {
+    /** The speed and incline a block ends with in the plan. */
+    private class InForce(val speed: Double, val incline: Double)
+
+    private fun resolveTarget(index: Int, target: BlockTarget, ctx: Context, previous: InForce?): Resolved = when (target) {
         is BlockTarget.Fixed -> {
-            val speed = finalSpeed(index, mapSpeed(target, ctx) * ctx.factor, ctx)
-            val incline = finalIncline(index, mapIncline(target, ctx), ctx)
+            val speed = if (target.keepsSpeed) keptFrom(previous).speed else finalSpeed(index, mapSpeed(target, ctx) * ctx.factor, ctx)
+            val incline = if (target.keepsIncline) keptFrom(previous).incline else finalIncline(index, mapIncline(target, ctx), ctx)
             Resolved(speed, incline, null)
         }
-        is BlockTarget.HeartRate -> resolveHeartRate(index, target, ctx)
+        is BlockTarget.HeartRate -> resolveHeartRate(index, target, ctx, previous)
     }
 
-    private fun resolveHeartRate(index: Int, t: BlockTarget.HeartRate, ctx: Context): Resolved {
+    /** The validator refuses a first block that keeps, so a block that keeps always has a previous one. */
+    private fun keptFrom(previous: InForce?): InForce = checkNotNull(previous) { "The first block of a program cannot keep a value" }
+
+    private fun resolveHeartRate(index: Int, t: BlockTarget.HeartRate, ctx: Context, previous: InForce?): Resolved {
         val relative = t.start is BlockTarget.Relative
         // Bounds are mapped to absolute values and rounded to the treadmill step, but not adjusted by the global %.
         fun mapBound(v: Double): Double = when (t.adjust) {
@@ -262,16 +280,16 @@ object ProgramResolver {
         val min = mapBound(t.minimum)
         val max = maxOf(min, mapBound(t.maximum))
 
-        var speed = finalSpeed(index, mapSpeed(t.start, ctx) * ctx.factor, ctx)
-        var incline = finalIncline(index, mapIncline(t.start, ctx), ctx)
-        // The adjusted starting value must stay inside the bounds of the control.
+        var speed = if (t.keepsSpeed) keptFrom(previous).speed else finalSpeed(index, mapSpeed(t.start, ctx) * ctx.factor, ctx)
+        var incline = if (t.keepsIncline) keptFrom(previous).incline else finalIncline(index, mapIncline(t.start, ctx), ctx)
+        // The adjusted starting value must stay inside the bounds of the control (a kept one is simply brought inside).
         when (t.adjust) {
-            HeartRateAdjust.Speed -> if (speed < min || speed > max) {
+            HeartRateAdjust.Speed -> if (t.keepsSpeed) speed = speed.coerceIn(min, max) else if (speed < min || speed > max) {
                 val clamped = speed.coerceIn(min, max)
                 ctx.warnings += clampWarning(WarningCode.SpeedClamped, index, speed, clamped, "starting speed", "km/h", "outside the bounds of the heart-rate control")
                 speed = clamped
             }
-            HeartRateAdjust.Incline -> if (incline < min || incline > max) {
+            HeartRateAdjust.Incline -> if (t.keepsIncline) incline = incline.coerceIn(min, max) else if (incline < min || incline > max) {
                 val clamped = incline.coerceIn(min, max)
                 ctx.warnings += clampWarning(WarningCode.InclineClamped, index, incline, clamped, "starting incline", "%", "outside the bounds of the heart-rate control")
                 incline = clamped
@@ -281,7 +299,7 @@ object ProgramResolver {
     }
 
     private fun mapSpeed(t: BlockTarget.Fixed, ctx: Context): Double = when (t) {
-        is BlockTarget.Absolute -> t.speedKmh
+        is BlockTarget.Absolute -> checkNotNull(t.speedKmh) { "A kept speed has no planned value" }
         is BlockTarget.Relative -> {
             val easy = ctx.p.easySpeedKmh!!
             // Only missing when every relative speed is 0 % (see requiredParameters)
@@ -291,7 +309,7 @@ object ProgramResolver {
     }
 
     private fun mapIncline(t: BlockTarget.Fixed, ctx: Context): Double = when (t) {
-        is BlockTarget.Absolute -> t.inclinePercent
+        is BlockTarget.Absolute -> checkNotNull(t.inclinePercent) { "A kept incline has no planned value" }
         is BlockTarget.Relative -> t.inclinePercent / 100.0 * (ctx.p.maxInclinePercent ?: 0.0)
     }
 

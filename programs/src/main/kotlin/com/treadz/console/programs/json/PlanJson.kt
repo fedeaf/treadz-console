@@ -16,7 +16,10 @@ import com.treadz.console.programs.plan.WarningCode
 /**
  * JSON document for a [ResolvedPlan]: the copy of what was planned that the workout history keeps. It follows the
  * conventions of [ProgramJson] (units in the field names, lower camel case enumerations, unknown fields ignored on
- * reading, mandatory `planSchemaVersion`). Heart-rate bounds of a block use `minSpeedKmh`/`maxSpeedKmh` or
+ * reading, mandatory `planSchemaVersion`). A block that keeps a speed or an incline (see
+ * [com.treadz.console.programs.model.BlockTarget.Absolute]) carries `"keepsSpeed": true` / `"keepsIncline": true` next
+ * to the expected `speedKmh` / `inclinePercent`; only a plan with such a block is written with `planSchemaVersion` 2,
+ * every other keeps version 1. Heart-rate bounds of a block use `minSpeedKmh`/`maxSpeedKmh` or
  * `minInclinePercent`/`maxInclinePercent`; they are always absolute.
  */
 object PlanJson {
@@ -28,7 +31,7 @@ object PlanJson {
     // ------------------------------------------------------------------ writing
 
     private fun toTree(p: ResolvedPlan): Map<String, Any?> = linkedMapOf(
-        "planSchemaVersion" to p.planSchemaVersion,
+        "planSchemaVersion" to ResolvedPlan.planSchemaVersionFor(p.blocks),
         "source" to sourceTree(p.source),
         "parameters" to parametersTree(p.parameters),
         "estimatedDurationSeconds" to p.estimatedDurationSeconds,
@@ -62,6 +65,9 @@ object PlanJson {
         }
         m["speedKmh"] = b.speedKmh
         m["inclinePercent"] = b.inclinePercent
+        // For a kept value the number above is the expected one; the flag says it is not a planned value.
+        if (b.keepsSpeed) m["keepsSpeed"] = true
+        if (b.keepsIncline) m["keepsIncline"] = true
         b.heartRate?.let { m["heartRate"] = guidanceTree(it) }
         m["estimatedDurationSeconds"] = b.estimatedDurationSeconds
         m["stepIndex"] = b.stepIndex
@@ -135,6 +141,8 @@ object PlanJson {
             blockInStep = o.optInt("blockInStep"),
             repetition = o.optObj("repetition")?.let { Repetition(it.int("iteration"), it.int("count")) },
             estimatedDurationSeconds = o.int("estimatedDurationSeconds"),
+            keepsSpeed = o.boolean("keepsSpeed", false),
+            keepsIncline = o.boolean("keepsIncline", false),
         )
     }
 

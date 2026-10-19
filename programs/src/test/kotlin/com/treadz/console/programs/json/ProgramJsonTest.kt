@@ -113,7 +113,7 @@ class ProgramJsonTest {
 
     @Test
     fun `a newer schema version is rejected clearly`() {
-        val msg = failure("""{"schemaVersion":2,"id":"x","name":"n","kind":"free","steps":[]}""")
+        val msg = failure("""{"schemaVersion":3,"id":"x","name":"n","kind":"free","steps":[]}""")
         assertTrue(msg.contains("newer"), msg)
     }
 
@@ -139,6 +139,6 @@ class ProgramJsonTest {
     @Test
     fun `schema version of the program is written and read back`() {
         val p: Program = norwegian4x4()
-        assertEquals(Program.SCHEMA_VERSION, ProgramJson.decode(ProgramJson.encode(p)).schemaVersion)
+        assertEquals(Program.BASE_SCHEMA_VERSION, ProgramJson.decode(ProgramJson.encode(p)).schemaVersion)
     }
 }

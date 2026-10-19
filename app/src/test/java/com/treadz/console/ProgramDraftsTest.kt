@@ -75,7 +75,7 @@ class ProgramDraftsTest {
 
     @Test fun theSpeedIsRoundedToTheTreadmillStep() {
         val parsed = ProgramDrafts.parse(draft(block(speed = "8.46")), id = "11111111-1111-4111-8111-111111111111")
-        assertEquals(8.5, ((parsed.program!!.steps.single() as Block).target as BlockTarget.Absolute).speedKmh, 1e-9)
+        assertEquals(8.5, ((parsed.program!!.steps.single() as Block).target as BlockTarget.Absolute).speedKmh!!, 1e-9)
     }
 
     @Test fun textThatIsNotANumberIsReportedOnItsField() {

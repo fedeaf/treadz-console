@@ -8,7 +8,9 @@ plugins {
 
 // Release signing comes from a properties file kept outside the repository (storeFile, storePassword, keyAlias,
 // keyPassword). Its path is the TREADZ_SIGNING_PROPERTIES environment variable or, by default,
-// ~/.config/treadz-console/release-signing.properties. Without it the release build is left unsigned.
+// ~/.config/treadz-console/release-signing.properties. Without it the release build is left unsigned and the debug
+// build uses the standard debug key. With it, debug builds are signed with the same key, so a debug APK and a release
+// APK install over each other.
 val signingProperties: Properties? = (
     System.getenv("TREADZ_SIGNING_PROPERTIES")
         ?: "${System.getProperty("user.home")}/.config/treadz-console/release-signing.properties"
@@ -38,6 +40,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")

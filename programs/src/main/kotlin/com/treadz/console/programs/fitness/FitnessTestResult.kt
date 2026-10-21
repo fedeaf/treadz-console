@@ -319,7 +319,7 @@ data class MaxTestMeasurements(
     val lastCompletedStageSpeedKmh: Double?,
     /** Seconds run in the stage that was not completed. */
     val secondsIntoLastStage: Int?,
-    /** Highest 5-s mean heart rate in the last 2 min of the incremental phase; `null` without a reliable heart rate. */
+    /** Highest 5-s mean heart rate from 2 min before the end of the effort to the end of the test (since algorithm version 2; before, up to the end of the effort); `null` without a reliable heart rate. */
     val peakHeartRateBpm: Double?,
     /** Fraction of the incremental phase with a valid heart rate (0-1). */
     val heartRateCoverage: Double?,
@@ -356,7 +356,7 @@ data class MaxHeartRateWalkMeasurements(
     /** Both the incline cap and the speed cap were reached (the effort is then less likely to be maximal). */
     val capReached: Boolean,
     val stages: List<StageRecord>,
-    /** Highest 5-s mean heart rate of the last 2 min of the ramp; `null` without a reliable heart rate. */
+    /** Highest 5-s mean heart rate from 2 min before the end of the effort to the end of the test (since algorithm version 2; before, up to the end of the effort); `null` without a reliable heart rate. */
     val peakHeartRateBpm: Double?,
     /** Fraction of the ramp with a valid heart rate (0-1). */
     val heartRateCoverage: Double?,

@@ -473,14 +473,37 @@ class ManualControlsTest {
         assertFalse(ui.controls.speedInFlight)
     }
 
-    @Test fun aCommandTheTreadmillDidNotCarryOutIsAnAlertNotAnExtraMessage() {
+    @Test fun aSpeedCommandTheTreadmillDidNotCarryOutIsAShortMessageNotTheFullScreenAlert() {
         val slow = SlowSpeed()
         controls.stepSpeed(+1)
         slow.finishOldest(CommandResult.NotVerified(FailureCode.TargetNotReached, "slow"))
-        // The controller raised the full-screen alert; the panel does not repeat it.
+        // The data is current: the belt goes on as shown, so the controls say it briefly and the alert is acknowledged.
+        assertNull(ui.alert)
+        assertTrue(controller.pendingAlerts.value.isEmpty())
+        val failure = ui.controls.failure!!
+        assertEquals(ControlAction.Speed, failure.action)
+        assertNull(failure.result)
+        assertNull(ui.controls.pendingSpeed)
+        advance(ManualControls.FAILURE_VISIBLE_MILLIS + 100)
+        assertNull(ui.controls.failure)
+    }
+
+    @Test fun anInclineCommandNotCarriedOutFromAProgramIsAShortMessageToo() {
+        controller.emit(TreadmillEvent.CommandNotExecuted("setIncline"))
+        assertNull(ui.alert)
+        assertEquals(ControlAction.Incline, ui.controls.failure!!.action)
+    }
+
+    @Test fun aCommandNotCarriedOutWithStaleDataStaysTheFullScreenAlert() {
+        controller.showState { it.copy(isStale = true) }
+        controller.emit(TreadmillEvent.CommandNotExecuted("setSpeed"))
         assertEquals(TreadmillEvent.CommandNotExecuted("setSpeed"), ui.alert)
         assertNull(ui.controls.failure)
-        assertNull(ui.controls.pendingSpeed)
+        // The data is current again while it is still pending: it becomes the short message, never lost.
+        controller.showState { it.copy(isStale = false) }
+        assertNull(ui.alert)
+        assertTrue(controller.pendingAlerts.value.isEmpty())
+        assertEquals(ControlAction.Speed, ui.controls.failure!!.action)
     }
 
     @Test fun theMessageDisappearsByItselfAndWithTheNextTap() {

@@ -17,6 +17,7 @@ import com.treadz.console.nav.Screen
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.FailureCode
+import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.ui.MainActions
 import com.treadz.console.ui.PermissionsUi
 import com.treadz.console.ui.TreadZRoot
@@ -188,14 +189,22 @@ class ManualControlsUiTest {
         rule.onNodeWithTag("speed_busy").assertIsDisplayed()
     }
 
-    @Test fun aCommandNotExecutedIsTheFullScreenAlertWithoutAnExtraMessage() {
+    @Test fun aSpeedCommandNotExecutedIsAShortMessageUnderTheControl() {
         running()
         controller.setSpeedHandler = { CommandResult.NotVerified(FailureCode.TargetNotReached, "x") }
         show()
         rule.onNodeWithTag("speed_plus").performClick()
         rule.waitForIdle()
+        rule.onNodeWithTag("alert_overlay").assertDoesNotExist()
+        rule.onNodeWithTag("speed_failure").assertTextContains("Could not change the speed: the treadmill accepted the command but did not carry it out.", substring = true)
+    }
+
+    @Test fun aPauseNotExecutedIsTheFullScreenAlertWithStop() {
+        running()
+        show()
+        controller.emit(TreadmillEvent.CommandNotExecuted("pause"))
+        rule.waitForIdle()
         rule.onNodeWithTag("alert_overlay").assertIsDisplayed()
-        rule.onNodeWithTag("speed_failure").assertDoesNotExist()
         // The alert does not stand between the user and STOP.
         rule.onNodeWithTag("alert_stop_button").performClick()
         rule.waitForIdle()
@@ -229,6 +238,15 @@ class ManualControlsUiTest {
         assertEquals(1, controller.stopCalls)
         // The belt is stopped: the bar goes away.
         rule.onNodeWithTag("session_bar").assertDoesNotExist()
+    }
+
+    @Test fun theBarTellsACommandNotCarriedOutWhileTheLiveScreenIsNotInView() {
+        running()
+        show(Screen.Weight)
+        controller.emit(TreadmillEvent.CommandNotExecuted("setIncline"))
+        rule.waitForIdle()
+        rule.onNodeWithTag("alert_overlay").assertDoesNotExist()
+        rule.onNodeWithTag("session_failure").assertTextContains("Could not change the incline", substring = true)
     }
 
     @Test fun theBarIsNotOnTheMainScreenNorWithTheBeltAtRest() {

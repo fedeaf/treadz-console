@@ -156,9 +156,17 @@ data class FitnessTestProgress(
     val masIfExhaustedNowKmh: Double? = null,
     /** "End test" (early end with cool-down) applies now. */
     val canEndTest: Boolean = false,
+    /**
+     * "+1" applies now ([FitnessTestRunner.extendPhase]): the warm-up of the maximal tests and the cool-down of every
+     * test. Never while the test measures (Ebbeling's stages, the ramp).
+     */
+    val canExtendPhase: Boolean = false,
     /** Set when the measuring part has ended (during the cool-down already). */
     val endReason: FitnessEndReason? = null,
-    /** The result: preliminary during the cool-down (it does not change except for the cool-down data), final when [phase] is [FitnessTestPhase.Finished]. */
+    /**
+     * The result: preliminary during the cool-down, final when [phase] is [FitnessTestPhase.Finished] (besides the
+     * cool-down data, the peak heart rate of a maximal test may still rise, and with it the effort assessment).
+     */
     val result: FitnessTestResult? = null,
 )
 
@@ -181,6 +189,9 @@ sealed interface FitnessTestEvent {
 
     /** Ebbeling stage 2 extended by one minute. */
     data class SteadyStateExtended(override val atMillis: Long, val extension: Int, val variationBpm: Double?) : FitnessTestEvent
+
+    /** "+1": the current warm-up step or the cool-down ([phase]) became [seconds] longer. */
+    data class PhaseExtended(override val atMillis: Long, val testSecond: Int, val phase: FitnessTestPhase, val seconds: Int) : FitnessTestEvent
 
     /** Speed or incline changed by hand; [brokeTest] when it ended the test. */
     data class ManualChange(override val atMillis: Long, val speedKmh: Double?, val inclinePercent: Double?, val brokeTest: Boolean) : FitnessTestEvent

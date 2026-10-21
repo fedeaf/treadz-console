@@ -4,6 +4,7 @@ import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.FailureCode
+import com.treadz.console.treadmill.TreadmillAlert
 import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
@@ -33,9 +34,10 @@ enum class ControlAction { Speed, Incline, Pause, Resume }
 
 /**
  * A command the treadmill did not carry out, to show for a few seconds. [id] is unique, so the same failure twice in a
- * row is still a new one.
+ * row is still a new one. [result] is `null` for a speed or incline command the treadmill accepted but did not carry
+ * out ([ManualControls.isShortNotice]: the controller's alert, without the failure code).
  */
-data class ControlFailure(val id: Long, val action: ControlAction, val result: CommandResult)
+data class ControlFailure(val id: Long, val action: ControlAction, val result: CommandResult?)
 
 /** What the manual controls need to draw themselves, besides the treadmill state. */
 data class ControlsState(
@@ -138,6 +140,20 @@ class ManualControls(
         // Lost or recovered connection: start from what the treadmill reports.
         scope.launch {
             controller.connection.map { it is ConnectionState.Connected }.distinctUntilChanged().collect { reset() }
+        }
+        // A speed or incline command not carried out while the data is current: the belt goes on as the screen shows,
+        // so it is a short message under the control instead of the full-screen alert (the screen leaves it out).
+        // Looked at again when the connection or the data freshness changes, as the screen does.
+        scope.launch {
+            val freshness = controller.state.map { it.isStale }.distinctUntilChanged()
+            combine(controller.pendingAlerts, controller.connection, freshness) { alerts, _, _ -> alerts }.collect { alerts ->
+                for (alert in alerts) {
+                    if (!isShortNotice(alert, controller.connection.value, controller.state.value)) continue
+                    controller.acknowledgeAlert(alert)
+                    val action = if ((alert as TreadmillEvent.CommandNotExecuted).command == "setSpeed") ControlAction.Speed else ControlAction.Incline
+                    showFailure(ControlFailure(++failureIds, action, null))
+                }
+            }
         }
     }
 
@@ -322,10 +338,14 @@ class ManualControls(
     private fun reportFailure(action: ControlAction, result: CommandResult) {
         // A stop that superseded the command is not an error.
         if (result is CommandResult.Failure && result.code == FailureCode.Preempted) return
-        // A command the treadmill accepted but did not carry out is already a full-screen alert: not repeated here.
+        // A command the treadmill accepted but did not carry out is already an alert (full-screen, or the short message
+        // above): not repeated here.
         val command = commandName(action)
         if (controller.pendingAlerts.value.any { it is TreadmillEvent.CommandNotExecuted && it.command == command }) return
-        val failure = ControlFailure(++failureIds, action, result)
+        showFailure(ControlFailure(++failureIds, action, result))
+    }
+
+    private fun showFailure(failure: ControlFailure) {
         local.update { it.copy(failure = failure) }
         scope.launch {
             delay(FAILURE_VISIBLE_MILLIS)
@@ -359,6 +379,18 @@ class ManualControls(
 
         /** A press never repeats for longer than this, in case the release is lost. */
         const val REPEAT_MAX_MILLIS = 20_000L
+
+        /**
+         * Whether [alert] is shown as a short message under the speed or incline control instead of the full-screen
+         * alert: a speed or incline command the treadmill accepted but did not carry out while connected with current
+         * data, so the belt goes on at the speed and incline the screen shows. A stop or pause not carried out, or any
+         * other alert, stays full-screen.
+         */
+        fun isShortNotice(alert: TreadmillAlert, connection: ConnectionState, state: TreadmillState): Boolean =
+            alert is TreadmillEvent.CommandNotExecuted && alert.command in SHORT_NOTICE_COMMANDS &&
+                connection is ConnectionState.Connected && !state.isStale
+
+        private val SHORT_NOTICE_COMMANDS = setOf("setSpeed", "setIncline")
 
         /** The name the controller gives the command in its `CommandNotExecuted` alert. */
         private fun commandName(action: ControlAction) = when (action) {

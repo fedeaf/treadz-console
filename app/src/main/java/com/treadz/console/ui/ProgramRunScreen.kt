@@ -72,6 +72,8 @@ data class RunActions(
     val onRampInclineStep: (Int) -> Unit = {},
     /** "+1": a minute more in a time block, 100 m more in a distance block. */
     val onExtendBlock: () -> Unit = {},
+    /** "+1" in a fitness test: a minute more of the current warm-up step or of the cool-down. */
+    val onExtendTestPhase: () -> Unit = {},
 )
 
 /**

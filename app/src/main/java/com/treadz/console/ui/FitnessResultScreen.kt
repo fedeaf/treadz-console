@@ -35,6 +35,7 @@ import com.treadz.console.programs.fitness.MaxTestMeasurements
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.FitnessComparison
 import com.treadz.console.training.FitnessResultUiState
+import kotlin.math.roundToInt
 
 data class FitnessResultActions(
     val onBack: () -> Unit = {},
@@ -275,7 +276,7 @@ private fun Figures(result: FitnessTestResult) {
             val countsAsMaximum = candidate != null && outputs.effort == EffortAssessment.Maximal &&
                 FitnessProfileCalculator.isAdoptableHrMax(candidate, result.inputs.ageYears)
             StatTile(
-                stringResource(R.string.result_peak_hr), peak?.let { Format.whole(it.toInt()) } ?: Format.NO_VALUE, tile,
+                stringResource(R.string.result_peak_hr), peak?.let { Format.whole(it.roundToInt()) } ?: Format.NO_VALUE, tile,
                 unit = if (peak != null) stringResource(R.string.unit_heart_rate) else null, valueTag = "result_peak_hr",
                 note = if (countsAsMaximum) stringResource(R.string.result_peak_is_measured_hrmax) else null,
             )
@@ -300,7 +301,7 @@ private fun Figures(result: FitnessTestResult) {
         }
         ebbeling?.let { m ->
             m.testSpeedKmh?.let { StatTile(stringResource(R.string.result_test_speed), Format.speed(it), tile, unit = stringResource(R.string.unit_speed)) }
-            m.steadyStateHeartRateBpm?.let { StatTile(stringResource(R.string.result_steady_hr), Format.whole(it.toInt()), tile, unit = stringResource(R.string.unit_heart_rate)) }
+            m.steadyStateHeartRateBpm?.let { StatTile(stringResource(R.string.result_steady_hr), Format.whole(it.roundToInt()), tile, unit = stringResource(R.string.unit_heart_rate)) }
         }
         StatTile(stringResource(R.string.result_effort_time), Format.duration(result.effortSeconds), tile)
         StatTile(

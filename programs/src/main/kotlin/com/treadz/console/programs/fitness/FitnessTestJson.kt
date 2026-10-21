@@ -69,14 +69,14 @@ import java.time.format.DateTimeParseException
  * **Version 2** adds the `thresholds` block of the maximal tests (walking and running), with the version of the
  * algorithm that produced it:
  * ```
- * "thresholds": {"algorithmVersion": 1, "quality": "high",
+ * "thresholds": {"algorithmVersion": 2, "quality": "high",
  *   "vt1": {"heartRateBpm": 132.4, "speedKmh": 6.2, "inclinePercent": 11.3, "vo2MlKgMin": 31.6, "percentVo2max": 72.5,
  *           "percentHeartRateReserve": 61.0},
  *   "vt2": {"heartRateBpm": 151.2, ...},
  *   "metrics": {"stretchWindows": 31, "validWindows": 48, "totalWindows": 50, "rSquared": 0.82,
  *               "meanArtifactPercent": 1.2, "slopePerBpm": -0.021, "interceptAlpha1": 3.53}}
  * ```
- * or, without thresholds, `{"algorithmVersion": 1, "reason": "noRrIntervals"}` (also `noWorkoutSamples`,
+ * or, without thresholds, `{"algorithmVersion": 2, "reason": "noRrIntervals"}` (also `noWorkoutSamples`,
  * `notEnoughValidWindows`, `noAlpha1Decline`, `vt1OutOfRange`; then `quality` and `metrics` may still be present).
  * A result is written with the lowest version that holds it: version 1 when it has neither `thresholds` nor an
  * `acsmWalkRamp` VO2max (so older apps keep reading it). Version 1 documents are read as before.

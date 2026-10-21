@@ -101,7 +101,8 @@ class PerformanceUiTest {
         ana
         rich()
         show(Screen.Performance)
-        rule.onNodeWithTag("perf_vo2max_value", useUnmergedTree = true).assertTextContains("42.0")
+        // The lower bound of 38.0 below the measured values does not count (a floor, not a measurement).
+        rule.onNodeWithTag("perf_vo2max_value", useUnmergedTree = true).assertTextContains("42.8")
         exists("perf_vo2max_category")
         exists("perf_vo2max_change")
         exists("perf_vt1_value")

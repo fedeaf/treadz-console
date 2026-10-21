@@ -1,6 +1,7 @@
 package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.estimate.CombinationRules
+import com.treadz.console.analysis.estimate.CombinedInput
 import com.treadz.console.analysis.estimate.EstimateCombiner
 import com.treadz.console.analysis.estimate.EstimateInput
 import com.treadz.console.analysis.fitness.FitnessFormulas
@@ -210,6 +211,11 @@ data class ThresholdProfile(
  * the error of these equations is mostly a person-specific bias (economy, heart-rate response), which repeating a
  * test does not average out. [Vo2MaxEstimate.discrepancy] marks two sources that differ by more than
  * 1.5·√(SEE₁² + SEE₂²) (data only).
+ * **Lower bounds** ([FitnessTestOutputs.vo2maxIsLowerBound]: an effort that was not maximal, a cap reached) only say "at
+ * least": they are not combined (decided with the user on 2026-10-21; a short walking test that said "at least 11.9"
+ * pulled a profile of 43 down to 37). The highest one is a floor: when it is above the combination of the measured
+ * values (or there is none), the profile takes it, with its SEE, and it is the only source with weight; otherwise the
+ * bounds are listed with weight 0. Discrepancies are looked for among the measured values only.
  *
  * **MAS**: the latest valid maximal running test; without one, VO2max / 3.5 marked as estimated (the walking test's
  * MAS is itself an estimate).
@@ -252,31 +258,48 @@ object FitnessProfileCalculator {
         val factors = usable.map { (r, _) ->
             if (r.testType == FitnessTestType.EbbelingWalk && recentMaximal) rules.submaximalFactorWithMaximal else 1.0
         }
-        val combined = EstimateCombiner.combine(
-            usable.zip(factors).map { (u, factor) ->
-                val (r, days) = u
-                val o = checkNotNull(r.outputs)
-                val warned = r.flags.any { it.severity == FlagSeverity.Warning } || o.effort == EffortAssessment.NotMaximal
-                EstimateInput(value = o.vo2maxMlKgMin, see = o.vo2maxSeeMlKgMin, ageDays = days, warned = warned, weightFactor = factor)
-            },
-            CombinationRules(halfLifeDays = rules.halfLifeDays, warningSeeFactor = rules.warningSeeFactor),
-        )
-        val vo2 = if (combined == null) {
+        val inputs = usable.zip(factors).map { (u, factor) ->
+            val (r, days) = u
+            val o = checkNotNull(r.outputs)
+            val warned = r.flags.any { it.severity == FlagSeverity.Warning } || o.effort == EffortAssessment.NotMaximal
+            EstimateInput(value = o.vo2maxMlKgMin, see = o.vo2maxSeeMlKgMin, ageDays = days, warned = warned, weightFactor = factor)
+        }
+        // A lower bound only says "at least": the measured values are combined, the bounds are a floor.
+        val bound = usable.map { checkNotNull(it.first.outputs).vo2maxIsLowerBound }
+        val measured = usable.indices.filter { !bound[it] }
+        val combinationRules = CombinationRules(halfLifeDays = rules.halfLifeDays, warningSeeFactor = rules.warningSeeFactor)
+        val combinedMeasured = EstimateCombiner.combine(measured.map { inputs[it] }, combinationRules)
+        val floor = usable.indices.filter { bound[it] }.maxByOrNull { inputs[it].value }
+            ?.takeIf { combinedMeasured == null || inputs[it].value > combinedMeasured.value }
+        val vo2 = if (combinedMeasured == null && floor == null) {
             null
         } else {
-            val rounded = FitnessFormulas.round1(combined.value)
+            fun seeOf(i: Int) = inputs[i].see * if (inputs[i].warned) rules.warningSeeFactor else 1.0
+            // Per source: the SEE used and its share of the value (the floor, when it sets the value, is all of it).
+            val used = usable.indices.map { i ->
+                val m = measured.indexOf(i)
+                when {
+                    floor != null -> CombinedInput(seeOf(i), if (i == floor) 1.0 else 0.0)
+                    m >= 0 -> checkNotNull(combinedMeasured).inputs[m]
+                    else -> CombinedInput(seeOf(i), 0.0)
+                }
+            }
+            val value = if (floor != null) inputs[floor].value else checkNotNull(combinedMeasured).value
+            val see = if (floor != null) seeOf(floor) else checkNotNull(combinedMeasured).see
+            val rounded = FitnessFormulas.round1(value)
+            // Only measured values can disagree: a bound below them is consistent with them.
             val discrepant = EstimateCombiner.discrepantPairs(
-                usable.map { checkNotNull(it.first.outputs).vo2maxMlKgMin },
-                combined.inputs.map { it.seeUsed },
+                measured.map { inputs[it].value },
+                measured.map { used[it].seeUsed },
                 rules.discrepancyFactor,
-            ).flatMap { listOf(it.first, it.second) }.toSet()
+            ).flatMap { listOf(measured[it.first], measured[it.second]) }.toSet()
             Vo2MaxEstimate(
                 valueMlKgMin = rounded,
-                seeMlKgMin = FitnessFormulas.round2(combined.see),
+                seeMlKgMin = FitnessFormulas.round2(see),
                 classification = if (ageYears != null && sex != null) Vo2MaxNorms.classify(rounded, ageYears, sex) else null,
                 sources = usable.indices.sortedByDescending { usable[it].first.startedAtMillis }.map { i ->
                     val (r, days) = usable[i]
-                    val c = combined.inputs[i]
+                    val c = used[i]
                     val o = checkNotNull(r.outputs)
                     Vo2MaxSource(
                         resultId = r.id,

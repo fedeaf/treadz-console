@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -98,16 +97,15 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                 sideTop = {
                     ControlHintText(controlHint(ui), reserveLines = false)
                     TestNotes(test)
-                    if (test.canEndTest) {
-                        EndTestButton(actions, Modifier.fillMaxWidth())
+                    if (mainButton(test) == TestMainButton.EndTest) {
                         Text(stringResource(R.string.test_end_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 sideBottom = {
-                    // "+1" does not apply to a test: shown disabled where a program has it, so the column looks the same.
-                    BlockButtonsRow(sizes, extend = { m -> ExtendBlockButton(byDistance = false, enabled = false, onClick = {}, modifier = m) })
-                    // "Exhausted" takes the place of Pause.
-                    if (test.canReportExhaustion) ExhaustedButton(test, actions, sizes, Modifier.fillMaxWidth())
+                    // "+1" where a program has it: the warm-up and the cool-down (never while the test measures).
+                    BlockButtonsRow(sizes, extend = { m -> TestExtendButton(test, actions, m) })
+                    // The test's main button takes the place of Pause.
+                    TestMainButton(test, actions, sizes, Modifier.fillMaxWidth())
                     LiveStop(ui, controls, sizes)
                 },
             )
@@ -136,17 +134,11 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
                     TestNotes(test)
                 },
                 bottom = {
-                    // "+1" disabled where a program has it, next to the test's main button.
-                    val exhausted = test.canReportExhaustion
-                    Row(Modifier.fillMaxWidth().height(sizes.pauseHeight), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ExtendBlockButton(byDistance = false, enabled = false, onClick = {}, modifier = Modifier.width(sizes.extendWidth).fillMaxHeight())
-                        when {
-                            exhausted -> ExhaustedButton(test, actions, sizes, Modifier.weight(1f))
-                            test.canEndTest -> EndTestButton(actions, Modifier.weight(1f).fillMaxHeight())
-                            else -> Spacer(Modifier.weight(1f))
-                        }
+                    // "+1" next to the test's main button; alone (cool-down), centred.
+                    Row(Modifier.fillMaxWidth().height(sizes.pauseHeight), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                        TestExtendButton(test, actions, Modifier.width(sizes.extendWidth).fillMaxHeight())
+                        if (mainButton(test) != null) TestMainButton(test, actions, sizes, Modifier.weight(1f))
                     }
-                    if (exhausted && test.canEndTest) EndTestButton(actions, Modifier.fillMaxWidth())
                     LiveStop(ui, controls, sizes)
                 },
             )
@@ -361,12 +353,40 @@ private fun TestInfo(test: FitnessTestProgress, run: RunUiState) {
     }
 }
 
+/** "+1" in a test: a minute more of the current warm-up step or of the cool-down; disabled while the test measures. */
+@Composable
+private fun TestExtendButton(test: FitnessTestProgress, actions: RunActions, modifier: Modifier) {
+    ExtendBlockButton(byDistance = false, enabled = test.canExtendPhase, onClick = actions.onExtendTestPhase, modifier = modifier)
+}
+
+/** The test's single main button, in the place of a program's Pause. */
+private enum class TestMainButton { EndTest, Exhausted }
+
+/**
+ * One main button at a time, so the wrong one cannot be pressed by mistake: "End test" while the effort cannot end
+ * in a valid way yet, then "I'm exhausted" in its place once exhaustion counts (after 3 min of ramp); `null` when
+ * neither applies (cool-down).
+ */
+private fun mainButton(test: FitnessTestProgress): TestMainButton? = when {
+    exhaustedReady(test) -> TestMainButton.Exhausted
+    test.canEndTest -> TestMainButton.EndTest
+    else -> null
+}
+
+@Composable
+private fun TestMainButton(test: FitnessTestProgress, actions: RunActions, sizes: LiveSizes, modifier: Modifier) {
+    when (mainButton(test)) {
+        TestMainButton.Exhausted -> ExhaustedButton(actions, sizes, modifier)
+        TestMainButton.EndTest -> EndTestButton(actions, modifier.height(sizes.pauseHeight))
+        null -> Unit
+    }
+}
+
 /** "I'm exhausted" (maximal tests): in the place of Pause, with its height. */
 @Composable
-private fun ExhaustedButton(test: FitnessTestProgress, actions: RunActions, sizes: LiveSizes, modifier: Modifier) {
+private fun ExhaustedButton(actions: RunActions, sizes: LiveSizes, modifier: Modifier) {
     Button(
         onClick = actions.onExhausted,
-        enabled = exhaustedReady(test),
         modifier = modifier.height(sizes.pauseHeight).testTag("exhausted_button"),
         shape = RoundedCornerShape(24.dp),
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.extra.warning, contentColor = MaterialTheme.extra.onWarning),
@@ -384,9 +404,9 @@ private fun EndTestButton(actions: RunActions, modifier: Modifier) {
     BigOutlinedButton(stringResource(R.string.test_end), actions.onEndTest, modifier.testTag("end_test_button"))
 }
 
-/** The walking test counts exhaustion only after 3 minutes of ramp; earlier it would make the test invalid. */
+/** Exhaustion counts only after 3 minutes of ramp (both maximal tests); earlier it would make the test invalid. */
 private fun exhaustedReady(test: FitnessTestProgress): Boolean =
-    test.testType != FitnessTestType.MaxHeartRateWalk || test.phaseElapsedSeconds >= FitnessTestConfig().minIncrementalSeconds
+    test.canReportExhaustion && test.phaseElapsedSeconds >= FitnessTestConfig().minIncrementalSeconds
 
 /** What to know about the test's buttons: when "Exhausted" counts, and that the walking ramp is not changed by hand. */
 @Composable

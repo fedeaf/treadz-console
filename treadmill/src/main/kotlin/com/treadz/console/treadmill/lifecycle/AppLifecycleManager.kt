@@ -9,7 +9,6 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -53,10 +52,15 @@ class AppLifecycleManager(
     /** Set for [LifecycleConfig.backgroundLossNoticeMs] after the connection was lost in the background. */
     val lossNotice: StateFlow<ConnectionLossNotice?> = _lossNotice.asStateFlow()
 
-    /** Whether the foreground service (and with it the notification) should be running. */
-    val serviceWanted: Flow<Boolean> =
-        combine(controller.connection, _lossNotice) { connection, notice -> connection is ConnectionState.Connected || notice != null }
-            .distinctUntilChanged()
+    private val _serviceWanted = MutableStateFlow(controller.connection.value is ConnectionState.Connected)
+
+    /**
+     * Whether the foreground service (and with it the notification) should be running: connected, or showing the
+     * [lossNotice]. Updated together with the notice, so a loss in the background never reads as "not wanted" for an
+     * instant between the connection change and the notice (that stopped the service and left its last notification
+     * behind, with nobody to remove it).
+     */
+    val serviceWanted: StateFlow<Boolean> = _serviceWanted.asStateFlow()
 
     private var noticeJob: Job? = null
 
@@ -72,6 +76,7 @@ class AppLifecycleManager(
                         lost && !foreground -> startLossNotice(scope)
                         foreground || connection is ConnectionState.Connected || connection is ConnectionState.Disconnected -> clearLossNotice()
                     }
+                    updateServiceWanted { connection }
                 }
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -105,7 +110,19 @@ class AppLifecycleManager(
         noticeJob = scope.launch {
             delay(config.backgroundLossNoticeMs)
             _lossNotice.value = null
+            updateServiceWanted { controller.connection.value }
         }
+    }
+
+    private val serviceLock = Any()
+
+    /**
+     * From [connection] and the notice, under a lock: the notice's timeout and the connection collector may run on
+     * different threads. The collector passes the connection of the change it handles (consistent with the notice it
+     * just decided); the timeout passes the current one, read under the lock, so it never undoes a newer change.
+     */
+    private inline fun updateServiceWanted(connection: () -> ConnectionState) = synchronized(serviceLock) {
+        _serviceWanted.value = connection() is ConnectionState.Connected || _lossNotice.value != null
     }
 
     private fun clearLossNotice() {

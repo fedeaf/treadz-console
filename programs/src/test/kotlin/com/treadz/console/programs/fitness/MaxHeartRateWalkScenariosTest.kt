@@ -306,6 +306,74 @@ class MaxHeartRateWalkScenariosTest {
     }
 
     @Test
+    fun `+1 makes the current warm-up step or the cool-down a minute longer, never the ramp`() = runTest {
+        val rig = started()
+        assertTrue(rig.progress.canExtendPhase)
+        delay(30_000)
+        assertEquals(FitnessActionResult.Success, rig.runner.extendPhase())
+        assertEquals(150.0, rig.progress.phaseRemainingSeconds!!.toDouble(), 1.0)
+        delay(80_000) // t = 110 s: still the first warm-up step
+        assertEquals(4.1, rig.sim.currentSpeedKmh, 0.01)
+        assertEquals(0.0, rig.sim.currentInclinePercent)
+        delay(30_000) // t = 140 s: the second step
+        assertEquals(4.4, rig.sim.currentSpeedKmh, 0.01)
+        assertEquals(FitnessTestPhase.WarmUp, rig.progress.phase)
+        delay(45_000) // t = 185 s: the ramp started at 180 s
+        assertEquals(FitnessTestPhase.Incremental, rig.progress.phase)
+        assertFalse(rig.progress.canExtendPhase)
+        val refused = rig.runner.extendPhase()
+        assertTrue(refused is FitnessActionResult.NotAllowed && refused.refusal == FitnessRefusal.WrongState, "$refused")
+
+        delay(4 * 60_000L)
+        assertEquals(FitnessActionResult.Success, rig.runner.exhausted())
+        assertEquals(FitnessTestPhase.CoolDown, rig.progress.phase)
+        assertTrue(rig.progress.canExtendPhase)
+        assertEquals(FitnessActionResult.Success, rig.runner.extendPhase())
+        assertEquals(240.0, rig.progress.phaseRemainingSeconds!!.toDouble(), 1.0)
+        rig.awaitFinished()
+        val r = rig.result
+        assertEquals(Validity.Valid, r.validity, "${r.flags}")
+        assertTrue(FitnessTestFlag.ManualChange !in r.flags)
+        assertTrue(FitnessTestFlag.CoolDownIncomplete !in r.flags)
+        assertEquals(180, rig.walk.warmUpSeconds)
+        assertEquals(240.0, r.coolDownSeconds.toDouble(), 2.0)
+        assertEquals(
+            listOf(FitnessTestPhase.WarmUp, FitnessTestPhase.CoolDown),
+            rig.eventsOf<FitnessTestEvent.PhaseExtended>().map { it.phase },
+        )
+    }
+
+    @Test
+    fun `the peak includes the seconds after the exhaustion, and the effort is assessed again at the end`() = runTest {
+        // A heart rate rising with the load that keeps climbing for a few seconds after the exhaustion.
+        var afterSeconds = 0
+        val model = SimulatedHeartRateModel { input ->
+            when {
+                !input.beltRunning -> 80
+                afterSeconds > 0 -> 176.also { afterSeconds-- }
+                else -> (90 + input.inclinePercent * 4 + (input.speedKmh - 5.5) * 20).toInt()
+            }
+        }
+        val rig = started(model = model)
+        delay(120_000 + 12 * 60_000L + 30_000) // 17 %: about 158 bpm
+        assertEquals(FitnessActionResult.Success, rig.runner.exhausted())
+        afterSeconds = 10
+        // Known at the end of the effort: a low peak, not a maximal effort.
+        assertEquals(EffortAssessment.NotMaximal, rig.walk.effort)
+        assertTrue(FitnessTestFlag.PeakHeartRateLow in rig.result.flags)
+        rig.awaitFinished()
+        val r = rig.result
+        val m = rig.walk
+        assertEquals(176.0, m.peakHeartRateBpm!!, 0.5)
+        assertEquals(176, m.hrMaxCandidateBpm)
+        assertEquals(EffortAssessment.Maximal, m.effort)
+        assertEquals(EffortAssessment.Maximal, r.outputs!!.effort)
+        assertEquals(176, r.measuredHrMaxCandidateBpm)
+        assertTrue(FitnessTestFlag.PeakHeartRateLow !in r.flags, "${r.flags}")
+        assertEquals(Validity.Valid, r.validity)
+    }
+
+    @Test
     fun `impossible spikes do not count for the maximum`() = runTest {
         // A heart rate rising with the load, plus a one-second 230 spike near the end.
         var spike = false

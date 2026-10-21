@@ -87,7 +87,7 @@ object TrainingFixtures {
         elapsedSeconds = 1100, phaseElapsedSeconds = 160, phaseRemainingSeconds = 140,
         targetSpeedKmh = 5.0, targetInclinePercent = 0.0, actualSpeedKmh = 5.0, actualInclinePercent = 0.0,
         heartRateBpm = 138, heartRateValidity = HeartRateValidity.Unconfirmed, endReason = result.endReason, result = result,
-        manualChangesAllowed = true,
+        manualChangesAllowed = true, canExtendPhase = true,
     )
 
     fun finished(result: FitnessTestResult) = FitnessTestProgress(

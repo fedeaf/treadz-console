@@ -250,7 +250,7 @@ fun LiveFigurePanel(
 
 /**
  * "+1": a minute more in a block that ends by time, 100 m more in one that ends by distance ([byDistance]). The fitness
- * tests show it disabled in the same place, so the side column looks the same.
+ * tests show it in the same place, enabled in their warm-up and cool-down.
  */
 @Composable
 fun ExtendBlockButton(byDistance: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -296,7 +296,7 @@ fun SkipButton(symbol: String, label: String?, description: String, enabled: Boo
 }
 
 /**
- * The row of block buttons of the tablet: ◀ previous, "+1" and next ▶. A fitness test shows only "+1", disabled, in its
+ * The row of block buttons of the tablet: ◀ previous, "+1" and next ▶. A fitness test shows only "+1" in its
  * place ([previous] and [next] `null`).
  */
 @Composable

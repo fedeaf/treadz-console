@@ -39,7 +39,10 @@ import kotlinx.coroutines.withContext
  * Android from killing the process, keeps the CPU awake (partial wake lock) and shows the state in the
  * notification. [AndroidBackend] starts and stops it: it runs only while connected to the treadmill (plus a few seconds
  * with a "connection lost" notice after a loss while the app is in the background), never while scanning, connecting,
- * reconnecting or disconnected. If it finds nothing to show it stops itself.
+ * reconnecting or disconnected. Only [AndroidBackend] stops it, following
+ * [com.treadz.console.treadmill.lifecycle.AppLifecycleManager.serviceWanted] (never the notification content: the
+ * connection is lost a moment before the notice about it is set). When it goes away it also cancels its notification,
+ * so one posted while it was stopping cannot outlive it with nobody to remove it.
  *
  * The notification (public on the lock screen) carries a STOP action while the belt is not idle, so the belt can be
  * stopped with the screen off or while the app shows another screen, and an Exit action while the belt is idle
@@ -115,13 +118,8 @@ class TreadZService : Service() {
                 if (settled != request) stopRequest.compareAndSet(request, settled)
                 ServiceNotificationMapper.map(connection, state, alerts, settled, lossNotice)
             }.distinctUntilChanged().collect { model ->
-                if (model == null) {
-                    // Nothing to show (not connected): the service has no reason to exist.
-                    Log.i(TAG, "No notification to show: stopping the service")
-                    stopSelf()
-                } else {
-                    render(manager, model)
-                }
+                // Nothing to show is a moment between two changes, or the service is about to be stopped by the backend.
+                if (model != null) render(manager, model)
             }
         }
     }
@@ -135,8 +133,13 @@ class TreadZService : Service() {
     }
 
     override fun onDestroy() {
-        getSystemService(NotificationManager::class.java).cancel(ALERT_NOTIFICATION_ID)
         scope.cancel()
+        // Android removes the notification of a foreground service that ends; cancelling it as well covers one posted
+        // while the service was stopping.
+        getSystemService(NotificationManager::class.java).apply {
+            cancel(NOTIFICATION_ID)
+            cancel(ALERT_NOTIFICATION_ID)
+        }
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()

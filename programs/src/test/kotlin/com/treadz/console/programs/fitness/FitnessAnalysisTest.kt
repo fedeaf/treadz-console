@@ -94,6 +94,35 @@ class FitnessAnalysisTest {
     }
 
     @Test
+    fun `a lower bound is a floor, never part of the mean`() {
+        // The 2026-10-21 case: a short walking test said "at least 11.9" next to measured values of about 43.
+        val measured = listOf(walk("w", 5, 44.1), walk("w2", 10, 42.0))
+        val alone = FitnessProfileCalculator.compute(measured, now, 40, Sex.Male).vo2max!!
+        val low = walk("low", 0, 11.9, effort = EffortAssessment.NotMaximal, lowerBound = true)
+        val withLow = FitnessProfileCalculator.compute(measured + low, now, 40, Sex.Male).vo2max!!
+        assertEquals(alone.valueMlKgMin, withLow.valueMlKgMin)
+        assertEquals(alone.seeMlKgMin, withLow.seeMlKgMin)
+        withLow.sources.single { it.resultId == "low" }.let {
+            assertEquals(0.0, it.weight)
+            assertTrue(it.lowerBound)
+            assertFalse(it.discrepant)
+        }
+        assertFalse(withLow.discrepancy)
+
+        // "At least 48" above the measured values: the profile takes it, and only it has weight.
+        val high = walk("high", 0, 48.0, effort = EffortAssessment.Maximal, lowerBound = true)
+        val withHigh = FitnessProfileCalculator.compute(measured + high + low, now, 40, Sex.Male).vo2max!!
+        assertEquals(48.0, withHigh.valueMlKgMin)
+        assertEquals(3.5, withHigh.seeMlKgMin)
+        assertEquals(1.0, withHigh.sources.single { it.resultId == "high" }.weight)
+        assertTrue(withHigh.sources.filter { it.resultId != "high" }.all { it.weight == 0.0 })
+
+        // Only bounds: the highest one.
+        val onlyBounds = FitnessProfileCalculator.compute(listOf(low, walk("b2", 3, 30.0, effort = EffortAssessment.NotMaximal, lowerBound = true)), now).vo2max!!
+        assertEquals(30.0, onlyBounds.valueMlKgMin)
+    }
+
+    @Test
     fun `gross discrepancies between two sources are flagged as data`() {
         val p = FitnessProfileCalculator.compute(listOf(walk("w", 2, 40.0), ebbeling("e", 2, 52.0), ebbeling("e2", 3, 44.0)), now)
         val v = p.vo2max!!
@@ -203,13 +232,13 @@ class FitnessAnalysisTest {
         assertTrue(text.contains("\"schemaVersion\": 2"), text)
         assertTrue(text.contains("\"method\": \"acsmWalkRamp\""), text)
         assertTrue(text.contains("\"masIsEstimated\": true"), text)
-        assertTrue(text.contains("\"algorithmVersion\": 1") && text.contains("\"quality\": \"high\""), text)
+        assertTrue(text.contains("\"algorithmVersion\": 2") && text.contains("\"quality\": \"high\""), text)
         assertTrue(text.contains("\"heartRateBpm\": 132.4"), text)
         assertEquals(r, FitnessTestJson.decode(text))
 
         val reason = r.copy(thresholds = ThresholdResult.none(ThresholdReason.NoWorkoutSamples))
         val reasonText = FitnessTestJson.encode(reason)
-        assertTrue(reasonText.contains("\"thresholds\": {\"algorithmVersion\": 1, \"reason\": \"noWorkoutSamples\"}"), reasonText)
+        assertTrue(reasonText.contains("\"thresholds\": {\"algorithmVersion\": 2, \"reason\": \"noWorkoutSamples\"}"), reasonText)
         assertEquals(reason, FitnessTestJson.decode(reasonText))
 
         // Unknown reasons from a newer app are read as "not enough data".
@@ -227,12 +256,21 @@ class FitnessAnalysisTest {
 
     // ------------------------------------------------------------------ recalculation
 
-    /** Per-second samples of the hand-made walking result: warm-up, then the ramp at 5.5 km/h, 5 % + 1 %/min. */
-    private fun walkSamples(result: FitnessTestResult, source: SampleHeartRateSource? = SampleHeartRateSource.Strap, rr: Boolean = true): List<WorkoutSample> {
+    /**
+     * Per-second samples of the hand-made walking result: warm-up, then the ramp at 5.5 km/h, 5 % + 1 %/min. The RR
+     * intervals of the synthetic ramp cover the ramp, or the whole effort with [rrFromWarmUp].
+     */
+    private fun walkSamples(
+        result: FitnessTestResult,
+        source: SampleHeartRateSource? = SampleHeartRateSource.Strap,
+        rr: Boolean = true,
+        rrFromWarmUp: Boolean = false,
+    ): List<WorkoutSample> {
         val m = result.measurements as MaxHeartRateWalkMeasurements
         val rampStart = result.startedAtMillis + m.warmUpSeconds * 1000L
         val end = result.effortEndedAtMillis
-        val beats = if (rr) syntheticRamp(rampStart, ((end - rampStart) / 1000).toInt()) else emptyList()
+        val rrStart = if (rrFromWarmUp) result.startedAtMillis else rampStart
+        val beats = if (rr) syntheticRamp(rrStart, ((end - rrStart) / 1000).toInt()) else emptyList()
         val bySecond = beats.groupBy { ceil((it.first - result.startedAtMillis) / 1000.0).toLong() }
         return (0..((result.endedAtMillis - result.startedAtMillis) / 1000)).map { s ->
             val t = result.startedAtMillis + s * 1000L
@@ -289,6 +327,68 @@ class FitnessAnalysisTest {
         assertEquals(r, FitnessTestJson.decode(FitnessTestJson.encode(r)), "stored values are already rounded")
         // Same inputs, same output (two devices write the same document).
         assertEquals(r, FitnessTestRecalculation.recalculate(old, walkSamples(old), restingHeartRateBpm = 60))
+        // The samples' heart rate (120) is below the stored peak: the peak never goes down.
+        assertEquals(old.measurements, r.measurements)
+        assertEquals(old.flags, r.flags)
+    }
+
+    @Test
+    fun `the thresholds are looked for from the start of the warm-up`() {
+        val old = sampleResult(FitnessTestType.MaxHeartRateWalk)
+        val t = FitnessTestRecalculation.recalculate(old, walkSamples(old, rrFromWarmUp = true))!!.thresholds!!
+        assertEquals(2, t.algorithmVersion)
+        assertNotNull(t.vt1, "$t")
+        // Windows of 120 s every 10 s over the 780 s from the start of the warm-up (the 660 s ramp alone has 55).
+        assertEquals(67, t.metrics!!.totalWindows)
+    }
+
+    /** Per-second samples from the start to the end of [result], heart rate [before] until the end of the effort, then [after] for [afterSeconds] s and 120. */
+    private fun peakSamples(result: FitnessTestResult, before: Int, after: Int, afterSeconds: Int): List<WorkoutSample> {
+        val effortEnd = (result.effortEndedAtMillis - result.startedAtMillis) / 1000
+        return (0..((result.endedAtMillis - result.startedAtMillis) / 1000)).map { s ->
+            val bpm = when {
+                s <= effortEnd -> before
+                s <= effortEnd + afterSeconds -> after
+                else -> 120
+            }
+            WorkoutSample(result.startedAtMillis + s * 1000L, 5.5, 0.0, bpm, SampleHeartRateSource.Strap)
+        }
+    }
+
+    @Test
+    fun `the peak of a stored walking result takes the seconds after the exhaustion and the effort follows it`() {
+        val base = sampleResult(FitnessTestType.MaxHeartRateWalk)
+        val low = base.copy(
+            flags = listOf(FitnessTestFlag.PeakHeartRateLow),
+            measurements = (base.measurements as MaxHeartRateWalkMeasurements).copy(
+                peakHeartRateBpm = 165.0, hrMaxCandidateBpm = 165, effort = EffortAssessment.NotMaximal,
+            ),
+        )
+        val r = FitnessTestRecalculation.recalculate(low, peakSamples(low, before = 160, after = 176, afterSeconds = 8))!!
+        val m = r.measurements as MaxHeartRateWalkMeasurements
+        assertEquals(176.0, m.peakHeartRateBpm)
+        assertEquals(176, m.hrMaxCandidateBpm)
+        assertEquals(EffortAssessment.Maximal, m.effort)
+        assertTrue(FitnessTestFlag.PeakHeartRateLow !in r.flags, "${r.flags}")
+        val o = r.outputs!!
+        assertEquals(176, o.hrMaxCandidateBpm)
+        assertEquals(EffortAssessment.Maximal, o.effort)
+        assertFalse(o.vo2maxIsLowerBound)
+        assertEquals(176, r.measuredHrMaxCandidateBpm)
+        // Readings after the end of the test do not count.
+        val late = low.copy(endedAtMillis = low.effortEndedAtMillis)
+        val unchanged = FitnessTestRecalculation.recalculate(late, peakSamples(low, before = 160, after = 176, afterSeconds = 8))!!
+        assertEquals(165.0, (unchanged.measurements as MaxHeartRateWalkMeasurements).peakHeartRateBpm)
+    }
+
+    @Test
+    fun `the peak of a stored running result rises with the seconds after the exhaustion`() {
+        val run = sampleResult(FitnessTestType.MaxIncrementalRun)
+        val r = FitnessTestRecalculation.recalculate(run, peakSamples(run, before = 180, after = 190, afterSeconds = 10))!!
+        assertEquals(190.0, (r.measurements as MaxTestMeasurements).peakHeartRateBpm)
+        assertEquals(190, r.outputs!!.hrMaxCandidateBpm)
+        assertEquals(EffortAssessment.Maximal, r.outputs!!.effort)
+        assertEquals(run.outputs!!.vo2maxMlKgMin, r.outputs!!.vo2maxMlKgMin)
     }
 
     @Test

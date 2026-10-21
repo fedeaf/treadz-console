@@ -325,6 +325,8 @@ class LifecycleTest {
         assertFalse(f.wantsService)
         f.settle()
         assertEquals(listOf(null, ConnectionLossNotice.BeltStoppedByItself, null), f.notices.toList())
+        // Never "not wanted" between the loss and its notice: the service is not stopped and started again.
+        assertEquals(listOf(false, true, false), f.serviceWanted.toList())
     }
 
     @Test

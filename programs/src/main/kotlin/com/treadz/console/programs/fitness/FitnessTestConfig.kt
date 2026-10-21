@@ -7,6 +7,8 @@ package com.treadz.console.programs.fitness
 data class FitnessTestConfig(
     /** Longest the runner waits before looking at the clock again. */
     val tickMs: Long = 250,
+    /** "+1": how much longer the current warm-up step or the cool-down becomes ([FitnessTestRunner.extendPhase]). */
+    val extendPhaseSeconds: Int = 60,
 
     // ---------------------------------------------------------------- shared heart-rate rules
     /** A reading below this (or 0) is not a heart rate. */
@@ -72,7 +74,10 @@ data class FitnessTestConfig(
     val minIncrementalSeconds: Int = 180,
     /** A maximal effort needs at least this long in the incremental phase. */
     val maximalMinIncrementalSeconds: Int = 300,
-    /** The peak heart rate is the highest [peakMeanSeconds]-s mean in this final part of the incremental phase. */
+    /**
+     * The peak heart rate is the highest [peakMeanSeconds]-s mean from this long before the end of the effort to the end
+     * of the test (the heart rate keeps rising for a few seconds after the user stops: the cool-down counts).
+     */
     val peakWindowSeconds: Int = 120,
     val peakMeanSeconds: Int = 5,
     /** Maximal effort: peak heart rate within this many bpm of the user's maximum. */

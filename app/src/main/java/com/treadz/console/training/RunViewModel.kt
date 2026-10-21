@@ -180,6 +180,11 @@ class RunViewModel(
         training.fitnessRunner.endTest()
     }
 
+    /** "+1" in a test: a minute more of the current warm-up step or of the cool-down. */
+    fun extendTestPhase() {
+        training.fitnessRunner.extendPhase()
+    }
+
     /** Walking heart-rate test, warm-up: changes the speed and/or incline the ramp starts at. */
     fun adjustRampStart(speedKmh: Double?, inclinePercent: Double?) {
         training.adjustRampStart(speedKmh, inclinePercent)

@@ -6,7 +6,6 @@ import com.treadz.console.analysis.fitness.StageLoad
 import com.treadz.console.analysis.fitness.WalkingTestVo2max
 import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
-import com.treadz.console.programs.heartrate.PlausibilityConfig
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -20,7 +19,8 @@ import kotlin.math.roundToInt
  *
  * **Warm-up (2 min)**: 1 min at 75 % of the ramp speed and 0 %, then 1 min at 80 % and 1 % (rounded to 0.1 km/h: 4.1 and
  * 4.4 km/h for 5.5). Manual changes are kept until the next warm-up step; the ramp start (speed, incline) can still be
- * changed ([FitnessTestRunner.adjustRampStart]).
+ * changed ([FitnessTestRunner.adjustRampStart]); "+1" ([FitnessTestRunner.extendPhase]) makes the current step a
+ * minute longer.
  *
  * **Ramp**: starts at 5.5 km/h and 5 % (fixed defaults, changeable before the start or during the warm-up), +1 % every
  * minute. Once the incline reaches 18 % (or the user's incline limit, or the treadmill maximum), every minute the speed
@@ -32,7 +32,9 @@ import kotlin.math.roundToInt
  * ramp ([FitnessTestFlag.EndedWithStop], no cool-down). A manual change during the ramp or any interruption makes it
  * invalid; exhaustion before 3 min of ramp too ([FitnessTestFlag.IncrementalPhaseTooShort]).
  *
- * **Result**: maximum heart rate = highest 5-s mean of the last 2 minutes of the ramp, used only with a reliable heart
+ * **Result**: maximum heart rate = highest 5-s mean from 2 minutes before the exhaustion to the end of the test (the
+ * cool-down or the stop: the heart rate keeps rising for a few seconds; known when the effort ends, it may still rise
+ * until the test finishes, and the effort is assessed again then), used only with a reliable heart
  * rate (≥ 80 % coverage, a reading in the last 30 s, and the last 30 s ≥ 10 bpm above the first stage). Effort with the
  * rules of the running test: [EffortAssessment.Maximal] with ≥ 5 min of ramp and a peak within 10 bpm of the user's
  * maximum or a heart-rate plateau (the end-of-stage heart rate rose < 3 bpm over the last 2 stages while the load kept
@@ -42,10 +44,11 @@ import kotlin.math.roundToInt
  * **VO2max** (valid results that ended by exhaustion): the ACSM equation at the mean real load (speed and incline
  * reported by the treadmill) of the last 60 s of the effort ([WalkingTestVo2max]), SEE 3.5 (assumed); a lower bound
  * when the effort was not maximal or both caps were reached. MAS = VO2max / 3.5, estimated
- * ([FitnessTestRecalculation.walkOutputs]). **Thresholds**: DFA-α1 over the ramp
+ * ([FitnessTestRecalculation.walkOutputs]). **Thresholds**: DFA-α1 from the start of the warm-up to the exhaustion
  * ([FitnessTestRecalculation.thresholds]); without RR intervals the reason `noRrIntervals`.
  *
- * **Cool-down**: 3 min flat at the lower of 5 km/h and the last speed, changeable by hand; a STOP there keeps the result.
+ * **Cool-down**: 3 min flat at the lower of 5 km/h and the last speed ("+1" makes it a minute longer), changeable by
+ * hand; a STOP there keeps the result.
  */
 internal class MaxHeartRateWalkProtocol(
     id: String,
@@ -76,9 +79,10 @@ internal class MaxHeartRateWalkProtocol(
 
     private val stageMs = config.stageSeconds * 1000L
     private val warmUpStepMs = config.walkTestWarmUpStepSeconds * 1000L
-    private val filter = HeartRatePlausibilityFilter(null, PlausibilityConfig(maxAboveHrMaxBpm = null))
+    private val filter = FitnessTestRecalculation.peakFilter()
 
     private var warmUpStep = 0
+    private val warmUp = TwoStepWarmUp(warmUpStepMs, warmUpStepMs)
     private var overrideSpeed: Double? = null
     private var overrideIncline: Double? = null
     private var incStart: Long? = null
@@ -131,16 +135,21 @@ internal class MaxHeartRateWalkProtocol(
 
     private fun speedOf(stage: Int) = clampSpeed(min(nominalSpeedOf(stage), speedCapKmh))
 
+    override fun extendWarmUp(t: Long, ms: Long): Boolean {
+        warmUp.extend(t, ms)
+        return true
+    }
+
     override fun effortUpdate(t: Long, obs: Observation) {
         when (phase) {
             FitnessTestPhase.WarmUp -> {
-                val warmUpEnd = 2 * warmUpStepMs
+                val warmUpEnd = warmUp.endMs
                 if (t >= warmUpEnd) {
                     startRamp(warmUpEnd)
                     rampUpdate(t)
                     return
                 }
-                val step = if (t < warmUpStepMs) 0 else 1
+                val step = warmUp.step(t)
                 if (step != warmUpStep) {
                     warmUpStep = step
                     overrideSpeed = null
@@ -259,7 +268,7 @@ internal class MaxHeartRateWalkProtocol(
         val usable = cov >= config.minHeartRateCoverage && last30 != null && firstStage != null &&
             hr.coverage(t - 30_000, t) >= config.minHeartRateCoverage && last30 - firstStage >= config.minMaxTestHeartRateRiseBpm
         when {
-            usable -> peakHr = hr.maxSlidingMean(t - config.peakWindowSeconds * 1000L, t, config.peakMeanSeconds * 1000L)?.let(FitnessFormulas::round1)
+            usable -> peakHr = peakHeartRate(t, t)
             cov < config.noHeartRateCoverage -> flags += FitnessTestFlag.NoValidHeartRate
             else -> flags += FitnessTestFlag.HeartRateUnreliable
         }
@@ -270,14 +279,9 @@ internal class MaxHeartRateWalkProtocol(
         }
         val short = rampSeconds < config.maximalMinIncrementalSeconds
         if (short) flags += FitnessTestFlag.ShortIncrementalPhase
-        val peakLow = peak != null && peak < subject.hrMaxBpm - config.effortHrMarginBpm
-        if (peakLow) flags += if (plateau && !short) FitnessTestFlag.MaximalByHeartRatePlateau else FitnessTestFlag.PeakHeartRateLow
-        effort = when {
-            short -> EffortAssessment.NotMaximal
-            peak == null -> EffortAssessment.Unknown
-            peakLow && !plateau -> EffortAssessment.NotMaximal
-            else -> EffortAssessment.Maximal
-        }
+        val verdict = FitnessTestRecalculation.effortVerdict(peak, plateau, short, subject.hrMaxBpm, config)
+        verdict.flag?.let { flags += it }
+        effort = verdict.effort
         candidate = peak?.roundToInt()
         // VO2max from the real load of the last minute; from the stages if the samples do not cover it.
         val estimate = WalkingTestVo2max.fromSamples(effortSamples, at(t)) ?: WalkingTestVo2max.fromStages(
@@ -288,9 +292,25 @@ internal class MaxHeartRateWalkProtocol(
     }
 
     override fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? {
-        if (reason != FitnessEndReason.Exhausted) return null
-        val start = incStart ?: return null
-        return incrementalThresholds(start, t, outputs)
+        if (reason != FitnessEndReason.Exhausted || incStart == null) return null
+        return effortThresholds(t, outputs)
+    }
+
+    /** The peak with the seconds after the exhaustion: when it is higher, the candidate, the effort and the VO2max bound follow it. */
+    override fun refineAfterEffort(t: Long) {
+        val end = effortEndT ?: return
+        val start = incStart ?: return
+        val old = peakHr ?: return
+        val peak = peakHeartRate(end, t) ?: return
+        if (peak <= old) return
+        peakHr = peak
+        val short = (end - start) / 1000.0 < config.maximalMinIncrementalSeconds
+        val verdict = FitnessTestRecalculation.effortVerdict(peak, plateau, short, subject.hrMaxBpm, config)
+        flags.removeAll(FitnessTestRecalculation.PEAK_FLAGS)
+        verdict.flag?.let { flags += it }
+        effort = verdict.effort
+        candidate = peak.roundToInt()
+        outputs = outputs?.let { FitnessTestRecalculation.withWalkEffort(it, verdict.effort, capReached, candidate) }
     }
 
     override fun measurements(): FitnessTestMeasurements {
@@ -320,7 +340,7 @@ internal class MaxHeartRateWalkProtocol(
     override fun decorate(p: FitnessTestProgress, t: Long): FitnessTestProgress = when (phase) {
         FitnessTestPhase.WarmUp -> p.copy(
             instruction = FitnessInstruction.WarmUpWalk,
-            phaseRemainingSeconds = ceilSeconds(max(0L, 2 * warmUpStepMs - t)),
+            phaseRemainingSeconds = ceilSeconds(max(0L, warmUp.endMs - t)),
             nextStageSpeedKmh = rampSpeed,
             nextStageInclinePercent = rampIncline,
             canReportExhaustion = false,

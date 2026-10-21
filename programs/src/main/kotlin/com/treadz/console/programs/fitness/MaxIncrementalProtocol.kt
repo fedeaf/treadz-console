@@ -13,7 +13,8 @@ import kotlin.math.roundToInt
  * air resistance: Jones and Doust 1996), as run by the app.
  *
  * **Warm-up (5 min, 1 %)**: 2 min brisk walk at min(5.5 km/h, start), then 3 min easy jog at start − 1.5 km/h (never
- * slower than the walk). Manual changes are allowed here and kept until the next warm-up step.
+ * slower than the walk). Manual changes are allowed here and kept until the next warm-up step; "+1"
+ * ([FitnessTestRunner.extendPhase]) makes the current step a minute longer.
  *
  * **Incremental phase (1 %)**: stage 1 at the start speed (caller's, default 8, clamped to 6-10 km/h and the cap);
  * +0.5 km/h every minute. The cap is the treadmill maximum and the user's speed limit: once the next stage would pass
@@ -37,7 +38,11 @@ import kotlin.math.roundToInt
  *  - VO2max ≈ 3.5 · MAS (Léger and Mercier 1984), see [FitnessFormulas.LEGER_MERCIER_RATIO].
  *  - Heart rate (not required to run the test): used only if ≥ 80 % of the incremental phase has a valid reading, the
  *    last 30 s have one, and the last 30 s are ≥ 10 bpm above the first stage (a strap really measuring). Then the
- *    peak heart rate is the highest 5-s mean of the last 2 min, a candidate for the measured maximum heart rate.
+ *    peak heart rate is the highest 5-s mean from 2 min before the exhaustion to the end of the test (the cool-down
+ *    or the stop: the heart rate keeps rising for a few seconds), a candidate for the measured maximum heart rate. It
+ *    is known when the effort ends and may still rise until the test finishes (the effort is assessed again then).
+ *    After the effort, impossible readings (spikes, a strap taken off) are discarded, so a strap moved during the
+ *    cool-down does not become the maximum.
  *  - Effort (the exhaustion is always confirmed by the user, with the button or the STOP): [EffortAssessment.Maximal]
  *    when T ≥ 5 min and either the peak is within 10 bpm of the user's maximum, **or there is a heart-rate plateau**;
  *    [EffortAssessment.NotMaximal] when T < 5 min, or the peak is lower and there is no plateau;
@@ -50,8 +55,11 @@ import kotlin.math.roundToInt
  *    rate even though it is below the estimate ([FitnessTestFlag.MaximalByHeartRatePlateau], informational; the
  *    measurements always carry [MaxTestMeasurements.heartRatePlateau] and the rise).
  *
- * **Cool-down**: 5 min at min(5 km/h, last speed), 0 %, then the belt is stopped. STOP (app or console) always stops
- * the belt and makes the test invalid, like any interruption.
+ * **Cool-down**: 5 min at min(5 km/h, last speed), 0 %, then the belt is stopped ("+1" makes it a minute longer).
+ * A STOP there cuts it short and keeps the result.
+ *
+ * **Thresholds** (DFA-α1, [FitnessTestRecalculation]): from the start of the warm-up to the exhaustion, so a VT1 crossed
+ * while jogging in the warm-up is still found.
  */
 internal class MaxIncrementalProtocol(
     id: String,
@@ -79,6 +87,7 @@ internal class MaxIncrementalProtocol(
     private val stageMs = config.stageSeconds * 1000L
 
     private var warmUpStep = 0
+    private val warmUp = TwoStepWarmUp(config.warmUpWalkSeconds * 1000L, config.warmUpJogSeconds * 1000L)
     private var overrideSpeed: Double? = null
     private var overrideIncline: Double? = null
     private var incStart: Long? = null
@@ -93,6 +102,14 @@ internal class MaxIncrementalProtocol(
     private var peakHr: Double? = null
     private var coverage: Double? = null
 
+    /** Sees every reading; its verdict counts only after the effort ([plausibleHeartRate]). */
+    private val afterEffortFilter = FitnessTestRecalculation.peakFilter()
+
+    override fun plausibleHeartRate(t: Long, bpm: Int?): Int? {
+        val accepted = afterEffortFilter.accept(t, bpm)
+        return if (effortEndT == null) bpm else accepted
+    }
+
     override fun onBegin() {
         if (abs(startSpeedKmh - requestedStartSpeedKmh) > 0.049) flags += FitnessTestFlag.StartSpeedClamped
         enterPhase(0, FitnessTestPhase.WarmUp)
@@ -104,16 +121,21 @@ internal class MaxIncrementalProtocol(
 
     private fun speedOf(stage: Int) = clampSpeed(min(nominal(stage), capKmh))
 
+    override fun extendWarmUp(t: Long, ms: Long): Boolean {
+        warmUp.extend(t, ms)
+        return true
+    }
+
     override fun effortUpdate(t: Long, obs: Observation) {
         when (phase) {
             FitnessTestPhase.WarmUp -> {
-                val warmUpEnd = (config.warmUpWalkSeconds + config.warmUpJogSeconds) * 1000L
+                val warmUpEnd = warmUp.endMs
                 if (t >= warmUpEnd) {
                     startIncremental(warmUpEnd)
                     incrementalUpdate(t)
                     return
                 }
-                val step = if (t < config.warmUpWalkSeconds * 1000L) 0 else 1
+                val step = warmUp.step(t)
                 if (step != warmUpStep) {
                     warmUpStep = step
                     overrideSpeed = null
@@ -252,7 +274,7 @@ internal class MaxIncrementalProtocol(
             hr.coverage(t - 30_000, t) >= config.minHeartRateCoverage &&
             last30 - firstStage >= config.minMaxTestHeartRateRiseBpm
         when {
-            hrUsable -> peakHr = hr.maxSlidingMean(t - config.peakWindowSeconds * 1000L, t, config.peakMeanSeconds * 1000L)?.let(FitnessFormulas::round1)
+            hrUsable -> peakHr = peakHeartRate(t, t)
             cov < config.noHeartRateCoverage -> flags += FitnessTestFlag.NoValidHeartRate
             else -> flags += FitnessTestFlag.HeartRateUnreliable
         }
@@ -265,14 +287,9 @@ internal class MaxIncrementalProtocol(
 
         val short = incSeconds < config.maximalMinIncrementalSeconds
         if (short) flags += FitnessTestFlag.ShortIncrementalPhase
-        val peakLow = peak != null && peak < subject.hrMaxBpm - config.effortHrMarginBpm
-        if (peakLow) flags += if (plateau && !short) FitnessTestFlag.MaximalByHeartRatePlateau else FitnessTestFlag.PeakHeartRateLow
-        val effort = when {
-            short -> EffortAssessment.NotMaximal
-            peak == null -> EffortAssessment.Unknown
-            peakLow && !plateau -> EffortAssessment.NotMaximal
-            else -> EffortAssessment.Maximal
-        }
+        val verdict = FitnessTestRecalculation.effortVerdict(peak, plateau, short, subject.hrMaxBpm, config)
+        verdict.flag?.let { flags += it }
+        val effort = verdict.effort
         val vo2 = FitnessFormulas.round1(FitnessFormulas.vo2maxFromMas(mas))
         return FitnessTestOutputs(
             vo2maxMlKgMin = vo2,
@@ -287,11 +304,25 @@ internal class MaxIncrementalProtocol(
         )
     }
 
-    /** Thresholds of the incremental phase (DFA-α1, see [FitnessTestRecalculation]); its VO2max stays Léger-Mercier. */
+    /** Thresholds from the start of the warm-up (DFA-α1, see [FitnessTestRecalculation]); its VO2max stays Léger-Mercier. */
     override fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? {
-        if (reason != FitnessEndReason.Exhausted) return null
-        val start = incStart ?: return null
-        return incrementalThresholds(start, t, outputs)
+        if (reason != FitnessEndReason.Exhausted || incStart == null) return null
+        return effortThresholds(t, outputs)
+    }
+
+    /** The peak with the seconds after the exhaustion: when it is higher, the candidate and the effort follow it. */
+    override fun refineAfterEffort(t: Long) {
+        val end = effortEndT ?: return
+        val start = incStart ?: return
+        val old = peakHr ?: return
+        val peak = peakHeartRate(end, t) ?: return
+        if (peak <= old) return
+        peakHr = peak
+        val short = (end - start) / 1000.0 < config.maximalMinIncrementalSeconds
+        val verdict = FitnessTestRecalculation.effortVerdict(peak, plateau, short, subject.hrMaxBpm, config)
+        flags.removeAll(FitnessTestRecalculation.PEAK_FLAGS)
+        verdict.flag?.let { flags += it }
+        outputs = outputs?.copy(hrMaxCandidateBpm = peak.roundToInt(), effort = verdict.effort)
     }
 
     override fun measurements(): FitnessTestMeasurements {
@@ -318,10 +349,9 @@ internal class MaxIncrementalProtocol(
 
     override fun decorate(p: FitnessTestProgress, t: Long): FitnessTestProgress = when (phase) {
         FitnessTestPhase.WarmUp -> {
-            val warmUpEnd = (config.warmUpWalkSeconds + config.warmUpJogSeconds) * 1000L
             p.copy(
                 instruction = if (warmUpStep == 0) FitnessInstruction.WarmUpWalk else FitnessInstruction.WarmUpJog,
-                phaseRemainingSeconds = ceilSeconds(max(0L, warmUpEnd - t)),
+                phaseRemainingSeconds = ceilSeconds(max(0L, warmUp.endMs - t)),
                 nextStageSpeedKmh = startSpeedKmh,
                 canReportExhaustion = false,
             )

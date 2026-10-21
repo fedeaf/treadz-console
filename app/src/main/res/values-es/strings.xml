@@ -114,6 +114,7 @@
     <string name="failure_stop_not_confirmed">la cinta no ha confirmado la parada.</string>
     <string name="failure_still_moving">la banda no está frenando.</string>
     <string name="failure_target_not_reached">la cinta no ha llegado al valor pedido.</string>
+    <string name="failure_not_executed">la cinta aceptó la orden pero no la ha ejecutado. Sigue como se ve en pantalla.</string>
     <string name="failure_belt_stopped">la banda se ha parado.</string>
     <string name="failure_data_lost">no llegan datos de la cinta.</string>
     <string name="failure_connection_lost">se ha perdido la conexión.</string>
@@ -1084,7 +1085,7 @@
     <string name="test_ramp_time">Tiempo de rampa</string>
     <string name="test_walk_next_stage">Minuto siguiente</string>
     <string name="test_ramp_start_title">Dónde empieza la rampa (puedes cambiarlo durante el calentamiento)</string>
-    <string name="test_exhausted_after_ramp">Disponible tras %1$d minutos de rampa. Antes invalidaría el test.</string>
+    <string name="test_exhausted_after_ramp">«ESTOY AGOTADO» sustituye a «Terminar test» a los %1$d minutos de rampa: antes el test no contaría.</string>
     <string name="test_walk_manual_note">Cambiar la velocidad o la inclinación a mano durante la rampa invalida el test.</string>
     <string name="effort_reason_maximal">El pulso más alto estuvo cerca de tu máximo.</string>
     <string name="result_ramp_time">Rampa</string>

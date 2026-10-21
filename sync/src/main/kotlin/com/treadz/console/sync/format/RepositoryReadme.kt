@@ -54,7 +54,10 @@ The block stays at `schemaVersion` 1: the fields below were added as optional on
   `sqrt(SEE1^2 + SEE2^2)` (their standard errors as weighted), so one of the measurements is probably wrong; those sources
   carry `discrepant: true`. It is data only. A source also carries `weightFactor` when it is not 1: 0.25 for a submaximal
   test (Ebbeling) while a valid maximal test of the last 90 days exists. `rules` lists `submaximalFactorWithMaximal`,
-  `maximalRecencyDays` and `discrepancyFactor`.
+  `maximalRecencyDays` and `discrepancyFactor`. A source with `lowerBound: true` (the test only says "at least") is not
+  part of the mean: it has `weight` 0, unless it is above the combination of the other tests (or there are no others),
+  in which case the profile takes its value and it is the only source with weight. Only sources that are not lower
+  bounds can be `discrepant`.
 - `mas` is the latest **measured** value of the maximal running test, or `estimated: true` (VO2max / 3.5). The estimated
   MAS of a maximal walking test (`masIsEstimated` in the test) is never used as a measured one.
 - `thresholds`, present when a valid maximal test has VT1 or VT2: `rules` (weights by quality, 30-day half-life, tests
@@ -142,12 +145,13 @@ file untouched. **Version 2** (added in October 2026) adds:
   `masIsEstimated`). Walking results written before version 2 have no `outputs`, only the measured maximum heart rate in
   the measurements, until the app recalculates them.
 - **`thresholds`**, on the valid maximal tests (walking and running): the heart rates of the first and second ventilatory
-  thresholds (VT1 and VT2) found with the DFA-alpha1 of the RR intervals of the ramp (alpha1 = 0.75 for VT1, 0.5 for VT2, from the windows of
-  120 s where alpha1 falls as the heart rate rises). It needs RR intervals from a strap connected to the app
+  thresholds (VT1 and VT2) found with the DFA-alpha1 of the RR intervals of the test, from the start of the warm-up to the
+  end of the effort (alpha1 = 0.75 for VT1, 0.5 for VT2, from the windows of 120 s where alpha1 falls as the heart rate
+  rises; algorithm version 1 looked at the ramp only). It needs RR intervals from a strap connected to the app
   (`hr_source` `direct_strap` in the workout csv); the console's heart rate and imported workouts have none.
 
   ```
-  "thresholds": {"algorithmVersion": 1, "quality": "high",
+  "thresholds": {"algorithmVersion": 2, "quality": "high",
     "vt1": {"heartRateBpm": 132.4, "speedKmh": 6.2, "inclinePercent": 11.3, "vo2MlKgMin": 31.6, "percentVo2max": 72.5,
             "percentHeartRateReserve": 61.0},
     "vt2": {"heartRateBpm": 151.2, "...": "same fields"},
@@ -159,18 +163,21 @@ file untouched. **Version 2** (added in October 2026) adds:
   detections are kept but do not count in the profile). `vt1`/`vt2` are points: `heartRateBpm`, and the load there
   (`speedKmh`, `inclinePercent`), its oxygen demand `vo2MlKgMin` (ACSM), `percentVo2max` and `percentHeartRateReserve`
   (the last one only when the user's resting heart rate is known). VT2 is never given without VT1. `metrics` describes the
-  detection: valid windows in the stretch used (`stretchWindows`), in the whole ramp (`validWindows`) and in total
+  detection: valid windows in the stretch used (`stretchWindows`), in the whole analysed part (`validWindows`) and in total
   (`totalWindows`), the `rSquared` of the alpha1-heart-rate regression, the mean share of corrected beats
   (`meanArtifactPercent`), `slopePerBpm` and `interceptAlpha1`. Without thresholds the block holds `algorithmVersion` and
   a `reason`: `noWorkoutSamples` (the workout of the test is not available: deleted or not synchronised yet), `noRrIntervals`
   (no RR intervals from a strap connected to the app), `notEnoughValidWindows`, `noAlpha1Decline` or `vt1OutOfRange`
-  (VT1 was not crossed in the ramp); `quality` and `metrics` may then still be present. A missing block means the result
+  (VT1 was not crossed in the test); `quality` and `metrics` may then still be present. A missing block means the result
   has not been analysed (it was written by an app that did not know the analysis).
 
 Derived values are recalculated, not trusted: when the app finds a valid maximal result without `thresholds`, with an older
 `algorithmVersion`, or marked `noWorkoutSamples` while its workout (the workout whose `fitness_test_id` is the result's id)
 is now available, it computes them again from that workout's samples and rewrites the result (`updated_at` and
-`updated_by` change; the measured data in the result do not). Stale samples are ignored. The resting heart rate used for
+`updated_by` change; the measured data in the result do not, except the peak heart rate of a maximal test: since
+version 2 it is the highest 5-second mean from 2 minutes before the end of the effort to the end of the test, the
+seconds after the exhaustion included, so `peakHeartRateBpm`, `hrMaxCandidateBpm`, `effort` and the flags that explain
+it may change; the peak never goes down). Stale samples are ignored. The resting heart rate used for
 `percentHeartRateReserve` is the reference of `resting-heart-rate.csv` as it was at the start time of the test (only the
 measurements up to then; without any, the earliest one), so every device that recalculates the same result from the same
 data writes the same document. A result with the current `algorithmVersion` is never recalculated again.

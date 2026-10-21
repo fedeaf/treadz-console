@@ -317,6 +317,52 @@ class MaxTestScenariosTest {
     }
 
     @Test
+    fun `the peak takes the seconds after the exhaustion but not an impossible reading in the cool-down`() = runTest {
+        // A heart rate that keeps rising for a few seconds after the exhaustion, then a strap moved: a doubled reading.
+        var after = 0
+        var doubled = 0
+        val model = SimulatedHeartRateModel { input ->
+            when {
+                !input.beltRunning -> 62
+                doubled > 0 -> 250.also { doubled-- }
+                after > 0 -> 183.also { after-- }
+                else -> minOf(178, (120 + 10 * (input.speedKmh - 8.0)).roundToInt())
+            }
+        }
+        val rig = started(model = model)
+        rig.awaitPhase(FitnessTestPhase.Incremental)
+        delay(8 * 60_000L) // 12 km/h: 160 bpm, still rising with every stage
+        assertEquals(FitnessActionResult.Success, rig.runner.exhausted())
+        after = 10
+        delay(60_000)
+        doubled = 10 // above 240: impossible
+        rig.awaitFinished()
+        assertEquals(183.0, rig.measurements.peakHeartRateBpm!!, 0.5)
+        assertEquals(183, rig.result.outputs!!.hrMaxCandidateBpm)
+    }
+
+    @Test
+    fun `+1 in the warm-up delays the incremental phase by a minute per tap`() = runTest {
+        val rig = started()
+        assertTrue(rig.progress.canExtendPhase)
+        delay(30_000)
+        assertEquals(FitnessActionResult.Success, rig.runner.extendPhase()) // the walk lasts 3 min
+        delay(140_000) // t = 170 s
+        assertEquals(5.5, rig.sim.currentSpeedKmh, 0.01)
+        delay(30_000) // t = 200 s: the jog
+        assertEquals(6.5, rig.sim.currentSpeedKmh, 0.01)
+        assertEquals(FitnessActionResult.Success, rig.runner.extendPhase()) // the jog lasts 4 min
+        delay(200_000) // t = 400 s
+        assertEquals(FitnessTestPhase.WarmUp, rig.progress.phase)
+        delay(30_000) // t = 430 s: the incremental phase started at 420 s
+        assertEquals(FitnessTestPhase.Incremental, rig.progress.phase)
+        assertFalse(rig.progress.canExtendPhase)
+        assertTrue(rig.runner.extendPhase() is FitnessActionResult.NotAllowed)
+        rig.runner.stop()
+        assertEquals(420, (rig.result.measurements as MaxTestMeasurements).warmUpSeconds)
+    }
+
+    @Test
     fun `exhausted during the warm-up ends the test early`() = runTest {
         val rig = started()
         delay(60_000)

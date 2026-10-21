@@ -114,6 +114,7 @@
     <string name="failure_stop_not_confirmed">the treadmill did not confirm the stop.</string>
     <string name="failure_still_moving">the belt is not slowing down.</string>
     <string name="failure_target_not_reached">the treadmill did not reach the requested value.</string>
+    <string name="failure_not_executed">the treadmill accepted the command but did not carry it out. It goes on as shown.</string>
     <string name="failure_belt_stopped">the belt stopped.</string>
     <string name="failure_data_lost">no data is arriving from the treadmill.</string>
     <string name="failure_connection_lost">the connection was lost.</string>
@@ -1084,7 +1085,7 @@
     <string name="test_ramp_time">Ramp time</string>
     <string name="test_walk_next_stage">Next minute</string>
     <string name="test_ramp_start_title">Where the ramp starts (you can change it during the warm-up)</string>
-    <string name="test_exhausted_after_ramp">Available after %1$d minutes of ramp. Before that it would invalidate the test.</string>
+    <string name="test_exhausted_after_ramp">\"I AM EXHAUSTED\" takes the place of \"End test\" after %1$d minutes of ramp: before that the test would not count.</string>
     <string name="test_walk_manual_note">Changing the speed or the incline by hand during the ramp makes the test invalid.</string>
     <string name="effort_reason_maximal">The peak heart rate was close to your maximum.</string>
     <string name="result_ramp_time">Ramp</string>

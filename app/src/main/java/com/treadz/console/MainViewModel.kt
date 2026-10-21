@@ -175,7 +175,8 @@ class MainViewModel(
             reconnectProblem = extras.reconnectProblem,
             startInProgress = local.startInProgress,
             startFailure = local.startFailure,
-            alert = alerts.lastOrNull(),
+            // A speed or incline command not carried out is a short message of the controls, not a full-screen alert.
+            alert = alerts.lastOrNull { !ManualControls.isShortNotice(it, connection, treadmill) },
             recording = recording,
             recordingNotice = recording.takeIf {
                 (it is RecordingStatus.Saved || it is RecordingStatus.Failed) && it != local.dismissedRecording

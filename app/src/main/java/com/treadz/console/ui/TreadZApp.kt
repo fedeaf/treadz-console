@@ -199,6 +199,7 @@ fun TreadZRoot(
                                 onRampSpeedStep = runVm::stepRampSpeed,
                                 onRampInclineStep = runVm::stepRampIncline,
                                 onExtendBlock = runVm::extendCurrentBlock,
+                                onExtendTestPhase = runVm::extendTestPhase,
                             )
                             if (visible == SessionKind.Program) ProgramRunScreen(ui, run, controlActions, runActions)
                             else FitnessRunScreen(ui, run, controlActions, runActions)

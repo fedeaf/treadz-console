@@ -236,6 +236,13 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
             card(R.string.metric_incline, Format.incline(t.inclinePercent), R.string.unit_incline, Modifier.weight(1f).fillMaxSize(), fixed = true)
             card(R.string.metric_speed, Format.speed(t.speedKmh), R.string.unit_speed, Modifier.weight(1f).fillMaxSize(), fixed = true)
         }
+        if (!sizes.wide) {
+            // On the phone the other figures go in one line, as while the belt runs: in cards sharing what is left of a
+            // short screen their numbers were cut off.
+            SecondaryMetrics(ui, sizes, Modifier.fillMaxWidth())
+            Spacer(Modifier.weight(1f))
+            return@Column
+        }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
             card(R.string.metric_distance, Format.distanceKm(t.distanceMeters), R.string.unit_distance, Modifier.weight(1f).fillMaxSize())
             card(R.string.metric_time, Format.duration(t.elapsedSeconds), null, Modifier.weight(1f).fillMaxSize())

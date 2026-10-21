@@ -3,6 +3,7 @@ package com.treadz.console
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -76,5 +77,36 @@ class LiveScreensPhoneUiTest {
         rule.waitForIdle()
         rule.onNodeWithTag("extend_block_button").assertIsNotEnabled()
         rule.onNodeWithTag("exhausted_button").assertIsEnabled()
+        rule.onNodeWithTag("end_test_button").assertDoesNotExist()
+    }
+
+    @Test fun plusOneIsCentredWhenItIsAloneInTheCoolDown() {
+        val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = ControlsNote.TestLocked)
+        val coolDown = TrainingFixtures.walkRamp(200).copy(
+            phase = com.treadz.console.programs.fitness.FitnessTestPhase.CoolDown, canReportExhaustion = false, canEndTest = false, canExtendPhase = true,
+        )
+        rule.setContent {
+            CompositionLocalProvider(LocalLayout provides phone) {
+                FitnessRunScreen(ui.copy(session = locked), RunUiState(kind = SessionKind.FitnessTest, test = coolDown), ControlActions(), RunActions())
+            }
+        }
+        rule.waitForIdle()
+        val button = rule.onNodeWithTag("extend_block_button").assertIsEnabled().getBoundsInRoot()
+        val stop = rule.onNodeWithTag("stop_button").getBoundsInRoot()
+        val buttonCentre = (button.left + button.right) / 2
+        val rowCentre = (stop.left + stop.right) / 2
+        assertEquals(rowCentre.value, buttonCentre.value, 1f)
+    }
+
+    @Test fun aFitnessTestHasEndTestInTheRowBeforeExhaustionCounts() {
+        val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = ControlsNote.TestLocked)
+        rule.setContent {
+            CompositionLocalProvider(LocalLayout provides phone) {
+                FitnessRunScreen(ui.copy(session = locked), RunUiState(kind = SessionKind.FitnessTest, test = TrainingFixtures.walkRamp(60)), ControlActions(), RunActions())
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("end_test_button").assertIsEnabled()
+        rule.onNodeWithTag("exhausted_button").assertDoesNotExist()
     }
 }

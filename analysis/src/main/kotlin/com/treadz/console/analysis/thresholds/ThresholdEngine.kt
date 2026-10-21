@@ -16,7 +16,7 @@ enum class ThresholdReason {
     NoWorkoutSamples,
 
     /**
-     * No RR intervals from a strap connected to the app in the incremental phase (the console's heart rate, an
+     * No RR intervals from a strap connected to the app in the analysed part (the console's heart rate, an
      * unknown or imported source, or a strap that does not send them).
      */
     NoRrIntervals,
@@ -54,8 +54,8 @@ data class ThresholdPoint(
  * Quality metrics of a threshold analysis.
  *
  * @property stretchWindows Valid windows in the regression stretch.
- * @property validWindows Valid windows in the whole incremental phase.
- * @property totalWindows Windows in the incremental phase.
+ * @property validWindows Valid windows in the whole analysed part.
+ * @property totalWindows Windows in the analysed part.
  * @property rSquared R² of the α1-heart-rate regression.
  * @property meanArtifactPercent Mean share of corrected beats of the stretch windows, %.
  * @property slopePerBpm Slope of the regression, α1 per bpm (negative).
@@ -126,11 +126,12 @@ data class ThresholdAnalysis(
  * What to analyse.
  *
  * @property rr The RR series with beat times (from a strap connected to the app only), in time order; it may cover
- *   more than the incremental phase.
+ *   more than the analysed part.
  * @property samples Workout samples with the treadmill load, in time order (for the load at each threshold); may be
  *   empty.
- * @property incrementalStartMillis Start of the incremental phase (the ramp), on the clock of [rr] and [samples].
- * @property incrementalEndMillis End of the effort.
+ * @property fromMillis Start of the analysed part of the test, on the clock of [rr] and [samples]: the start of the
+ *   warm-up, so a threshold crossed before the ramp is still found (since algorithm version 2).
+ * @property toMillis End of the effort (the cool-down is never analysed: α1 recovers differently once the load drops).
  * @property maxHeartRateBpm The user's maximum heart rate (windows at or above 95 % of it end the stretch).
  * @property restingHeartRateBpm For the % of the reserve at each threshold; `null` = not given.
  * @property vo2maxMlKgMin VO2max of the test (or of the profile) for the % of VO2max at each threshold.
@@ -138,8 +139,8 @@ data class ThresholdAnalysis(
 data class ThresholdInput(
     val rr: List<RrInterval>,
     val samples: List<WorkoutSample>,
-    val incrementalStartMillis: Long,
-    val incrementalEndMillis: Long,
+    val fromMillis: Long,
+    val toMillis: Long,
     val maxHeartRateBpm: Int,
     val restingHeartRateBpm: Int? = null,
     val vo2maxMlKgMin: Double? = null,
@@ -179,11 +180,11 @@ data class ThresholdRules(
 
 /**
  * Ventilatory thresholds from the short-term scaling exponent α1 of the heart-rate variability (DFA-α1) during an
- * incremental test. A pure function: [analyse].
+ * incremental test, from the start of its warm-up to the end of the effort. A pure function: [analyse].
  *
  * 1. **RR cleaning** ([RrCleaning]): outside 300-2000 ms or more than 20 % from the local median of 11 beats is an
  *    artifact, replaced by interpolation; the share of artifacts is counted per window.
- * 2. **Windows** ([Alpha1Windows]) of 120 s every 10 s, entirely inside the incremental phase. α1 by DFA over 4-16 beats ([Dfa]). A window
+ * 2. **Windows** ([Alpha1Windows]) of 120 s every 10 s, entirely inside the analysed part. α1 by DFA over 4-16 beats ([Dfa]). A window
  *    is valid with ≥ 100 beats and ≤ 5 % artifacts (3-5 % counts but lowers the quality, step 5). Its heart rate is
  *    60 000 / its mean corrected RR, its load the time-weighted mean of the samples.
  * 3. **Regression of α1 against the heart rate** on the falling stretch: from the last valid window with α1 > 1.0 to the
@@ -208,12 +209,16 @@ data class ThresholdRules(
  */
 object ThresholdEngine {
 
-    /** Version of this algorithm (and of the derived values of the tests); stored with every result. */
-    const val ALGORITHM_VERSION = 1
+    /**
+     * Version of this algorithm (and of the derived values of the tests); stored with every result. 2 (2026-10-21): the
+     * tests analyse from the start of the warm-up instead of the start of the ramp, and their peak heart rate includes
+     * the seconds after the end of the effort.
+     */
+    const val ALGORITHM_VERSION = 2
 
     fun analyse(input: ThresholdInput, rules: ThresholdRules = ThresholdRules()): ThresholdAnalysis {
-        val start = input.incrementalStartMillis
-        val end = input.incrementalEndMillis
+        val start = input.fromMillis
+        val end = input.toMillis
         val inPhase = input.rr.count { it.timeMillis in (start + 1)..end }
         if (inPhase == 0) return ThresholdAnalysis(ThresholdResult.none(ThresholdReason.NoRrIntervals), emptyList())
 

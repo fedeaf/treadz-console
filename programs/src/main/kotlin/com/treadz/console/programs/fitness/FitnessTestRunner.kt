@@ -52,6 +52,8 @@ import kotlin.math.max
  *  - [stop] (the app's STOP) always stops the belt; the test is invalid (except as said above). During the cool-down it
  *    just cuts it short.
  *  - [endTest] ends the test early (invalid) with a cool-down walk; [exhausted] is the normal end of the maximal test.
+ *  - [extendPhase] ("+1") lengthens the cool-down or the current step of a maximal test's warm-up; never the measuring
+ *    part.
  *  - Manual speed/incline changes (console buttons; while a test runs the UI must not call the controller's
  *    `setSpeed`/`setIncline`) break both protocols (see each protocol), except in the maximal test's warm-up, in
  *    the cool-down, and speed changes in the first part of Ebbeling stage 1, where they are respected. The app's own
@@ -324,6 +326,23 @@ class FitnessTestRunner(
             ) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "The ramp start cannot be changed now")
             }
+            drainEvents(p)
+            publish()
+        }
+        wake()
+        return FitnessActionResult.Success
+    }
+
+    /**
+     * "+1": the cool-down, or the current warm-up step of a maximal test, becomes [FitnessTestConfig.extendPhaseSeconds]
+     * longer ([FitnessTestProgress.canExtendPhase]). The test stays valid. Refused ([FitnessRefusal.WrongState]) while
+     * the test measures.
+     */
+    fun extendPhase(): FitnessActionResult {
+        synchronized(lock) {
+            val p = protocol
+            if (p == null || !running || stopping) return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
+            if (!p.extendPhase(testTime())) return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "Nothing to extend now")
             drainEvents(p)
             publish()
         }

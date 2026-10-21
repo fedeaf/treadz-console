@@ -1,5 +1,7 @@
 package com.treadz.console
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -119,6 +121,72 @@ class LiveScreensUiTest {
         rule.onNodeWithTag("exhausted_button").assertExists()
         rule.onNodeWithTag("stop_button").assertExists()
         assertEquals(0, extended)
+    }
+
+    @Test fun aFitnessTestOffersPlusOneInItsCoolDown() {
+        var phaseExtended = 0
+        val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = ControlsNote.TestLocked)
+        val test = TrainingFixtures.walkRamp(200).copy(phase = com.treadz.console.programs.fitness.FitnessTestPhase.CoolDown, canReportExhaustion = false, canEndTest = false, canExtendPhase = true)
+        rule.setContent {
+            FitnessRunScreen(ui.copy(session = locked), RunUiState(kind = SessionKind.FitnessTest, test = test), ControlActions(), RunActions(onExtendTestPhase = { phaseExtended++ }))
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("extend_block_button").assertIsEnabled().assertTextEquals("+1 min").performClick()
+        assertEquals(1, phaseExtended)
+        rule.onNodeWithTag("exhausted_button").assertDoesNotExist()
+        rule.onNodeWithTag("end_test_button").assertDoesNotExist()
+    }
+
+    @Test fun aFitnessTestOffersPlusOneInItsWarmUpNextToEndTest() {
+        val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = ControlsNote.TestLocked)
+        val test = TrainingFixtures.walkRamp(0).copy(phase = com.treadz.console.programs.fitness.FitnessTestPhase.WarmUp, canReportExhaustion = false, canExtendPhase = true)
+        rule.setContent {
+            FitnessRunScreen(ui.copy(session = locked), RunUiState(kind = SessionKind.FitnessTest, test = test), ControlActions(), RunActions())
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("extend_block_button").assertIsEnabled()
+        rule.onNodeWithTag("end_test_button").assertIsEnabled()
+        rule.onNodeWithTag("exhausted_button").assertDoesNotExist()
+    }
+
+    @Test fun aFitnessTestHasOneMainButtonEndTestUntilExhaustionCountsThenExhausted() {
+        val locked = SessionControls(SessionKind.FitnessTest, speed = false, incline = false, pause = false, note = ControlsNote.TestLocked)
+        var test by androidx.compose.runtime.mutableStateOf(TrainingFixtures.walkRamp(100))
+        rule.setContent {
+            FitnessRunScreen(ui.copy(session = locked), RunUiState(kind = SessionKind.FitnessTest, test = test), ControlActions(), RunActions())
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("end_test_button").assertIsEnabled()
+        rule.onNodeWithTag("exhausted_button").assertDoesNotExist()
+        rule.onNodeWithTag("exhausted_wait_hint").assertExists()
+        test = TrainingFixtures.walkRamp(180)
+        rule.waitForIdle()
+        rule.onNodeWithTag("exhausted_button").assertIsEnabled()
+        rule.onNodeWithTag("end_test_button").assertDoesNotExist()
+        rule.onNodeWithTag("exhausted_wait_hint").assertDoesNotExist()
+    }
+
+    @Test fun thePeakOfARunningTestIsRoundedLikeTheMeasuredMaximum() {
+        val inputs = com.treadz.console.programs.fitness.FitnessTestInputs(
+            44, com.treadz.console.analysis.fitness.Sex.Male, 88.4, 181, 176, com.treadz.console.programs.fitness.HeartRateSourceKind.DirectStrap, 8.0, 8.0,
+        )
+        val result = com.treadz.console.programs.fitness.FitnessTestResult(
+            id = "r", testType = com.treadz.console.programs.fitness.FitnessTestType.MaxIncrementalRun, protocolVersion = 1,
+            startedAtMillis = 0, effortEndedAtMillis = 683_000, endedAtMillis = 983_000,
+            validity = com.treadz.console.programs.fitness.Validity.Valid, flags = emptyList(),
+            endReason = com.treadz.console.programs.fitness.FitnessEndReason.Exhausted, inputs = inputs,
+            measurements = com.treadz.console.programs.fitness.MaxTestMeasurements(
+                300, 383, 8.0, 0.5, 60, 1.0, 20.0, false, emptyList(), 11.5, 23, 184.8, 1.0,
+            ),
+            minutes = emptyList(), coolDownSeconds = 300,
+            outputs = com.treadz.console.programs.fitness.FitnessTestOutputs(
+                40.9, 4.0, com.treadz.console.programs.fitness.Vo2MaxMethod.LegerMercier1984, classification = null, masKmh = 11.7,
+                hrMaxCandidateBpm = 185, effort = com.treadz.console.programs.fitness.EffortAssessment.Maximal,
+            ),
+        )
+        rule.setContent { com.treadz.console.ui.FitnessResultContent(result, null, null, false, {}, {}) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("result_peak_hr", useUnmergedTree = true).assertTextEquals("185")
     }
 
     // ---- The block panel uses the engine's real targets ----

@@ -15,6 +15,9 @@ import com.treadz.console.analysis.thresholds.ThresholdMetrics
 import com.treadz.console.analysis.thresholds.ThresholdPoint
 import com.treadz.console.analysis.thresholds.ThresholdReason
 import com.treadz.console.analysis.thresholds.ThresholdResult
+import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
+import com.treadz.console.programs.heartrate.PlausibilityConfig
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /**
@@ -24,11 +27,11 @@ import kotlin.math.roundToLong
  *
  * What is (re)computed, for a **valid** result:
  *
- * | Test | VO2max | Thresholds |
- * |---|---|---|
- * | Maximal walking test | From the samples (mean real load of the last 60 s, [WalkingTestVo2max.fromSamples]); without samples, from the stage records ([WalkingTestVo2max.fromStages]) | DFA-α1 ([ThresholdEngine]) when the samples carry RR intervals from a strap; otherwise the reason (`noRrIntervals`, `noWorkoutSamples`) |
- * | Maximal running test | Unchanged (Léger-Mercier from the MAS) | As the walking test |
- * | Ebbeling, invalid results | Unchanged | None |
+ * | Test | VO2max | Thresholds | Peak heart rate |
+ * |---|---|---|---|
+ * | Maximal walking test | From the samples (mean real load of the last 60 s, [WalkingTestVo2max.fromSamples]); without samples, from the stage records ([WalkingTestVo2max.fromStages]) | DFA-α1 ([ThresholdEngine]) from the start of the warm-up to the end of the effort, when the samples carry RR intervals from a strap; otherwise the reason (`noRrIntervals`, `noWorkoutSamples`) | With the samples up to the end of the test ([refinedPeak]) |
+ * | Maximal running test | Unchanged (Léger-Mercier from the MAS) | As the walking test | As the walking test |
+ * | Ebbeling, invalid results | Unchanged | None | Unchanged |
  *
  * Heart rate from an unknown source (imported workouts without a source or RR) counts as the console's: it never
  * provides RR intervals. Missing RR intervals or samples are data (the reason), never an error.
@@ -40,7 +43,10 @@ import kotlin.math.roundToLong
  */
 object FitnessTestRecalculation {
 
-    /** Version of the derived values (VO2max of the walking test and thresholds), stored in the thresholds block. */
+    /**
+     * Version of the derived values (VO2max of the walking test, thresholds and, since version 2, the peak heart rate
+     * with the seconds after the effort), stored in the thresholds block.
+     */
     const val ALGORITHM_VERSION = ThresholdEngine.ALGORITHM_VERSION
 
     /** The test types whose results carry derived values. */
@@ -67,20 +73,17 @@ object FitnessTestRecalculation {
      */
     fun recalculate(result: FitnessTestResult, workoutSamples: List<WorkoutSample>?, restingHeartRateBpm: Int? = null): FitnessTestResult? {
         if (!needsRecalculation(result, workoutSamples != null)) return null
+        if (result.measurements is EbbelingMeasurements) return null
         val samples = workoutSamples
-        val outputs = when (val m = result.measurements) {
+        val peaked = samples?.let { refinedPeak(result, it) } ?: result
+        val outputs = when (val m = peaked.measurements) {
             is MaxHeartRateWalkMeasurements -> {
                 val estimate = samples?.let { WalkingTestVo2max.fromSamples(it, result.effortEndedAtMillis) }
                     ?: WalkingTestVo2max.fromStages(m.stages.map { StageLoad(it.speedKmh, it.inclinePercent, it.durationSeconds) })
                 estimate?.let { walkOutputs(it, result.inputs.ageYears, result.inputs.sex, m.effort, m.capReached, m.hrMaxCandidateBpm) }
-                    ?: result.outputs
+                    ?: peaked.outputs
             }
-            else -> result.outputs
-        }
-        val warmUpSeconds = when (val m = result.measurements) {
-            is MaxHeartRateWalkMeasurements -> m.warmUpSeconds
-            is MaxTestMeasurements -> m.warmUpSeconds
-            is EbbelingMeasurements -> return null
+            else -> peaked.outputs
         }
         val thresholds = if (samples == null) {
             ThresholdResult.none(ThresholdReason.NoWorkoutSamples)
@@ -88,17 +91,119 @@ object FitnessTestRecalculation {
             thresholds(
                 rr = RrSeries.fromSamples(samples),
                 samples = samples,
-                incrementalStartMillis = result.startedAtMillis + warmUpSeconds * 1000L,
-                incrementalEndMillis = result.effortEndedAtMillis,
+                fromMillis = result.startedAtMillis,
+                toMillis = result.effortEndedAtMillis,
                 maxHeartRateBpm = result.inputs.hrMaxBpm,
                 restingHeartRateBpm = restingHeartRateBpm,
                 vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
             )
         }
-        return result.copy(outputs = outputs, thresholds = thresholds, schemaVersion = FitnessTestResult.SCHEMA_VERSION)
+        return peaked.copy(outputs = outputs, thresholds = thresholds, schemaVersion = FitnessTestResult.SCHEMA_VERSION)
+    }
+
+    /**
+     * [result] with the peak heart rate the live test gives since algorithm version 2: the highest 5-s mean from 2 min
+     * before the end of the effort to the end of the test, now including the seconds after the exhaustion, from the
+     * heart rate of [samples] (the walking test's impossible readings discarded as in the live test). Only for a result
+     * that ended by exhaustion with a usable heart rate (it has a peak). The peak never goes down (the live test saw
+     * every reading, the samples fewer); when it rises, the candidate maximum heart rate and the effort assessment
+     * follow it (as at the end of a live test). [result] itself when nothing changes.
+     */
+    internal fun refinedPeak(result: FitnessTestResult, samples: List<WorkoutSample>, config: FitnessTestConfig = FitnessTestConfig()): FitnessTestResult {
+        if (result.endReason != FitnessEndReason.Exhausted) return result
+        val m = result.measurements
+        val old = when (m) {
+            is MaxTestMeasurements -> m.peakHeartRateBpm
+            is MaxHeartRateWalkMeasurements -> m.peakHeartRateBpm
+            is EbbelingMeasurements -> null
+        } ?: return result
+        // As the live tests: the walking test discards impossible readings all along, the running test after the effort.
+        val filter = peakFilter()
+        val filterAll = m is MaxHeartRateWalkMeasurements
+        val effortEnd = result.effortEndedAtMillis - result.startedAtMillis
+        val log = HeartRateLog()
+        for (sample in samples) {
+            if (sample.timeMillis > result.endedAtMillis) break
+            val t = sample.timeMillis - result.startedAtMillis
+            val bpm = sample.heartRateBpm?.takeIf { it > 0 }
+            val accepted = filter.accept(t, bpm)
+            log.add(t, if (filterAll || t > effortEnd) accepted else bpm)
+        }
+        val peak = log.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, result.endedAtMillis - result.startedAtMillis, config.peakMeanSeconds * 1000L)
+            ?.let(FitnessFormulas::round1)
+        if (peak == null || peak <= old) return result
+        val candidate = peak.roundToInt()
+        val hrMax = result.inputs.hrMaxBpm
+        val flags = result.flags.filter { it !in PEAK_FLAGS }
+        return when (m) {
+            is MaxTestMeasurements -> {
+                val verdict = effortVerdict(peak, m.heartRatePlateau, m.incrementalSeconds < config.maximalMinIncrementalSeconds, hrMax, config)
+                result.copy(
+                    flags = flags + listOfNotNull(verdict.flag),
+                    measurements = m.copy(peakHeartRateBpm = peak),
+                    outputs = result.outputs?.copy(hrMaxCandidateBpm = candidate, effort = verdict.effort),
+                )
+            }
+            is MaxHeartRateWalkMeasurements -> {
+                val verdict = effortVerdict(peak, m.heartRatePlateau, m.rampSeconds < config.maximalMinIncrementalSeconds, hrMax, config)
+                result.copy(
+                    flags = flags + listOfNotNull(verdict.flag),
+                    measurements = m.copy(peakHeartRateBpm = peak, hrMaxCandidateBpm = candidate, effort = verdict.effort),
+                    outputs = result.outputs?.let { withWalkEffort(it, verdict.effort, m.capReached, candidate) },
+                )
+            }
+            is EbbelingMeasurements -> result
+        }
     }
 
     // ------------------------------------------------------------------ shared with the live protocols
+
+    /**
+     * Discards impossible heart-rate readings for the peak of a maximal test (spikes, the drop of a strap taken off,
+     * < 40, > 240), without the "maximum + 15" rule: these tests measure the maximum.
+     */
+    internal fun peakFilter() = HeartRatePlausibilityFilter(null, PlausibilityConfig(maxAboveHrMaxBpm = null))
+
+    /** The flags that explain the effort assessment from the peak heart rate ([effortVerdict]). */
+    internal val PEAK_FLAGS: Set<FitnessTestFlag> = setOf(FitnessTestFlag.PeakHeartRateLow, FitnessTestFlag.MaximalByHeartRatePlateau)
+
+    /** The effort assessment of a maximal test that ended by exhaustion, and the flag that explains it (or none). */
+    internal class EffortVerdict(val effort: EffortAssessment, val flag: FitnessTestFlag?)
+
+    /**
+     * The effort of a maximal test that ended by exhaustion ([EffortAssessment]): not maximal when [short] (less than
+     * 5 min of ramp); unknown without a [peak]; maximal when the peak is within [FitnessTestConfig.effortHrMarginBpm] of
+     * the user's maximum or there was a heart-rate [plateau]. A peak below that margin carries
+     * [FitnessTestFlag.MaximalByHeartRatePlateau] (accepted thanks to the plateau) or [FitnessTestFlag.PeakHeartRateLow].
+     */
+    internal fun effortVerdict(peak: Double?, plateau: Boolean, short: Boolean, hrMaxBpm: Int, config: FitnessTestConfig): EffortVerdict {
+        val peakLow = peak != null && peak < hrMaxBpm - config.effortHrMarginBpm
+        val flag = when {
+            !peakLow -> null
+            plateau && !short -> FitnessTestFlag.MaximalByHeartRatePlateau
+            else -> FitnessTestFlag.PeakHeartRateLow
+        }
+        val effort = when {
+            short -> EffortAssessment.NotMaximal
+            peak == null -> EffortAssessment.Unknown
+            peakLow && !plateau -> EffortAssessment.NotMaximal
+            else -> EffortAssessment.Maximal
+        }
+        return EffortVerdict(effort, flag)
+    }
+
+    /** [outputs] of a walking test with a new [effort] and candidate maximum heart rate (the VO2max bound follows the effort). */
+    internal fun withWalkEffort(outputs: FitnessTestOutputs, effort: EffortAssessment?, capReached: Boolean, hrMaxCandidateBpm: Int?): FitnessTestOutputs {
+        val lowerBound = walkLowerBound(effort, capReached)
+        return outputs.copy(
+            vo2maxIsLowerBound = lowerBound,
+            masIsLowerBound = lowerBound,
+            hrMaxCandidateBpm = hrMaxCandidateBpm,
+            effort = effort,
+        )
+    }
+
+    private fun walkLowerBound(effort: EffortAssessment?, capReached: Boolean) = effort == EffortAssessment.NotMaximal || capReached
 
     /**
      * The outputs of a valid maximal walking test from its VO2max [estimate]. The VO2max is a lower bound when the
@@ -115,7 +220,7 @@ object FitnessTestRecalculation {
         hrMaxCandidateBpm: Int?,
     ): FitnessTestOutputs {
         val vo2 = FitnessFormulas.round1(estimate.vo2maxMlKgMin)
-        val lowerBound = effort == EffortAssessment.NotMaximal || capReached
+        val lowerBound = walkLowerBound(effort, capReached)
         return FitnessTestOutputs(
             vo2maxMlKgMin = vo2,
             vo2maxSeeMlKgMin = WalkingTestVo2max.SEE_ML_KG_MIN,
@@ -130,19 +235,22 @@ object FitnessTestRecalculation {
         )
     }
 
-    /** The thresholds of an incremental phase, rounded for storage; `noRrIntervals` without RR intervals. */
+    /**
+     * The thresholds of a test from [fromMillis] (the start of the warm-up) to [toMillis] (the end of the effort),
+     * rounded for storage; `noRrIntervals` without RR intervals.
+     */
     internal fun thresholds(
         rr: List<RrInterval>,
         samples: List<WorkoutSample>,
-        incrementalStartMillis: Long,
-        incrementalEndMillis: Long,
+        fromMillis: Long,
+        toMillis: Long,
         maxHeartRateBpm: Int,
         restingHeartRateBpm: Int?,
         vo2maxMlKgMin: Double?,
     ): ThresholdResult {
         if (rr.isEmpty()) return ThresholdResult.none(ThresholdReason.NoRrIntervals)
         val analysis = ThresholdEngine.analyse(
-            ThresholdInput(rr, samples, incrementalStartMillis, incrementalEndMillis, maxHeartRateBpm, restingHeartRateBpm, vo2maxMlKgMin),
+            ThresholdInput(rr, samples, fromMillis, toMillis, maxHeartRateBpm, restingHeartRateBpm, vo2maxMlKgMin),
         )
         return rounded(analysis.result)
     }

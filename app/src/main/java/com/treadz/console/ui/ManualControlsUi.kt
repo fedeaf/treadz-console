@@ -577,6 +577,7 @@ fun ControlHintText(hint: Pair<String, Boolean>?, modifier: Modifier = Modifier,
 @Composable
 fun failureMessage(failure: ControlFailure): String {
     val reason = when (val result = failure.result) {
+        null -> stringResource(R.string.failure_not_executed)
         CommandResult.Success -> ""
         CommandResult.NotConnected -> stringResource(R.string.control_failed_not_connected)
         is CommandResult.Failure -> failureText(result.code)
@@ -652,22 +653,33 @@ fun SessionBar(ui: MainUiState, actions: ControlActions, modifier: Modifier = Mo
     val compact = LocalLayout.current.compact
     val extra = MaterialTheme.extra
     Panel(modifier.fillMaxWidth().testTag("session_bar"), borderColor = extra.alert) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (compact) {
-                Column(Modifier.weight(1f)) {
+        Column {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (compact) {
+                    Column(Modifier.weight(1f)) {
+                        SessionSpeed(ui)
+                        BackToMainButton(ui.session.kind, actions.onBackToMain)
+                    }
+                    SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(1.3f) else Modifier.width(132.dp).height(80.dp))
+                } else {
                     SessionSpeed(ui)
                     BackToMainButton(ui.session.kind, actions.onBackToMain)
+                    Box(Modifier.weight(1f))
+                    SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(2f) else Modifier.width(220.dp).height(80.dp))
                 }
-                SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(1.3f) else Modifier.width(132.dp).height(80.dp))
-            } else {
-                SessionSpeed(ui)
-                BackToMainButton(ui.session.kind, actions.onBackToMain)
-                Box(Modifier.weight(1f))
-                SessionStop(ui, actions, if (ui.stopUnreachable) Modifier.weight(2f) else Modifier.width(220.dp).height(80.dp))
+            }
+            // A command that failed (a program's or a test's too) is told here when the live screen is not in view.
+            ui.controls.failure?.let { failure ->
+                Text(
+                    failureMessage(failure),
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp).testTag("session_failure"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.extra.warning,
+                )
             }
         }
     }

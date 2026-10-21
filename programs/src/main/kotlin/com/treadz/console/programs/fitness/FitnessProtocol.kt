@@ -37,7 +37,9 @@ internal data class Observation(
  * controller and reports user actions and interruptions. Not thread-safe: the runner calls it under its lock.
  *
  * Common lifecycle: [begin] → effort phases (protocol specific) → [endEffort] (the result is known) → cool-down
- * (when the belt can still be driven) → [finish]. An interruption or a STOP skips the cool-down.
+ * (when the belt can still be driven) → [finish] (the peak heart rate of the maximal tests may still rise: see
+ * [refineAfterEffort]). An interruption or a STOP skips the cool-down. "+1" ([extendPhase]) makes the cool-down, or the
+ * current step of a maximal test's warm-up, a minute longer.
  */
 internal abstract class FitnessProtocol(
     val testType: FitnessTestType,
@@ -72,8 +74,13 @@ internal abstract class FitnessProtocol(
     private var coolDownEndT: Long? = null
     private var coolDownSpeed = 0.0
     private var coolDownManual = false
+
+    /** Time added to the cool-down with "+1". */
+    private var coolDownExtensionMs = 0L
     private var endT: Long? = null
-    private var outputs: FitnessTestOutputs? = null
+
+    /** Computed when the effort ends; a maximal test may refine it at [finish] ([refineAfterEffort]). */
+    protected var outputs: FitnessTestOutputs? = null
     private var thresholds: ThresholdResult? = null
 
     /** The load and heart rate seen during the effort, on the epoch clock (for the derived values at the end). */
@@ -161,7 +168,7 @@ internal abstract class FitnessProtocol(
         return when (phase) {
             FitnessTestPhase.CoolDown -> {
                 val start = coolDownStartT ?: t
-                if (t - start >= coolDownSeconds * 1000L) {
+                if (t - start >= coolDownMs) {
                     Directive.Finish
                 } else if (coolDownManual) {
                     Directive.Targets(null, null)
@@ -206,6 +213,52 @@ internal abstract class FitnessProtocol(
 
     /** A manual change now does not break the test ([FitnessTestProgress.manualChangesAllowed]). Default: cool-down. */
     open val manualChangesAllowed: Boolean get() = phase == FitnessTestPhase.CoolDown
+
+    /** "+1" applies now ([FitnessTestProgress.canExtendPhase]): the cool-down and the warm-up (only the maximal tests have one). */
+    val canExtendPhase: Boolean get() = phase == FitnessTestPhase.CoolDown || phase == FitnessTestPhase.WarmUp
+
+    /**
+     * "+1": the cool-down, or the current warm-up step of a maximal test ([extendWarmUp]), becomes
+     * [FitnessTestConfig.extendPhaseSeconds] longer. It is not a manual change: the test stays valid. Returns false when
+     * it does not apply now.
+     */
+    fun extendPhase(t: Long): Boolean {
+        if (!canExtendPhase) return false
+        val ms = config.extendPhaseSeconds * 1000L
+        val extended = when (phase) {
+            FitnessTestPhase.CoolDown -> {
+                coolDownExtensionMs += ms
+                true
+            }
+            FitnessTestPhase.WarmUp -> extendWarmUp(t, ms)
+            else -> false
+        }
+        if (extended) pendingEvents += FitnessTestEvent.PhaseExtended(at(t), (t / 1000).toInt(), phase, config.extendPhaseSeconds)
+        return extended
+    }
+
+    /** The current warm-up step lasts [ms] longer (the ramp starts that much later). Default: no warm-up to extend. */
+    protected open fun extendWarmUp(t: Long, ms: Long): Boolean = false
+
+    /** A warm-up of two steps, each of which "+1" can make longer. Test time, ms. */
+    protected class TwoStepWarmUp(private val firstMs: Long, private val secondMs: Long) {
+        private var firstExtensionMs = 0L
+        private var secondExtensionMs = 0L
+
+        val firstEndMs: Long get() = firstMs + firstExtensionMs
+        val endMs: Long get() = firstEndMs + secondMs + secondExtensionMs
+
+        /** 0 or 1. */
+        fun step(t: Long): Int = if (t < firstEndMs) 0 else 1
+
+        /** The step [t] is in lasts [ms] longer. */
+        fun extend(t: Long, ms: Long) {
+            if (step(t) == 0) firstExtensionMs += ms else secondExtensionMs += ms
+        }
+    }
+
+    /** Planned length of the cool-down, "+1" included. */
+    private val coolDownMs: Long get() = coolDownSeconds * 1000L + coolDownExtensionMs
 
     /** "Exhausted" button. Returns false when it does not apply. */
     open fun exhausted(t: Long): Boolean = false
@@ -272,6 +325,7 @@ internal abstract class FitnessProtocol(
         }
         leavePhase(t)
         if (!coolDownCompleted) flags += FitnessTestFlag.CoolDownIncomplete
+        if (endReason == FitnessEndReason.Exhausted) refineAfterEffort(t)
         endT = t
         phase = FitnessTestPhase.Finished
         val r = buildResult()
@@ -312,21 +366,35 @@ internal abstract class FitnessProtocol(
     protected open fun closeMeasurements(t: Long) = Unit
 
     /**
+     * At [finish] ([t]), after an effort that ended by exhaustion: a maximal test looks again at its peak heart rate,
+     * now with the seconds after the end of the effort (the heart rate keeps rising for a few seconds after the user
+     * stops), and updates what depends on it. Default: nothing.
+     */
+    protected open fun refineAfterEffort(t: Long) = Unit
+
+    /**
+     * The peak heart rate of a maximal test: the highest [FitnessTestConfig.peakMeanSeconds]-s mean from
+     * [FitnessTestConfig.peakWindowSeconds] before the end of the effort ([effortEnd]) to [to], rounded.
+     */
+    protected fun peakHeartRate(effortEnd: Long, to: Long): Double? =
+        hr.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, to, config.peakMeanSeconds * 1000L)?.let(FitnessFormulas::round1)
+
+    /**
      * Thresholds of a valid result, computed when the effort ends (after [computeOutputs] and [closeMeasurements]).
      * Default: none (Ebbeling).
      */
     protected open fun computeThresholds(t: Long, reason: FitnessEndReason, outputs: FitnessTestOutputs?): ThresholdResult? = null
 
     /**
-     * The thresholds of the incremental phase from [incrementalStartT] to [t] with the RR intervals and samples of the
-     * effort ([FitnessTestRecalculation.thresholds]).
+     * The thresholds of the effort, from the start of the test (the warm-up) to [t], with its RR intervals and samples
+     * ([FitnessTestRecalculation.thresholds]).
      */
-    protected fun incrementalThresholds(incrementalStartT: Long, t: Long, outputs: FitnessTestOutputs?): ThresholdResult =
+    protected fun effortThresholds(t: Long, outputs: FitnessTestOutputs?): ThresholdResult =
         FitnessTestRecalculation.thresholds(
             rr = rrIntervals,
             samples = effortSamples,
-            incrementalStartMillis = at(incrementalStartT),
-            incrementalEndMillis = at(t),
+            fromMillis = startedAtMillis,
+            toMillis = at(t),
             maxHeartRateBpm = subject.hrMaxBpm,
             restingHeartRateBpm = subject.restingHeartRateBpm,
             vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
@@ -419,7 +487,7 @@ internal abstract class FitnessProtocol(
     /** Common part of the progress; subclasses add their own fields in [decorate]. */
     fun progress(t: Long, state: TreadmillState, reading: HeartRateReading): FitnessTestProgress {
         val phaseElapsed = if (phase == FitnessTestPhase.Starting) 0 else ((t - phaseStartT) / 1000).toInt()
-        val coolDownLeft = coolDownStartT?.let { max(0L, it + coolDownSeconds * 1000L - t) }
+        val coolDownLeft = coolDownStartT?.let { max(0L, it + coolDownMs - t) }
         val base = FitnessTestProgress(
             testType = testType,
             phase = phase,
@@ -440,6 +508,7 @@ internal abstract class FitnessProtocol(
             heartRateBpm = reading.bpm,
             heartRateValidity = reading.validity,
             canEndTest = isEffortPhase,
+            canExtendPhase = canExtendPhase,
             manualChangesAllowed = manualChangesAllowed,
             endReason = endReason,
             result = result,

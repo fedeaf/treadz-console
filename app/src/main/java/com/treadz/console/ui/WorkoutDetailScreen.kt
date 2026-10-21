@@ -31,6 +31,7 @@ import com.treadz.console.userdata.export.ExportError
 import com.treadz.console.userdata.export.ExportFormat
 import com.treadz.console.userdata.export.SavedExport
 import com.treadz.console.training.segments
+import kotlin.math.roundToInt
 
 data class WorkoutDetailActions(
     val onBack: () -> Unit = {},
@@ -339,7 +340,7 @@ private fun SessionRecordPanel(record: com.treadz.console.programs.personalised.
             val guided = record.blocks.filter { it.heartRate != null }
             guided.forEach { block ->
                 val hr = block.heartRate ?: return@forEach
-                val end = block.endHeartRateBpm?.let { stringResource(R.string.record_end_hr, Format.whole(it.toInt())) } ?: stringResource(R.string.record_no_hr)
+                val end = block.endHeartRateBpm?.let { stringResource(R.string.record_end_hr, Format.whole(it.roundToInt())) } ?: stringResource(R.string.record_no_hr)
                 val settled = hr.settledValue?.let { stringResource(R.string.record_settled, adjustedValueText(hr.adjust, it)) } ?: stringResource(R.string.record_not_settled)
                 // A title and, under it, what happened: the values are too long to sit beside the title on a phone.
                 Column(Modifier.fillMaxWidth().testTag("record_block_${block.blockIndex}").semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {

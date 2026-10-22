@@ -22,15 +22,23 @@ internal object CommitMessages {
     private const val SEP = " · "
     private const val UNNAMED = "User"
 
-    /** [names]: profile name by user uuid. */
+    /**
+     * [names]: profile name by user uuid. [derivedFitness]: the users whose `fitness.json` changes in this commit; it only
+     * names the commit when no record changes with it (a fitness test going up already says it).
+     */
     fun build(
         changes: PendingChanges,
         programs: List<ProgramDocument>,
         fitnessTests: List<FitnessTestDocument>,
         names: Map<String, String>,
         zone: ZoneId,
+        derivedFitness: List<String> = emptyList(),
     ): String {
         fun name(uuid: String) = names[uuid]?.takeIf { it.isNotBlank() } ?: UNNAMED
+        if (changes.count + programs.size + fitnessTests.size == 0 && derivedFitness.isNotEmpty()) {
+            val owners = derivedFitness.map(::name).sorted()
+            return if (owners.size == 1) listOf(owners.single(), "fitness profile").joinToString(SEP) else "Sync${SEP}fitness profile${SEP}${owners.joinToString(", ")}"
+        }
         val single = changes.count + programs.size + fitnessTests.size == 1
         if (single) {
             changes.workouts.firstOrNull()?.let { w ->

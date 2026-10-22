@@ -282,17 +282,17 @@ class DocumentSyncStoreTest {
 
     // ---- the profile record ----
 
-    @Test fun `the sync profile carries the manual maximum heart rate time and the fitness snapshot`() = runBlocking<Unit> {
+    @Test fun `the sync profile carries the manual maximum heart rate time, and the fitness snapshot is derived apart`() = runBlocking<Unit> {
         val ana = ok(data.profiles.create(validInput().copy(maxHeartRateBpm = 185)))
         val user = anaUuid()
-        assertNull(data.sync.profile(user)!!.fitness)
+        assertNull(data.sync.fitness(user))
         assertEquals(T0, data.sync.profile(user)!!.maxHeartRateSetAtMillis)
 
         data.fitnessTests.save(ana.id, ebbelingResult(vo2max = 42.0))
-        val snapshot = data.sync.profile(user)!!.fitness!!
-        assertEquals(data.fitnessTests.fitnessProfile(ana.id).first(), snapshot)
-        assertEquals(42.0, snapshot.vo2max!!.valueMlKgMin, 0.0)
-        assertTrue(data.sync.pendingChanges().profiles.single().fitness == snapshot)
+        val derived = data.sync.fitness(user)!!
+        assertEquals(data.fitnessTests.fitnessProfile(ana.id).first(), derived.profile)
+        assertEquals(42.0, derived.profile.vo2max!!.valueMlKgMin, 0.0)
+        assertEquals(user, derived.userUuid)
     }
 
     @Test fun `a change of the results does not change the version of the profile`() = runBlocking<Unit> {
@@ -310,18 +310,17 @@ class DocumentSyncStoreTest {
         assertTrue(data.sync.pendingChanges().profiles.isEmpty())
     }
 
-    @Test fun `a downloaded profile brings the time of the manual maximum heart rate and ignores a fitness block`() = runBlocking<Unit> {
+    @Test fun `a downloaded profile brings the time of the manual maximum heart rate`() = runBlocking<Unit> {
         val remote = SyncProfile(
             "u-remote", RecordVersion(T0 + 1_000, "dev-b"), false, "Beto", Sex.Male, 180, LocalDate.of(1980, 1, 1),
             maxHeartRateBpm = 190, createdAtMillis = T0, maxHeartRateSetAtMillis = T0 + 500,
-            fitness = com.treadz.console.programs.fitness.FitnessProfileCalculator.compute(listOf(ebbelingResult()), T0, 40, com.treadz.console.analysis.fitness.Sex.Male),
         )
         data.sync.applyRemote(RemoteChanges(profiles = listOf(remote)))
         val beto = data.profiles.profiles.first().single()
         assertEquals(190, beto.maxHeartRateBpm)
         assertEquals(T0 + 500, beto.maxHeartRateSetAtMillis)
-        // the block carried by the record is not stored: the snapshot comes from the results (there are none)
-        assertNull(data.sync.profile("u-remote")!!.fitness)
+        // the fitness profile comes from the results (there are none)
+        assertNull(data.sync.fitness("u-remote"))
         assertNull(data.fitnessTests.fitnessProfile(beto.id).first())
         assertTrue(data.sync.pendingChanges().profiles.isEmpty())
     }

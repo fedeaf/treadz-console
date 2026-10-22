@@ -13,6 +13,7 @@ internal object RepoPaths {
     const val PROFILE_FILE = "profile.json"
     const val WEIGHT_FILE = "weight.csv"
     const val RESTING_HEART_RATE_FILE = "resting-heart-rate.csv"
+    const val FITNESS_FILE = "fitness.json"
 
     private const val UUID_LENGTH = 36
     private const val MAX_SLUG_LENGTH = 30
@@ -47,6 +48,8 @@ internal object RepoPaths {
 
     fun restingHeartRates(folder: String) = "$USERS/$folder/$RESTING_HEART_RATE_FILE"
 
+    fun fitness(folder: String) = "$USERS/$folder/$FITNESS_FILE"
+
     fun program(folder: String, programUuid: String) = "$USERS/$folder/programs/$programUuid.json"
 
     fun fitnessTest(folder: String, testId: String) = "$USERS/$folder/fitness-tests/$testId.json"
@@ -64,6 +67,9 @@ internal object RepoPaths {
         data class Profile(val folder: String) : Kind
         data class Weights(val folder: String) : Kind
         data class RestingHeartRates(val folder: String) : Kind
+
+        /** `fitness.json`: derived data, never downloaded as a record (see `SyncEngine`). */
+        data class Fitness(val folder: String) : Kind
         data class WorkoutSummary(val folder: String) : Kind
         data class Program(val folder: String) : Kind
         data class FitnessTest(val folder: String) : Kind
@@ -82,6 +88,7 @@ internal object RepoPaths {
             parts.size == 3 && parts[2] == PROFILE_FILE -> Kind.Profile(folder)
             parts.size == 3 && parts[2] == WEIGHT_FILE -> Kind.Weights(folder)
             parts.size == 3 && parts[2] == RESTING_HEART_RATE_FILE -> Kind.RestingHeartRates(folder)
+            parts.size == 3 && parts[2] == FITNESS_FILE -> Kind.Fitness(folder)
             WORKOUT_JSON.matches(path) -> Kind.WorkoutSummary(folder)
             PROGRAM_JSON.matches(path) -> Kind.Program(folder)
             FITNESS_TEST_JSON.matches(path) -> Kind.FitnessTest(folder)

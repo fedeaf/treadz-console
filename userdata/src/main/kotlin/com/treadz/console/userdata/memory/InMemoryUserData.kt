@@ -65,6 +65,8 @@ import com.treadz.console.userdata.WeightEntry
 import com.treadz.console.userdata.WeightRepository
 import com.treadz.console.userdata.WorkoutDetail
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutEvent
+import com.treadz.console.userdata.normalised
 import com.treadz.console.userdata.WorkoutHistoryRepository
 import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
@@ -130,6 +132,7 @@ class InMemoryUserData(
     private val data = MutableStateFlow(if (seedGenericProfile) withGeneric(Data()) else Data())
     private val workoutSamples = mutableMapOf<Long, MutableList<WorkoutSample>>()
     private val workoutPlans = mutableMapOf<Long, ResolvedPlan>()
+    private val workoutEvents = mutableMapOf<Long, List<WorkoutEvent>>()
 
     private fun today(): LocalDate = Instant.ofEpochMilli(clock.nowMillis()).atZone(zone).toLocalDate()
 
@@ -253,7 +256,7 @@ class InMemoryUserData(
         override suspend fun delete(id: Long): DataResult<Unit> = modify { d ->
             if (d.profiles.none { it.id == id }) return@modify d to DataResult.NotFound
             val removed = d.workouts.filter { it.userId == id }.map { it.id }
-            removed.forEach { workoutSamples.remove(it); workoutPlans.remove(it) }
+            removed.forEach { workoutSamples.remove(it); workoutPlans.remove(it); workoutEvents.remove(it) }
             val remaining = d.copy(
                 resting = d.resting.filter { it.userId != id },
                 sessionRecords = d.sessionRecords - removed.toSet(),
@@ -384,6 +387,7 @@ class InMemoryUserData(
             synchronized(lock) {
                 workoutSamples.remove(workoutId)
                 workoutPlans.remove(workoutId)
+                workoutEvents.remove(workoutId)
                 data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }, sessionRecords = d.sessionRecords - workoutId) }
             }
         }
@@ -416,13 +420,14 @@ class InMemoryUserData(
 
         override suspend fun detail(workoutId: Long): WorkoutDetail? = synchronized(lock) {
             val summary = data.value.workouts.firstOrNull { it.id == workoutId } ?: return null
-            WorkoutDetail(summary, workoutSamples[workoutId].orEmpty().toList(), workoutPlans[workoutId], data.value.sessionRecords[workoutId])
+            WorkoutDetail(summary, workoutSamples[workoutId].orEmpty().toList(), workoutPlans[workoutId], data.value.sessionRecords[workoutId], workoutEvents[workoutId].orEmpty())
         }
 
         override suspend fun delete(workoutId: Long): DataResult<Unit> = synchronized(lock) {
             if (data.value.workouts.none { it.id == workoutId }) return DataResult.NotFound
             workoutSamples.remove(workoutId)
             workoutPlans.remove(workoutId)
+            workoutEvents.remove(workoutId)
             data.value = data.value.let { d -> d.copy(workouts = d.workouts.filter { it.id != workoutId }, sessionRecords = d.sessionRecords - workoutId) }
             DataResult.Success(Unit)
         }
@@ -432,6 +437,7 @@ class InMemoryUserData(
             val workout = data.value.workouts.firstOrNull { it.id == workoutId } ?: return DataResult.NotFound
             workoutSamples.remove(workoutId)
             workoutPlans.remove(workoutId)
+            workoutEvents.remove(workoutId)
             data.value = data.value.let { d ->
                 d.copy(
                     workouts = d.workouts.filter { it.id != workoutId },
@@ -444,6 +450,14 @@ class InMemoryUserData(
 
         override suspend fun link(workoutId: Long, link: WorkoutLink): DataResult<Unit> = synchronized(lock) {
             if (applyLink(workoutId, link)) DataResult.Success(Unit) else DataResult.NotFound
+        }
+
+        override suspend fun setEvents(workoutId: Long, events: List<WorkoutEvent>): DataResult<Unit> = synchronized(lock) {
+            if (data.value.workouts.none { it.id == workoutId }) return DataResult.NotFound
+            // Stored as the real implementation reads it back (no JSON here: this class works without Android's).
+            val normalised = events.normalised()
+            if (normalised.isEmpty()) workoutEvents.remove(workoutId) else workoutEvents[workoutId] = normalised
+            DataResult.Success(Unit)
         }
 
         override suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit> = synchronized(lock) {

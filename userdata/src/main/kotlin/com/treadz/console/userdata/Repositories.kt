@@ -172,6 +172,15 @@ interface WorkoutHistoryRepository {
     suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit>
 
     /**
+     * Sets the events of a workout (what changed the load during it, see [WorkoutEvent]): the list **replaces** the one
+     * the workout had, so it is idempotent. Call it while the workout runs (to keep what has happened if the process dies)
+     * and again at its end with the final list; setting the same list changes nothing, setting a different one (the empty
+     * list too) marks the workout for upload, like [attachSessionRecord]. Works with the upload hold in the same way.
+     * [DataResult.NotFound] if the workout does not exist. The events are read back with [WorkoutDetail.events].
+     */
+    suspend fun setEvents(workoutId: Long, events: List<WorkoutEvent>): DataResult<Unit>
+
+    /**
      * The session records of the user for one generator ([GeneratedSessionRecord.generatorId]), newest first (by the
      * start of their workout), for the generators to adapt the next session. A record written by a newer app than this
      * one (schema version) cannot be read and is skipped. Workouts that were deleted or discarded have no record.

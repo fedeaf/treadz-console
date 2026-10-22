@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.Flow
  *
  * Programs and fitness test results are JSON documents with the same rules; they go through their own ports,
  * [ProgramDocumentStore] and [FitnessTestDocumentStore]. The one thing that crosses over is the fitness profile of a
- * user: [SyncProfile.fitness] is derived here from the stored results and written read-only into `profile.json`.
+ * user: [fitness] derives it from the stored results; it goes to its own file, `fitness.json`, which is **derived data,
+ * never merged** with "last writer wins" (see [SyncFitness]).
  *
  * ## What is never uploaded
  * - The **generic profile** (and, with it, its weights and workouts) until it is personalised: then it is an ordinary
@@ -55,6 +56,13 @@ interface SyncStore {
      * `resting-heart-rate.csv`. Empty for an unknown profile.
      */
     suspend fun restingHeartRates(userUuid: String): List<SyncRestingHeartRate> = emptyList()
+
+    /**
+     * The fitness profile of a user derived from the fitness test results present on the device (the live ones, without
+     * those held by [UploadHold]), with the fingerprint of its inputs; `null` when the user is unknown or deleted, or has
+     * no usable result (then there is no `fitness.json`). Cheap enough to call on every synchronisation.
+     */
+    suspend fun fitness(userUuid: String): SyncFitness?
 
     /** Per-second samples of a workout, ordered by `seq`; empty for a tombstone or an unknown workout. */
     suspend fun workoutSamples(workoutUuid: String): List<WorkoutSample>

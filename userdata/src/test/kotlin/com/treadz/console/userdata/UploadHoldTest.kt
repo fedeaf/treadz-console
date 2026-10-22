@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,6 +34,8 @@ class UploadHoldTest {
     private fun <T> ok(r: DataResult<T>): T = (r as DataResult.Success).value
 
     private suspend fun createAna() = ok(data.profiles.create(validInput("Ana")))
+
+    private suspend fun uuidOf(user: UserProfile) = db.users().get(user.id)!!.uuid
 
     private suspend fun beginWorkout(userId: Long, link: WorkoutLink? = null): Long = sessions.begin(userId, T0, link)
 
@@ -60,12 +63,12 @@ class UploadHoldTest {
         assertTrue(data.sync.pendingWorkoutIds.first().isEmpty())
         assertTrue(data.fitnessTestDocuments.pending().isEmpty())
         assertEquals(0, data.fitnessTestDocuments.pendingCount.first())
-        // Not even through the fitness block of a profile uploaded meanwhile.
-        data.profiles.update(ana.id, validInput("Ana").copy(heightCm = 171))
-        assertNull(data.sync.pendingChanges().profiles.single().fitness?.vo2max)
+        // Not even through the derived fitness profile (fitness.json) the synchronisation compares on every cycle.
+        assertNull(data.sync.fitness(uuidOf(ana)))
 
         data.workouts.releaseUpload(id)
         data.fitnessTests.releaseUpload(TEST_1)
+        assertNotNull(data.sync.fitness(uuidOf(ana)))
         assertEquals(1, data.sync.pendingChanges().workouts.size)
         assertEquals(setOf(id), data.sync.pendingWorkoutIds.first())
         assertEquals(1, data.fitnessTestDocuments.pending().size)

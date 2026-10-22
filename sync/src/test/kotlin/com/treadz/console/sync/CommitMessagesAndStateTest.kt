@@ -2,6 +2,7 @@ package com.treadz.console.sync
 
 import com.treadz.console.sync.engine.CommitMessages
 import com.treadz.console.sync.engine.FileSyncStateStore
+import com.treadz.console.sync.engine.FitnessBlob
 import com.treadz.console.sync.engine.SyncState
 import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.userdata.Sex
@@ -93,6 +94,15 @@ class CommitMessagesAndStateTest {
         )
     }
 
+    @Test fun `a commit that only changes the derived fitness profile says so`() {
+        val none = PendingChanges(emptyList(), emptyList(), emptyList())
+        fun derived(vararg users: String) = CommitMessages.build(none, emptyList(), emptyList(), names, ZoneOffset.UTC, users.toList())
+        assertEquals("Ana · fitness profile", derived("u2"))
+        assertEquals("Sync · fitness profile · Ana, Fede", derived("u2", "u1"))
+        // next to a record, the record names the commit
+        assertEquals("Fede · profile", CommitMessages.build(PendingChanges(listOf(profile("u1")), emptyList(), emptyList()), emptyList(), emptyList(), names, ZoneOffset.UTC, listOf("u2")))
+    }
+
     @Test fun `the state file round trips and a damaged file means a fresh start`() = runBlocking<Unit> {
         val file = folder.root.resolve("state.json")
         val store = FileSyncStateStore(file)
@@ -100,6 +110,7 @@ class CommitMessagesAndStateTest {
         val state = SyncState(
             RepositoryRef("fede", "treadz-data", "main"), true, T0, "abc",
             mapOf("README.md" to "111", "users/a/profile.json" to "222"), mapOf("w-1" to "users/a/workouts/2026/10/x.json"),
+            mapOf("333" to FitnessBlob("abcdef", 1)),
         )
         store.save(state)
         assertEquals(state, FileSyncStateStore(file).load())

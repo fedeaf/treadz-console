@@ -36,7 +36,7 @@ import com.treadz.console.analysis.samples.WorkoutSample as AnalysisSample
  *    synchronised data and two devices that recalculate the same result write the same document: see [restingAt].
  *
  * Saving goes through the normal path (`FitnessTestRepository.save`), so the result is synchronised and the fitness
- * profile (live and `profile.json` snapshot) is derived from it as for any other change.
+ * profile (live, and the snapshot of `fitness.json`) is derived from it as for any other change.
  */
 interface FitnessRecalculator {
 

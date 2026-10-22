@@ -11,14 +11,19 @@ import com.treadz.console.userdata.RestingHeartRateSource
 import com.treadz.console.userdata.RestingHeartRates
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutEvent
+import com.treadz.console.userdata.WorkoutEventQuantity
+import com.treadz.console.userdata.WorkoutEventsJson
 import com.treadz.console.userdata.WorkoutStats
 import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
+import com.treadz.console.userdata.sync.SyncFitness
 import com.treadz.console.userdata.sync.SyncProfile
 import com.treadz.console.userdata.sync.SyncRestingHeartRate
 import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.time.Instant
@@ -50,13 +55,16 @@ internal object RecordCodec {
 
     // ---- profile.json ----
 
+    /**
+     * Only what the user edits: `resting_hr_bpm` (the derived reference of `resting-heart-rate.csv`) and the `fitness`
+     * block (now `fitness.json`) are no longer written, so the file changes exactly when the user edits the profile.
+     */
     fun profile(p: SyncProfile): ByteArray {
         val json = JsonObjectWriter().put("format", FORMAT).put("uuid", p.uuid).put("deleted", p.deleted).put("name", p.name)
         if (!p.deleted) {
             json.put("sex", code(p.sex.name))
                 .put("height_cm", p.heightCm)
                 .put("birth_date", p.birthDate.toString())
-                .put("resting_hr_bpm", p.restingHeartRateBpm)
                 .put("max_hr_bpm", p.maxHeartRateBpm)
                 .put("fitness_level", p.fitnessLevel?.let { code(it.name) })
                 .put("goal", p.goal?.let { code(it.name) })
@@ -66,8 +74,6 @@ internal object RecordCodec {
             p.maxHeartRateSetAtMillis?.let { json.put("max_hr_set_at", time(it)) }
             p.strapAddress?.let { json.put("strap_address", it) }
             p.strapName?.let { json.put("strap_name", it) }
-            // Read-only: each device derives it from the synchronised fitness tests, so it is ignored on reading.
-            p.fitness?.let { json.putRaw("fitness", FitnessTestJson.encodeProfile(it)) }
         }
         json.put("updated_at", time(p.version.updatedAtMillis)).put("updated_by", p.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -87,6 +93,7 @@ internal object RecordCodec {
                 sex = enumOf<Sex>(o.getString("sex")) ?: throw JSONException("unknown sex"),
                 heightCm = o.getInt("height_cm"),
                 birthDate = LocalDate.parse(o.getString("birth_date")),
+                // Written by older versions only (the reference of the measurements): see SyncProfile.restingHeartRateBpm.
                 restingHeartRateBpm = o.optIntOrNull("resting_hr_bpm"),
                 maxHeartRateBpm = o.optIntOrNull("max_hr_bpm"),
                 fitnessLevel = enumOf<FitnessLevel>(o.optStringOrNull("fitness_level")),
@@ -96,9 +103,32 @@ internal object RecordCodec {
                 maxHeartRateSetAtMillis = o.optStringOrNull("max_hr_set_at")?.let(::parseTime),
                 strapAddress = o.optStringOrNull("strap_address"),
                 strapName = o.optStringOrNull("strap_name"),
-                // "fitness" is never read: it is derived from the fitness tests.
+                // A "fitness" block (older versions) is ignored: the fitness profile is derived data, see fitness.json.
             )
         }
+    }
+
+    // ---- fitness.json ----
+
+    /**
+     * The derived fitness profile of a user: the snapshot `profile.json` used to carry (`fitness`, same content), the
+     * [SyncFitness.fingerprint] of its inputs and the version of the rules, with the time and device of the last change of
+     * the file (not of the data). Nothing in it is merged: see `SyncEngine`.
+     */
+    fun fitness(f: SyncFitness, version: RecordVersion): ByteArray {
+        val json = JsonObjectWriter().put("format", FORMAT).put("user_uuid", f.userUuid)
+            .put("rules_version", f.rulesVersion).put("fingerprint", f.fingerprint)
+            .putRaw("fitness", FitnessTestJson.encodeProfile(f.profile))
+            .put("updated_at", time(version.updatedAtMillis)).put("updated_by", version.deviceId)
+        return json.toText().toByteArray(Charsets.UTF_8)
+    }
+
+    /** What the engine needs of a `fitness.json` found in the repository: the block itself is never read back. */
+    class RemoteFitness(val fingerprint: String, val rulesVersion: Int)
+
+    /** `null` for a file that cannot be understood; a file without `rules_version` has version 0. */
+    fun parseFitness(bytes: ByteArray): RemoteFitness? = parse(bytes) { o ->
+        RemoteFitness(o.getString("fingerprint"), o.optInt("rules_version", 0))
     }
 
     // ---- weight.csv ----
@@ -204,6 +234,7 @@ internal object RecordCodec {
                 if (w.fitnessTestId != null) json.put("fitness_test_id", w.fitnessTestId)
             }
             if (record != null) json.putRaw("session_record", record)
+            if (w.events.isNotEmpty()) json.putRaw("events", eventsText(w.events))
         }
         json.put("updated_at", time(w.version.updatedAtMillis)).put("updated_by", w.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -247,9 +278,29 @@ internal object RecordCodec {
                 planJson = o.optJSONObject("plan")?.toString(),
                 fitnessTestId = o.optStringOrNull("fitness_test_id"),
                 sessionRecordJson = o.optJSONObject("session_record")?.toString(),
+                events = parseEvents(o.optJSONArray("events")),
             )
         }
     }
+
+    /**
+     * The `events` array, one event per line: `{"seconds": 305, "type": "heart_rate_decrease", "quantity": "speed", "value": 5.4}`.
+     * `quantity` and `value` are left out when the event changes nothing. Speeds are written with 2 decimals and inclines
+     * with 1, like the stats.
+     */
+    private fun eventsText(events: List<WorkoutEvent>): String = events.joinToString(",\n", prefix = "[\n", postfix = "\n]") { e ->
+        val quantity = e.quantity
+        val value = e.value
+        val line = StringBuilder("  {\"seconds\": ${e.seconds}, \"type\": \"${e.type.code}\"")
+        if (quantity != null && value != null && value.isFinite()) {
+            val decimals = if (quantity == WorkoutEventQuantity.Speed) SPEED_DECIMALS else INCLINE_DECIMALS
+            line.append(", \"quantity\": \"${quantity.code}\", \"value\": ${decimal(rounded(value, decimals))}")
+        }
+        line.append('}').toString()
+    }
+
+    /** Events of a type this version does not know (written by a newer app) are left out. */
+    private fun parseEvents(array: JSONArray?): List<WorkoutEvent> = array?.let { WorkoutEventsJson.decode(it.toString()) }.orEmpty()
 
     /** The generator named by a session record document, `null` if there is none or it cannot be read (the file keeps the record as it is). */
     private fun recordGeneratorId(record: String?): String? =

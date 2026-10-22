@@ -415,7 +415,7 @@ class MigrationTest {
             assertTrue(pending.workouts.all { it.planJson == null && it.fitnessTestId == null })
             assertEquals(emptyList<Any>(), data.programDocuments.pending())
             assertEquals(emptyList<Any>(), data.fitnessTestDocuments.pending())
-            assertNull(data.sync.profile("user-ana")!!.fitness)
+            assertNull(data.sync.fitness("user-ana"))
 
             // the new features work on the migrated database
             assertTrue(data.programs.save(ana.id, norwegian()) is ProgramSaveResult.Saved)

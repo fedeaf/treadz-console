@@ -2,16 +2,17 @@ package com.treadz.console.userdata.room
 
 import androidx.room.withTransaction
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessFingerprint
 import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.RestingHeartRateSource
-import com.treadz.console.userdata.RestingHeartRates
-import com.treadz.console.userdata.RestingPoint
 import com.treadz.console.userdata.Validation
+import com.treadz.console.userdata.WorkoutEventsJson
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.sync.ApplyResult
 import com.treadz.console.userdata.sync.PendingChanges
 import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.RemoteChanges
+import com.treadz.console.userdata.sync.SyncFitness
 import com.treadz.console.userdata.sync.SyncStore
 import com.treadz.console.userdata.sync.SyncProfile
 import com.treadz.console.userdata.sync.SyncRestingHeartRate
@@ -70,6 +71,16 @@ internal class RoomSyncStore(
             workouts = pendingWorkouts.map { w -> val o = owner(w.userId!!); w.toSync(o.uuid, o.name) },
             restingHeartRates = restingRates.pending().map { it.toSync(owner(it.userId).uuid) },
         )
+    }
+
+    override suspend fun fitness(userUuid: String): SyncFitness? = db.withTransaction {
+        val user = users.getByUuid(userUuid)?.takeIf { !it.deleted } ?: return@withTransaction null
+        // A held result (see [UploadHold]) is not part of it: it has not been uploaded and may still be discarded.
+        val rows = fitnessTests.liveForUser(user.id).filter { !hold.isTestHeld(it.uuid) }
+        val profile = user.toProfile()
+        val snapshot = FitnessProfiles.snapshot(rows.mapNotNull { readFitnessResult(it.json) }, profile.sex, profile.birthDate)
+            ?: return@withTransaction null
+        SyncFitness(userUuid, FitnessFingerprint.of(rows.map { it.uuid to it.json }), FitnessProfiles.RULES_VERSION, snapshot)
     }
 
     override suspend fun restingHeartRates(userUuid: String): List<SyncRestingHeartRate> = db.withTransaction {
@@ -259,12 +270,9 @@ internal class RoomSyncStore(
 
     private fun UserEntity.version() = RecordVersion(updatedAtMillis, updatedBy)
 
-    private suspend fun UserEntity.toSync(): SyncProfile {
+    /** The profile as the file shows it: only what the user edits (the fitness profile and the resting reference are derived, see [fitness]). */
+    private fun UserEntity.toSync(): SyncProfile {
         val profile = toProfile()
-        // A held result (see [UploadHold]) does not reach the uploaded fitness block either.
-        val results = fitnessTests.liveForUser(id).filter { !hold.isTestHeld(it.uuid) }.mapNotNull { readFitnessResult(it.json) }
-        // The reference of the measurements as of the newest one: a function of synchronised data only (see SyncProfile).
-        val resting = if (deleted) null else RestingHeartRates.snapshotBpm(restingRates.liveForUser(id).map { RestingPoint(it.measuredAtMillis, it.bpm) })
         return SyncProfile(
             uuid = uuid,
             version = version(),
@@ -273,14 +281,12 @@ internal class RoomSyncStore(
             sex = profile.sex,
             heightCm = heightCm,
             birthDate = profile.birthDate,
-            restingHeartRateBpm = resting,
             maxHeartRateBpm = maxHeartRateBpm,
             fitnessLevel = profile.fitnessLevel,
             goal = profile.goal,
             targetWeightKg = targetWeightKg,
             createdAtMillis = createdAtMillis,
             maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
-            fitness = if (deleted) null else FitnessProfiles.snapshot(results, profile.sex, profile.birthDate),
             strapAddress = strapAddress,
             strapName = strapName,
         )
@@ -376,6 +382,7 @@ internal class RoomSyncStore(
         planJson = planJson,
         fitnessTestId = fitnessTestId,
         sessionRecordJson = sessionRecordJson,
+        events = WorkoutEventsJson.decode(eventsJson),
     )
 
     private fun SyncWorkout.toEntity(id: Long, userId: Long) = WorkoutEntity(
@@ -406,5 +413,6 @@ internal class RoomSyncStore(
         peakHeartRateAtMillis = stats.peakHeartRate?.atMillis,
         sessionRecordJson = sessionRecordJson,
         generatorId = readPlan(planJson)?.source?.origin?.generatorId ?: readSessionRecord(sessionRecordJson)?.generatorId,
+        eventsJson = WorkoutEventsJson.encode(events),
     )
 }

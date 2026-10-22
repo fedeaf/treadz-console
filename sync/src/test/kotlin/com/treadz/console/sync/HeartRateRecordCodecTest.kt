@@ -39,12 +39,12 @@ class HeartRateRecordCodecTest {
     // ---- strap and resting heart rate in the profile ----
 
     @Test fun `the strap is written after the creation time and read back, and left out when there is none`() {
-        val paired = profile.copy(restingHeartRateBpm = 57, strapAddress = "AA:BB:CC:DD:EE:FF", strapName = "Polar H10 1234AB")
+        val paired = profile.copy(strapAddress = "AA:BB:CC:DD:EE:FF", strapName = "Polar H10 1234AB")
         val json = text(RecordCodec.profile(paired))
         assertTrue(
             json,
             json.contains(
-                "  \"resting_hr_bpm\": 57,\n" +
+                "  \"birth_date\": \"1986-10-08\",\n" +
                     "  \"max_hr_bpm\": null,",
             ),
         )
@@ -203,6 +203,6 @@ class HeartRateRecordCodecTest {
         ) {
             assertTrue("README lacks '$needle'", readme.contains(needle))
         }
-        assertTrue(readme.contains("users/<name>-<uuid>/profile.json\n                    weight.csv\n                    resting-heart-rate.csv"))
+        assertTrue(readme.contains("users/<name>-<uuid>/profile.json\n                    fitness.json                                  derived: the user's fitness profile\n                    weight.csv\n                    resting-heart-rate.csv"))
     }
 }

@@ -173,11 +173,11 @@ class Migration4To5Test {
             assertEquals(T0 + 10, history.measuredAtMillis)
             assertEquals(ReferenceStatus.Provisional, data.restingHeartRates.reference(ana.id).first()!!.status)
             assertNull(data.profiles.profiles.first().first { it.name == "Beto" }.restingHeartRateBpm)
-            // it is pending, with a uuid that depends on the profile only, and the profile file shows the reference
+            // it is pending, with a uuid that depends on the profile only; the profile record does not carry the (derived) reference
             val pending = data.sync.pendingChanges()
             assertEquals(listOf("resting-$anaUuid"), pending.restingHeartRates.map { it.uuid })
             assertEquals(anaUuid, pending.restingHeartRates.single().userUuid)
-            assertEquals(55, data.sync.profile(anaUuid)!!.restingHeartRateBpm)
+            assertNull(data.sync.profile(anaUuid)!!.restingHeartRateBpm)
 
             // workouts: old samples read back without source or RR, the personalised one filters by its generator
             val sample = data.workouts.detail(1)!!.samples.first()

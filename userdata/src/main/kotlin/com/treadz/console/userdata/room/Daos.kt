@@ -199,7 +199,7 @@ internal interface WorkoutDao {
 
     /** Tombstones a workout; its samples are dropped (the tombstone keeps the identity and the summary). */
     @Query(
-        "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, sessionRecordJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
+        "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, sessionRecordJson = NULL, eventsJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
             "WHERE id = :id AND deleted = 0",
     )
     suspend fun markDeleted(id: Long, at: Long, by: String): Int
@@ -209,7 +209,7 @@ internal interface WorkoutDao {
 
     /** The profile was deleted: its workouts go with it, without being uploaded one by one. */
     @Query(
-        "UPDATE workouts SET deleted = 1, dirty = 0, planJson = NULL, sessionRecordJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
+        "UPDATE workouts SET deleted = 1, dirty = 0, planJson = NULL, sessionRecordJson = NULL, eventsJson = NULL, updatedAtMillis = :at, updatedBy = :by " +
             "WHERE userId = :userId AND deleted = 0",
     )
     suspend fun markDeletedForUser(userId: Long, at: Long, by: String): Int
@@ -222,7 +222,7 @@ internal interface WorkoutDao {
     suspend fun hardDelete(id: Long): Int
 
     @Query(
-        "UPDATE workouts SET endReason = :reason, dirty = 1, updatedAtMillis = :at, updatedBy = :by, endedAtMillis = COALESCE(" +
+        "UPDATE workouts SET endReason = :reason, dirty = 1, updatedAtMillis = MAX(:at, updatedAtMillis + 1), updatedBy = :by, endedAtMillis = COALESCE(" +
             "(SELECT MAX(timestampMillis) FROM workout_samples WHERE workoutId = workouts.id), startedAtMillis) " +
             "WHERE endReason IS NULL AND deleted = 0",
     )
@@ -290,6 +290,10 @@ internal interface WorkoutDao {
             "WHERE id = :id AND deleted = 0",
     )
     suspend fun setSessionRecord(id: Long, json: String, generatorId: String?, at: Long, by: String): Int
+
+    /** Replaces the events of the workout. A change of the record: it is uploaded (once the workout has ended). */
+    @Query("UPDATE workouts SET eventsJson = :json, dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0")
+    suspend fun setEvents(id: Long, json: String?, at: Long, by: String): Int
 
     @Query(
         "SELECT * FROM workouts WHERE userId = :userId AND generatorId = :generatorId AND sessionRecordJson IS NOT NULL AND deleted = 0 " +

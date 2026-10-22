@@ -2,17 +2,22 @@ package com.treadz.console.sync
 
 import com.treadz.console.sync.format.RecordCodec
 import com.treadz.console.sync.format.RepoPaths
+import com.treadz.console.userdata.FitnessFingerprint
 import com.treadz.console.userdata.FitnessLevel
+import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutEvent
+import com.treadz.console.userdata.WorkoutEventQuantity
+import com.treadz.console.userdata.WorkoutEventType
 import com.treadz.console.userdata.WorkoutStats
-import com.treadz.console.programs.fitness.FitnessProfileCalculator
 import com.treadz.console.programs.fitness.FitnessTestJson
 import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.userdata.sync.FitnessTestDocument
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.RecordVersion
+import com.treadz.console.userdata.sync.SyncFitness
 import com.treadz.console.userdata.sync.SyncProfile
 import com.treadz.console.userdata.sync.SyncWeightEntry
 import com.treadz.console.userdata.sync.SyncWorkout
@@ -35,7 +40,7 @@ class RecordCodecTest {
     private fun text(bytes: ByteArray) = String(bytes, Charsets.UTF_8)
 
     private val profile = SyncProfile(
-        uuid, v, false, "Ana María", Sex.Female, 168, LocalDate.of(1986, 10, 8), 55, 184,
+        uuid, v, false, "Ana María", Sex.Female, 168, LocalDate.of(1986, 10, 8), null, 184,
         FitnessLevel.Intermediate, Goal.LoseWeight, 62.5, T0 - 1000,
     )
 
@@ -50,7 +55,6 @@ class RecordCodecTest {
               "sex": "female",
               "height_cm": 168,
               "birth_date": "1986-10-08",
-              "resting_hr_bpm": 55,
               "max_hr_bpm": 184,
               "fitness_level": "intermediate",
               "goal": "lose_weight",
@@ -63,7 +67,7 @@ class RecordCodecTest {
             text(RecordCodec.profile(profile)),
         )
         assertEquals(profile, RecordCodec.parseProfile(RecordCodec.profile(profile)))
-        val bare = profile.copy(restingHeartRateBpm = null, maxHeartRateBpm = null, fitnessLevel = null, goal = null, targetWeightKg = null)
+        val bare = profile.copy(maxHeartRateBpm = null, fitnessLevel = null, goal = null, targetWeightKg = null)
         assertEquals(bare, RecordCodec.parseProfile(RecordCodec.profile(bare)))
         assertTrue(text(RecordCodec.profile(bare)).contains("\"goal\": null"))
     }
@@ -222,31 +226,47 @@ class RecordCodecTest {
         assertFalse(text(old).contains("max_hr_set_at"))
     }
 
-    @Test fun `the fitness block is written for people and never read back`() {
-        val results = listOf(ebbelingResult(TEST_1, T0 - 1000))
-        val fitness = FitnessProfileCalculator.compute(results, T0 - 1000, 39, com.treadz.console.analysis.fitness.Sex.Female)
-        val withBlock = profile.copy(fitness = fitness)
-        val json = text(RecordCodec.profile(withBlock))
-        // an embedded document is indented with the file
-        assertTrue(json, json.contains("  \"fitness\": {\n    \"schemaVersion\": 1,\n    \"computedAt\": \"2026-10-08T00:39:59Z\","))
-        assertTrue(json, json.contains("\n  },\n  \"updated_at\""))
-        assertEquals(fitness, FitnessTestJson.decodeProfile(json.substringAfter("\"fitness\": ").substringBefore(",\n  \"updated_at\"")))
-        // reading ignores it, whatever it says
-        assertEquals(profile, RecordCodec.parseProfile(json.toByteArray()))
-        val garbage = json.replace("\"schemaVersion\": 1,\n    \"computedAt\"", "\"schemaVersion\": 99,\n    \"computedAt\"")
-        assertEquals(profile, RecordCodec.parseProfile(garbage.toByteArray()))
-        // a profile without usable results has no block, and a tombstone neither
-        assertFalse(text(RecordCodec.profile(profile)).contains("fitness\":"))
-        assertFalse(text(RecordCodec.profile(withBlock.copy(deleted = true))).contains("fitness\":"))
+    @Test fun `the profile file holds only what the user edits, and the derived values of older files are read as before or ignored`() {
+        val json = text(RecordCodec.profile(profile.copy(restingHeartRateBpm = 55)))
+        assertFalse("the reference of the resting history is derived: never written", json.contains("resting_hr_bpm"))
+        assertFalse(json.contains("\"fitness\":"))
+
+        // a file written by an older version carries both; the fitness block is ignored, the resting value is the legacy one
+        val old = json.replace("\"max_hr_bpm\":", "\"resting_hr_bpm\": 55,\n  \"max_hr_bpm\":")
+            .replace("\"deleted\": false,", "\"deleted\": false,\n  \"fitness\": {\"schemaVersion\": 99, \"computedAt\": \"nonsense\"},")
+        val parsed = RecordCodec.parseProfile(old.toByteArray())!!
+        assertEquals(profile.copy(restingHeartRateBpm = 55), parsed)
+        assertEquals(55, RecordCodec.legacyResting(parsed)!!.bpm)
+        assertNull(RecordCodec.legacyResting(profile))
+        // the tombstone has neither
+        assertFalse(text(RecordCodec.profile(profile.copy(deleted = true))).contains("resting_hr_bpm"))
     }
 
-    @Test fun `the fitness block is identical for the same results whatever their order`() {
+    private fun fitness(results: List<com.treadz.console.programs.fitness.FitnessTestResult> = listOf(ebbelingResult(TEST_1, T0 - 1000))): SyncFitness {
+        val snapshot = FitnessProfiles.snapshot(results, Sex.Female, LocalDate.of(1986, 10, 8))!!
+        return SyncFitness(uuid, FitnessFingerprint.of(results.map { it.id to FitnessTestJson.encode(it) }), FitnessProfiles.RULES_VERSION, snapshot)
+    }
+
+    @Test fun `fitness json has the snapshot, the fingerprint, the rules version and the version of the last change`() {
+        val f = fitness()
+        val json = text(RecordCodec.fitness(f, v))
+        assertTrue(json, json.startsWith("{\n  \"format\": 1,\n  \"user_uuid\": \"$uuid\",\n  \"rules_version\": ${f.rulesVersion},\n  \"fingerprint\": \"${f.fingerprint}\",\n  \"fitness\": {\n    \"schemaVersion\": 1,\n    \"computedAt\": \"2026-10-08T00:39:59Z\","))
+        assertTrue(json, json.endsWith("\n  },\n  \"updated_at\": \"2026-10-08T00:40:00.123Z\",\n  \"updated_by\": \"tablet\"\n}\n"))
+        // the block is the document `profile.json` used to carry, as it was
+        assertEquals(f.profile, FitnessTestJson.decodeProfile(json.substringAfter("\"fitness\": ").substringBefore(",\n  \"updated_at\"")))
+        // what the engine needs is read back; the block is not
+        val remote = RecordCodec.parseFitness(json.toByteArray())!!
+        assertEquals(f.fingerprint, remote.fingerprint)
+        assertEquals(f.rulesVersion, remote.rulesVersion)
+        assertEquals("a file without a rules version is version 0", 0, RecordCodec.parseFitness("{\"fingerprint\": \"x\"}".toByteArray())!!.rulesVersion)
+        assertNull(RecordCodec.parseFitness("not json".toByteArray()))
+        assertNull(RecordCodec.parseFitness("{}".toByteArray()))
+    }
+
+    @Test fun `the fitness json is identical for the same results whatever their order`() {
         val a = ebbelingResult(TEST_1, T0 - 40 * 86_400_000L)
         val b = maxTestResult(TEST_2, T0 - 5 * 86_400_000L)
-        val one = com.treadz.console.userdata.FitnessProfiles.snapshot(listOf(a, b), Sex.Female, LocalDate.of(1986, 10, 8))
-        val two = com.treadz.console.userdata.FitnessProfiles.snapshot(listOf(b, a), Sex.Female, LocalDate.of(1986, 10, 8))
-        assertEquals(one, two)
-        assertEquals(text(RecordCodec.profile(profile.copy(fitness = one))), text(RecordCodec.profile(profile.copy(fitness = two))))
+        assertEquals(text(RecordCodec.fitness(fitness(listOf(a, b)), v)), text(RecordCodec.fitness(fitness(listOf(b, a)), v)))
     }
 
     @Test fun `a workout with a plan and a test round trips, and an older workout without them is still valid`() {
@@ -270,6 +290,42 @@ class RecordCodecTest {
         assertEquals(TEST_2, RecordCodec.parseWorkout(onlyTest.toByteArray(), uuid)!!.fitnessTestId)
         // a tombstone carries neither
         assertFalse(text(RecordCodec.workout(linked.copy(deleted = true))).contains("plan"))
+    }
+
+    @Test fun `the events of a workout are written one per line, round trip, and files without them have none`() {
+        val events = listOf(
+            WorkoutEvent(305, WorkoutEventType.ManualChange, WorkoutEventQuantity.Speed, 7.5),
+            WorkoutEvent(305, WorkoutEventType.ManualChange, WorkoutEventQuantity.Incline, 4.0),
+            WorkoutEvent(612, WorkoutEventType.HeartRateDecrease, WorkoutEventQuantity.Speed, 6.4),
+            WorkoutEvent(640, WorkoutEventType.HeartRateControlResumed),
+            WorkoutEvent(700, WorkoutEventType.MaxHeartRateReached),
+        )
+        val withEvents = workout.copy(events = events)
+        val json = text(RecordCodec.workout(withEvents))
+        val expected = """
+              "events": [
+                {"seconds": 305, "type": "manual_change", "quantity": "speed", "value": 7.5},
+                {"seconds": 305, "type": "manual_change", "quantity": "incline", "value": 4.0},
+                {"seconds": 612, "type": "heart_rate_decrease", "quantity": "speed", "value": 6.4},
+                {"seconds": 640, "type": "heart_rate_control_resumed"},
+                {"seconds": 700, "type": "max_heart_rate_reached"}
+              ],
+              "updated_at"
+        """.trimIndent().prependIndent("  ").trimStart()
+        assertTrue(json, json.contains(expected))
+        assertEquals(withEvents.copy(ownerName = ""), RecordCodec.parseWorkout(json.toByteArray(), uuid))
+
+        // absent when there are none, and a file without the field has none
+        val plain = text(RecordCodec.workout(workout))
+        assertFalse(plain.contains("events"))
+        assertEquals(emptyList<WorkoutEvent>(), RecordCodec.parseWorkout(plain.toByteArray(), uuid)!!.events)
+        // events of a type this version does not know are left out; a tombstone has none
+        val future = json.replace("heart_rate_decrease", "something_new")
+        assertEquals(events - events[2], RecordCodec.parseWorkout(future.toByteArray(), uuid)!!.events)
+        assertFalse(text(RecordCodec.workout(withEvents.copy(deleted = true))).contains("events"))
+        // speeds are written with 2 decimals and inclines with 1, like the stats
+        val rounded = text(RecordCodec.workout(workout.copy(events = listOf(WorkoutEvent(1, WorkoutEventType.ManualChange, WorkoutEventQuantity.Speed, 6.456), WorkoutEvent(2, WorkoutEventType.ManualChange, WorkoutEventQuantity.Incline, 3.25)))))
+        assertTrue(rounded, rounded.contains("\"value\": 6.46}") && rounded.contains("\"value\": 3.3}"))
     }
 
     @Test fun `a fitness test document keeps its json and its tombstone has none`() {

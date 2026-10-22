@@ -168,6 +168,8 @@ internal data class WorkoutEntity(
     val sessionRecordJson: String? = null,
     /** Generator of the executed personalised program, denormalised for the history filter. */
     val generatorId: String? = null,
+    /** What changed the load during the workout, as `WorkoutEventsJson` (since schema version 7); `NULL` for none. */
+    val eventsJson: String? = null,
 )
 
 @Entity(

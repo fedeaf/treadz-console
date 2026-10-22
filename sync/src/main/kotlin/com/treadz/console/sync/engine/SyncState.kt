@@ -22,7 +22,15 @@ data class SyncState(
     val files: Map<String, String> = emptyMap(),
     /** Path of the summary file of every workout, by workout uuid. */
     val workoutPaths: Map<String, String> = emptyMap(),
+    /**
+     * What the `fitness.json` files at [headCommitSha] say about their inputs, by blob SHA: so that a cycle that finds the
+     * same files does not download them again just to compare the fingerprint. Only an optimisation, like [files].
+     */
+    val fitnessBlobs: Map<String, FitnessBlob> = emptyMap(),
 )
+
+/** The fingerprint and rules version of a `fitness.json` (see `RecordCodec.RemoteFitness`). */
+data class FitnessBlob(val fingerprint: String, val rulesVersion: Int)
 
 interface SyncStateStore {
     suspend fun load(): SyncState
@@ -68,6 +76,12 @@ class FileSyncStateStore(private val file: File) : SyncStateStore {
             s.headCommitSha?.let { put("head_commit", it) }
             put("files", JSONObject(s.files))
             put("workout_paths", JSONObject(s.workoutPaths))
+            put(
+                "fitness_blobs",
+                JSONObject().also { o ->
+                    s.fitnessBlobs.forEach { (sha, b) -> o.put(sha, JSONObject().put("fingerprint", b.fingerprint).put("rules_version", b.rulesVersion)) }
+                },
+            )
         }.toString()
 
         fun decode(text: String): SyncState {
@@ -85,6 +99,11 @@ class FileSyncStateStore(private val file: File) : SyncStateStore {
                 headCommitSha = o.optString("head_commit").ifEmpty { null },
                 files = map("files"),
                 workoutPaths = map("workout_paths"),
+                fitnessBlobs = o.optJSONObject("fitness_blobs")?.let { m ->
+                    m.keys().asSequence().associateWith { sha ->
+                        m.getJSONObject(sha).let { FitnessBlob(it.getString("fingerprint"), it.optInt("rules_version", 0)) }
+                    }
+                }.orEmpty(),
             )
         }
     }

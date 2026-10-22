@@ -34,7 +34,6 @@ class RestingHeartRatesTest {
 
     @Test fun `without measurements there is no reference`() {
         assertNull(RestingHeartRates.reference(emptyList(), now))
-        assertNull(RestingHeartRates.snapshotBpm(emptyList()))
     }
 
     @Test fun `the reference is the median of the last 30 days, established from three measurements`() {
@@ -84,13 +83,6 @@ class RestingHeartRatesTest {
     @Test fun `a measurement later than now is not used unless there is nothing else`() {
         assertEquals(60, RestingHeartRates.reference(listOf(at(1.0, 60), RestingPoint(now + DAY, 90)), now)!!.bpm)
         assertEquals(90, RestingHeartRates.reference(listOf(RestingPoint(now + DAY, 90)), now)!!.bpm)
-    }
-
-    @Test fun `the snapshot of the profile file does not depend on the clock`() {
-        val points = listOf(at(40.0, 80), at(3.0, 60), at(2.0, 62), at(1.0, 61))
-        // as of the newest measurement: the three of the last 30 days
-        assertEquals(61, RestingHeartRates.snapshotBpm(points))
-        assertEquals(61, RestingHeartRates.snapshotBpm(points.reversed()))
     }
 
     @Test fun `a measurement 7 bpm above the reference computed without it is elevated`() {
@@ -318,15 +310,16 @@ class RoomRestingHeartRateTest : RestingHeartRateContractTest() {
         assertTrue(data.restingHeartRates.measurements(u.id).first().isEmpty())
     }
 
-    @Test fun `the profile file shows the reference of the measurements, as of the newest`() = runBlocking<Unit> {
+    @Test fun `the profile record does not carry the reference of the measurements, it is derived`() = runBlocking<Unit> {
         val u = data.profiles.create(validInput("Ana")).ok()
         assertNull(roomData().sync.pendingChanges().profiles.single().restingHeartRateBpm)
+        val before = roomData().sync.profile(anaUuid())!!.version
         for ((d, bpm) in listOf(6 to 55, 4 to 57, 2 to 59)) {
             data.restingHeartRates.add(u.id, RestingHeartRateInput(T0 - d * DAY, bpm, RestingHeartRateSource.Strap)).ok()
         }
-        assertEquals(57, roomData().sync.pendingChanges().profiles.single().restingHeartRateBpm)
-        clock.nowMillis += 90 * DAY // time passes: the file does not change
-        assertEquals(57, roomData().sync.profile(anaUuid())!!.restingHeartRateBpm)
+        assertNull(roomData().sync.pendingChanges().profiles.single().restingHeartRateBpm)
+        assertEquals("the profile's version does not move with the measurements", before, roomData().sync.profile(anaUuid())!!.version)
+        assertEquals(57, data.restingHeartRates.reference(u.id).first()!!.bpm)
     }
 
     @Test fun `a remote measurement is applied with last writer wins and is not pending`() = runBlocking<Unit> {

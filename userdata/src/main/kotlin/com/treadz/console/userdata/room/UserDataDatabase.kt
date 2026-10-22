@@ -20,6 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *    rate history). See [Migration4To5].
  * 6. The cache of the per-workout analysis: table `workout_analysis` (derived data, never synchronised). See
  *    [Migration5To6].
+ * 7. The events of a workout (what changed the load during it): column `workouts.eventsJson`. See [Migration6To7].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -55,7 +56,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun workoutAnalysis(): WorkoutAnalysisDao
 
     companion object {
-        const val VERSION = 6
+        const val VERSION = 7
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -65,7 +66,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7())
     }
 }
 
@@ -249,5 +250,17 @@ internal class Migration5To6 : Migration(5, 6) {
                 "`recoveryContext` TEXT, PRIMARY KEY(`workoutId`), " +
                 "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         )
+    }
+}
+
+/**
+ * Version 6 to 7 (the events of a workout). Only adds the nullable column `workouts.eventsJson`: every existing row is
+ * kept as it is, nothing is flagged `dirty` (the workouts already recorded have no events). The statement is the one of
+ * the exported version-7 schema.
+ */
+internal class Migration6To7 : Migration(6, 7) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `workouts` ADD COLUMN `eventsJson` TEXT")
     }
 }

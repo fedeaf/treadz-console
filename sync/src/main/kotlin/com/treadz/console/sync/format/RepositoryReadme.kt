@@ -14,6 +14,7 @@ Format version: 1.
 
 ```
 users/<name>-<uuid>/profile.json
+                    fitness.json                                  derived: the user's fitness profile
                     weight.csv
                     resting-heart-rate.csv
                     workouts/<yyyy>/<MM>/<yyyyMMdd_HHmmss>.csv    per-second data of one workout
@@ -26,29 +27,46 @@ users/<name>-<uuid>/profile.json
   identifies the user for good. If the name changes, the folder is renamed.
 - Workout files are named after the start time of the workout in the local time of the device that recorded it.
 - Every record has a `uuid`, an `updated_at` time (ISO-8601, UTC) and an `updated_by` device id. When two devices
-  change the same record, the latest `updated_at` wins (ties: the greater `updated_by`).
+  change the same record, the latest `updated_at` wins (ties: the greater `updated_by`). `fitness.json` is the one file
+  that is not a record: it is derived data and is never merged this way (see below).
+- **`updated_at` changes with every change of content.** Whenever the app changes a file it writes (the profile, a row
+  of `weight.csv` or `resting-heart-rate.csv`, a workout, a program, a fitness test result, `fitness.json`), the
+  `updated_at` and `updated_by` of that file (or of that row) are set to the time of the device that made the change and
+  to the device. The converse holds too: the app does not rewrite a file whose content did not change, so an
+  `updated_at` is the time the content last changed. The times are those of the clocks of the devices, no logical clocks.
+  (A device that sees a record with a later time than its own clock never stamps an earlier one on it: the new time is
+  at least one millisecond after the previous one.)
 
 ## Files
 
-`profile.json`: `name`, `sex` (`male`/`female`), `height_cm`, `birth_date`, `resting_hr_bpm`, `max_hr_bpm`,
-`fitness_level`, `goal`, `target_weight_kg`, `created_at`. Unset optional values are `null`.
-`resting_hr_bpm` is the user's resting heart rate: the **reference** of `resting-heart-rate.csv` (below), written for
-people to read; the app takes the measurements from the csv. A profile file with a `resting_hr_bpm` in a repository that
-has no `resting-heart-rate.csv` for the user was written by an older version: the app reads that value as the user's first
-manual measurement.
+`profile.json`: `name`, `sex` (`male`/`female`), `height_cm`, `birth_date`, `max_hr_bpm`, `fitness_level`, `goal`,
+`target_weight_kg`, `created_at`. Unset optional values are `null`. It holds **only what the user edits**, so its
+`updated_at` changes exactly when the user edits the profile. Older versions of the app also wrote two derived values
+into it, which the file no longer has: `resting_hr_bpm` (the reference of `resting-heart-rate.csv`: the app computes it
+from the csv) and a `fitness` block (now `fitness.json`). An older file may still carry them; they are ignored, except
+that a `resting_hr_bpm` in a repository that has no `resting-heart-rate.csv` for the user was written before the history
+existed, and the app reads that value as the user's first manual measurement.
 `strap_address` and `strap_name`, present only when the user has paired a heart rate strap, are the Bluetooth address
 (`AA:BB:CC:DD:EE:FF`) and the name of the strap, so that every device of the user finds the same strap.
 `max_hr_bpm` is the maximum heart rate the user entered; `max_hr_set_at`, present only when known, is when it was
 entered or last confirmed (values entered before the field existed lack it and count as older than any fitness test). When there is no manual value the app uses the maximum heart
 rate measured by a maximal fitness test and, failing that, the Tanaka estimate `208 - 0.7 * age`.
 
-`profile.json` may also contain a `fitness` block: the user's fitness profile (combined VO2max, maximal aerobic speed,
-measured maximum heart rate and thresholds, with the tests they were computed from and the weighting rules), derived from
-the `fitness-tests` of the user. It is **read-only**, there for people and for analysis: the app ignores it on reading and
-computes it again on every device from the fitness tests, so every device writes exactly the same block. Its
-`computedAt` is the start time of the newest valid test, not the time it was written: results are weighted by their
-age relative to that test. The file keeps the profile's own `updated_at`/`updated_by` when only the block changes.
-The block stays at `schemaVersion` 1: the fields below were added as optional ones (readers must ignore unknown fields).
+`fitness.json`: the user's **fitness profile**, derived from the `fitness-tests` of the user, for people and analysis. It
+has `user_uuid`, `rules_version`, `fingerprint`, `fitness` (the profile, below) and `updated_at`/`updated_by`. It is
+**derived data, never merged** with "the latest `updated_at` wins": every device computes it again from the
+synchronised fitness tests, also after receiving deletions, and on each synchronisation compares the `fingerprint` in
+the repository with its own. The `fingerprint` is a SHA-256 of the id and content of every fitness test result the
+device has (deleted ones excluded) and of the `rules_version`, the version of the rules the profile is calculated with
+(it goes up whenever the calculation changes). If the fingerprints differ, or the file is missing, the device writes the
+file (in the same commit as its other changes) with its own `updated_at`/`updated_by`; if they are equal nothing is
+written, so devices that have the same tests never rewrite each other's file. A device never overwrites a file written
+with a higher `rules_version` than its own (an older app). A user without a usable result has no `fitness.json`, and
+the app removes a file that is left over. The sex and the birth date of the profile are not part of the fingerprint.
+The `fitness` object holds the combined VO2max, maximal aerobic speed, measured maximum heart rate and thresholds, with
+the tests they were computed from and the weighting rules. Its `computedAt` is the start time of the newest valid test,
+not the time it was written: results are weighted by their age relative to that test. It stays at `schemaVersion` 1: the
+fields below were added as optional ones (readers must ignore unknown fields).
 
 - `vo2max.discrepancy` (only present, `true`, when it applies): two of the tests used differ by more than 1.5 times
   `sqrt(SEE1^2 + SEE2^2)` (their standard errors as weighted), so one of the measurements is probably wrong; those sources
@@ -118,6 +136,29 @@ heart rate at the end, and where the heart rate settled in heart-rate blocks), w
 next session. Heart-rate blocks run with a chest strap connected to the app may also carry `alpha1Reductions` (load
 reductions made by the real-time DFA-α1 brake; absent when the brake could not act in the block), `alpha1Mean` and
 `alpha1Windows` (mean DFA-α1 of the valid 2-min windows evaluated in the block, and how many).
+
+Every kind of workout (programs of any kind, the fitness tests, and workouts without a program) can also have `events`:
+what changed the load during it, in the order they happened, without reasoning or intermediate data. Each event has
+`seconds` (when it happened: the program clock for a workout done with a program, the test clock for a fitness test,
+the time since the start of the workout for a workout without a program, where every event is a `manual_change`),
+`type` and, when the event changes something, `quantity` (`speed`, in km/h, or `incline`, in %) and `value` (the new
+value, speeds rounded to 2 decimals and inclines to 1). A change of speed and incline at once is two events. Both
+`quantity` and `value` are left out when the event changes nothing. The `type`s are `manual_change` (the user changed
+the speed or the incline, with the app or the console), `heart_rate_increase` and `heart_rate_decrease` (the heart-rate
+regulation, continuous or between repetitions), `alpha1_reduction` (the real-time DFA-α1 brake lowered the load),
+`ceiling_reduction` (safety reduction above the ceiling of the zone), `max_heart_rate_reached` (with the reduction made,
+if any), `no_heart_rate_fallback` (back to the start value of the block for lack of heart rate) and
+`heart_rate_control_resumed` (the heart-rate control is active again, because the user resumed it after a manual change
+or because it resumed by itself when the heart rate came back). Workouts without `events` have none recorded (the field
+is absent when there are none). The events are part of the workout record: the latest `updated_at` wins.
+
+```
+"events": [
+  {"seconds": 305, "type": "manual_change", "quantity": "speed", "value": 7.5},
+  {"seconds": 612, "type": "heart_rate_decrease", "quantity": "incline", "value": 4.0},
+  {"seconds": 640, "type": "heart_rate_control_resumed"}
+]
+```
 
 `programs/<uuid>.json`: `uuid`, `user_uuid`, and the program itself under `program` (a free or personalised program:
 blocks that end by time or distance, with absolute or relative speed and incline; standard programs are built into the
@@ -192,10 +233,10 @@ Nothing is removed silently: a deletion is a record that says so, so that every 
 - A deleted **resting heart rate measurement** stays in `resting-heart-rate.csv` as a row with `deleted` = `true` and no
   values.
 - A deleted **program** keeps its `.json` with `"deleted": true` and no `program`.
-- A deleted **fitness test** keeps its `.json` with `"deleted": true` and no `result`; the `fitness` block of
-  `profile.json` no longer counts it.
+- A deleted **fitness test** keeps its `.json` with `"deleted": true` and no `result`; `fitness.json` is computed again
+  without it.
 - A deleted **user** keeps only `profile.json` with `"deleted": true` and the last name; everything else in the
-  folder is removed. A deleted user is never restored.
+  folder (`fitness.json` too) is removed. A deleted user is never restored.
 
 A file that merely disappears from the repository is not a deletion: devices keep their copy.
 """.trimIndent() + "\n"

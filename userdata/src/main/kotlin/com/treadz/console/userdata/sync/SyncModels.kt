@@ -6,6 +6,7 @@ import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.RestingHeartRateSource
 import com.treadz.console.userdata.Sex
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutEvent
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
 import java.time.LocalDate
@@ -32,11 +33,11 @@ data class SyncProfile(
     val heightCm: Int,
     val birthDate: LocalDate,
     /**
-     * The reference of the resting heart rate history ([com.treadz.console.userdata.RestingHeartRates.snapshotBpm]), for
-     * people reading `profile.json`: **read-only**, like [fitness]. It is derived from the measurements when the record is
-     * read from the device and is not applied on download (each device has the measurements themselves). Profile files
-     * written before schema 5 carry the profile's own resting value here: the synchronisation turns it into a manual
-     * measurement when the repository has no measurements file for the user.
+     * **Only read, never written.** Profile files written by older versions of the app carry the resting heart rate
+     * history's reference here (`resting_hr_bpm`), a derived value; the file no longer has it and the store does not fill
+     * it in. It matters in one case: such a file in a repository that has no measurements file for the user was written
+     * before the history existed, and its value becomes the user's first manual measurement (the same record on every
+     * device). Otherwise the measurements themselves (`resting-heart-rate.csv`) are the data.
      */
     val restingHeartRateBpm: Int? = null,
     val maxHeartRateBpm: Int? = null,
@@ -46,16 +47,25 @@ data class SyncProfile(
     val createdAtMillis: Long = 0,
     /** When the manual [maxHeartRateBpm] was entered or last confirmed; `null` if unknown (it counts as older than any test). */
     val maxHeartRateSetAtMillis: Long? = null,
-    /**
-     * The deterministic fitness profile snapshot (`FitnessProfiles.snapshot`) of the user's results, **read-only**: it is
-     * computed when the record is read from the device, written to `profile.json` for people and Claude to read, and
-     * ignored on download (each device derives it from the synchronised results). It is not part of the record's
-     * version and never a source of conflicts.
-     */
-    val fitness: FitnessProfile? = null,
     /** The user's heart rate strap (see `UserProfile.strapAddress`); part of the profile, so the other devices find the same strap. */
     val strapAddress: String? = null,
     val strapName: String? = null,
+)
+
+/**
+ * The fitness profile of a user derived from the fitness test results present on the device, as `fitness.json` carries
+ * it (see [SyncStore.fitness]). It is **derived data, never merged**: it has no version of its own here, the file's
+ * `updated_at`/`updated_by` are stamped by the synchronisation when it writes the file.
+ */
+data class SyncFitness(
+    /** The owner's [SyncProfile.uuid]. */
+    val userUuid: String,
+    /** [com.treadz.console.userdata.FitnessFingerprint] of the inputs: the results and [rulesVersion]. */
+    val fingerprint: String,
+    /** [com.treadz.console.userdata.FitnessProfiles.RULES_VERSION] of this app. */
+    val rulesVersion: Int,
+    /** The deterministic snapshot (`FitnessProfiles.snapshot`). */
+    val profile: FitnessProfile,
 )
 
 /** A weight entry as exchanged with other devices. */
@@ -96,8 +106,9 @@ data class SyncRestingHeartRate(
 )
 
 /**
- * The summary of a finished workout as exchanged with other devices. A finished workout is immutable: after it
- * ends only its deletion (or being assigned to another user) produces a new [version].
+ * The summary of a finished workout as exchanged with other devices. After it ends, a new [version] is produced by its
+ * deletion, by being assigned to another user, and by attaching what the workout was for (the plan, the fitness test,
+ * the session record) or its [events].
  */
 data class SyncWorkout(
     val uuid: String,
@@ -118,6 +129,8 @@ data class SyncWorkout(
     val fitnessTestId: String? = null,
     /** The record of the generated session (`GeneratedSessionJson` document) run in this workout, or `null`. */
     val sessionRecordJson: String? = null,
+    /** What changed the load during the workout, in the order they were set (`events` in the workout file); empty for none. */
+    val events: List<WorkoutEvent> = emptyList(),
 )
 
 /** A [SyncWorkout] with its per-second samples, as downloaded from another device. */

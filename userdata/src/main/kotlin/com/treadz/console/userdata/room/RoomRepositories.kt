@@ -31,6 +31,8 @@ import com.treadz.console.userdata.WeightEntry
 import com.treadz.console.userdata.WeightRepository
 import com.treadz.console.userdata.WorkoutDetail
 import com.treadz.console.userdata.WorkoutEndReason
+import com.treadz.console.userdata.WorkoutEvent
+import com.treadz.console.userdata.WorkoutEventsJson
 import com.treadz.console.userdata.WorkoutHistoryRepository
 import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
@@ -418,7 +420,17 @@ internal class RoomWorkoutRepository(
             dao.samples(workoutId).map { it.toSample() },
             readPlan(workout.planJson),
             readSessionRecord(workout.sessionRecordJson),
+            WorkoutEventsJson.decode(workout.eventsJson),
         )
+    }
+
+    override suspend fun setEvents(workoutId: Long, events: List<WorkoutEvent>): DataResult<Unit> = guarded {
+        val json = WorkoutEventsJson.encode(events)
+        db.withTransaction {
+            val current = dao.get(workoutId) ?: return@withTransaction DataResult.NotFound
+            if (current.eventsJson != json) dao.setEvents(workoutId, json, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            DataResult.Success(Unit)
+        }
     }
 
     override suspend fun attachSessionRecord(workoutId: Long, record: GeneratedSessionRecord): DataResult<Unit> = guarded {

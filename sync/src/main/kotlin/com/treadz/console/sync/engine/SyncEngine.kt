@@ -17,6 +17,7 @@ import com.treadz.console.sync.github.GitHubFailure
 import com.treadz.console.sync.github.RepositoryRef
 import com.treadz.console.sync.github.TreeChange
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessProfiles
 import com.treadz.console.userdata.FitnessRecalculator
 import com.treadz.console.userdata.WorkoutAnalysisRecalculator
 import com.treadz.console.userdata.export.WorkoutCsv
@@ -25,6 +26,7 @@ import com.treadz.console.userdata.sync.FitnessTestDocumentStore
 import com.treadz.console.userdata.sync.PendingChanges
 import com.treadz.console.userdata.sync.ProgramDocument
 import com.treadz.console.userdata.sync.ProgramDocumentStore
+import com.treadz.console.userdata.sync.RecordVersion
 import com.treadz.console.userdata.sync.RemoteChanges
 import com.treadz.console.userdata.sync.SyncProfile
 import com.treadz.console.userdata.sync.SyncRestingHeartRate
@@ -58,19 +60,24 @@ import java.time.ZoneId
  *
  * ## The resting heart rate history
  * Measurements go to `resting-heart-rate.csv` of the user with the rules of `weight.csv` (one row per record, whole file
- * rewritten when a record changes, tombstones for deletions). `profile.json` shows the reference of the measurements
- * (`resting_hr_bpm`) for people to read; like the fitness block it is rewritten with the profile's own version whenever
- * measurements of the user are uploaded and ignored on download. A profile file with `resting_hr_bpm` in a repository that
- * has no measurements file for the user was written before the history existed: its value becomes the user's first manual
- * measurement (the same record on every device).
+ * rewritten when a record changes, tombstones for deletions). `profile.json` does not show their reference any more: it
+ * is derived, and the csv holds everything needed to compute it. A profile file with `resting_hr_bpm` (written by an older
+ * version) in a repository that has no measurements file for the user was written before the history existed: its value
+ * becomes the user's first manual measurement (the same record on every device).
  *
- * ## The fitness block of `profile.json`
- * The fitness profile of a user is derived from the user's fitness test results (see `SyncProfile.fitness`), so
- * `profile.json` is rewritten not only when the profile changes but also whenever results of the user are uploaded.
- * The rewritten file keeps the profile's own version (`updated_at`, `updated_by`): a fitness change is not a profile
- * edit and can never win over, or hide, a concurrent edit of the profile on another device. Every device derives the
- * same block from the same results, so the rewrite is byte-identical wherever it is made; a file whose content did not
- * change is not uploaded, hence devices never keep rewriting each other's file. On download the block is ignored.
+ * ## The fitness profile (`fitness.json`)
+ * The fitness profile of a user is derived data (see [SyncStore.fitness]): the deterministic snapshot of the user's fitness
+ * test results, with the **fingerprint** of its inputs (the results present on the device and the version of the
+ * calculation rules). It is **never merged with "last writer wins"**. On every cycle, for every user of the repository
+ * (also when nothing else changed here, also right after a pull that brought tombstones), the device compares its own
+ * fingerprint with the one in the file:
+ *  - the same: nothing is written (two devices with the same data never rewrite each other's file);
+ *  - different, or the file is missing: the device computes the block and writes it **in the same commit** as its other
+ *    changes, with `updated_at`/`updated_by` of this write (the time the content last changed);
+ *  - the file was written with a higher rules version than this app's (an older app on this device): it is left alone;
+ *  - the user has no usable result: the file is removed (a deleted user loses it with the rest of the folder).
+ * What is known about the files is kept in [SyncState.fitnessBlobs], so an idle cycle makes no extra request.
+ * `profile.json` does not carry the block: it only changes when the user edits the profile.
  *
  * ## Empty repository
  * The Git Data API cannot be used before the first commit, so the first commit is made with the Contents API
@@ -197,15 +204,12 @@ class SyncEngine(
                 val pending = store.pendingChanges()
                 val programPending = programs.pending()
                 val fitnessPending = fitnessTests.pending()
-                if (pending.isEmpty && programPending.isEmpty() && fitnessPending.isEmpty()) {
-                    stateStore.save(state.copy(lastSyncMillis = clock.nowMillis()))
-                    return SyncReport(downloaded, 0, null, attempt)
-                }
-                val plan = buildPlan(files, state, pending, programPending, fitnessPending)
+                val plan = buildPlan(repo, files, state, pending, programPending, fitnessPending)
                 val effective = plan.effectiveChanges(files)
+                val nothingPending = pending.isEmpty && programPending.isEmpty() && fitnessPending.isEmpty()
                 if (effective.isEmpty()) {
-                    markSynced(pending, programPending, fitnessPending)
-                    stateStore.save(state.copy(workoutPaths = plan.workoutPaths, lastSyncMillis = clock.nowMillis()))
+                    if (!nothingPending) markSynced(pending, programPending, fitnessPending)
+                    stateStore.save(state.copy(workoutPaths = plan.workoutPaths, fitnessBlobs = plan.blobsIn(files), lastSyncMillis = clock.nowMillis()))
                     return SyncReport(downloaded, 0, null, attempt)
                 }
 
@@ -221,14 +225,20 @@ class SyncEngine(
                     client.treeShaOfCommit(repo, head),
                     effective.map { it.toTreeChange() },
                 )
-                val message = CommitMessages.build(pending, programPending, fitnessPending, plan.names, zone)
+                val message = CommitMessages.build(pending, programPending, fitnessPending, plan.names, zone, plan.derivedFitness)
                 val commit = client.createCommit(repo, message, tree, head)
                 if (client.fastForward(repo, branch, commit)) {
-                    markSynced(pending, programPending, fitnessPending)
+                    if (!nothingPending) markSynced(pending, programPending, fitnessPending)
                     val newFiles = HashMap(files)
                     effective.forEach { it.applyTo(newFiles) }
                     stateStore.save(
-                        state.copy(headCommitSha = commit, files = newFiles, workoutPaths = plan.workoutPaths, lastSyncMillis = clock.nowMillis()),
+                        state.copy(
+                            headCommitSha = commit,
+                            files = newFiles,
+                            workoutPaths = plan.workoutPaths,
+                            fitnessBlobs = plan.blobsIn(newFiles),
+                            lastSyncMillis = clock.nowMillis(),
+                        ),
                     )
                     return SyncReport(downloaded, pending.count + programPending.size + fitnessPending.size, commit, attempt)
                 }
@@ -302,7 +312,8 @@ class SyncEngine(
                 is RepoPaths.Kind.WorkoutSummary -> kind.folder
                 is RepoPaths.Kind.Program -> kind.folder
                 is RepoPaths.Kind.FitnessTest -> kind.folder
-                RepoPaths.Kind.Other -> continue
+                // Derived data: never merged, looked at when the plan is built (see the class documentation).
+                is RepoPaths.Kind.Fitness, RepoPaths.Kind.Other -> continue
             }
             val folderUser = RepoPaths.uuidOfFolder(folder) ?: continue
             val bytes = client.blob(repo, sha)
@@ -322,7 +333,7 @@ class SyncEngine(
                 }
                 is RepoPaths.Kind.Program -> RecordCodec.parseProgram(bytes, folderUser)?.let { documents += it }
                 is RepoPaths.Kind.FitnessTest -> RecordCodec.parseFitnessTest(bytes, folderUser)?.let { fitness += it }
-                RepoPaths.Kind.Other -> Unit
+                is RepoPaths.Kind.Fitness, RepoPaths.Kind.Other -> Unit
             }
         }
         val result = store.applyRemote(RemoteChanges(profiles, weights, workouts, restingHeartRates))
@@ -363,10 +374,25 @@ class SyncEngine(
         }
     }
 
-    private class Plan(initialWorkoutPaths: Map<String, String>) {
+    private class Plan(initialWorkoutPaths: Map<String, String>, initialBlobs: Map<String, FitnessBlob>) {
         val changes = LinkedHashMap<String, Change>()
         val workoutPaths = HashMap(initialWorkoutPaths)
         val names = HashMap<String, String>()
+
+        /** Folder of each user in the tree after this plan (the new one for a renamed user). */
+        val folders = HashMap<String, String>()
+
+        /** What is known about `fitness.json` blobs by SHA: the remembered ones, those read in this cycle and those written by it. */
+        val blobs = HashMap(initialBlobs)
+
+        /** Users whose `fitness.json` is written or removed by this plan. */
+        val derivedFitness = ArrayList<String>()
+
+        /** The part of [blobs] that describes files of [files]. */
+        fun blobsIn(files: Map<String, String>): Map<String, FitnessBlob> {
+            val shas = files.filterKeys { RepoPaths.classify(it) is RepoPaths.Kind.Fitness }.values.toSet()
+            return blobs.filterKeys { it in shas }
+        }
 
         fun put(path: String, bytes: ByteArray) { changes[path] = Change.Put(bytes) }
         fun copy(path: String, sha: String) { changes[path] = Change.Copy(sha) }
@@ -383,13 +409,14 @@ class SyncEngine(
     }
 
     private suspend fun buildPlan(
+        repo: RepositoryRef,
         files: Map<String, String>,
         state: SyncState,
         pending: PendingChanges,
         programPending: List<ProgramDocument>,
         fitnessPending: List<FitnessTestDocument>,
     ): Plan {
-        val plan = Plan(state.workoutPaths)
+        val plan = Plan(state.workoutPaths, state.fitnessBlobs)
         val folders = HashMap<String, String>() // user uuid -> existing folder
         for (path in files.keys.sorted()) {
             val folder = (RepoPaths.classify(path) as? RepoPaths.Kind.Profile)?.folder ?: continue
@@ -416,11 +443,11 @@ class SyncEngine(
             val folder = RepoPaths.userFolder(profile.name, userUuid)
             if (existing != null && existing != folder) renameFolder(plan, files, existing, folder)
             val profilePath = RepoPaths.profile(folder)
-            // Changed results change the fitness block of the profile file (same version, new content).
-            val fitnessChanged = fitnessPending.any { it.userUuid == userUuid }
-            // The same for the resting heart rate the profile file shows (the reference of the measurements).
+            plan.folders[userUuid] = folder
+            // The profile file holds only what the user edits: it changes with the profile, nothing else (the fitness
+            // profile and the resting reference are derived, see the class documentation).
             val restingChanged = pending.restingHeartRates.any { it.userUuid == userUuid }
-            if (pendingProfile != null || fitnessChanged || restingChanged || existing == null || (existing == folder && profilePath !in files)) {
+            if (pendingProfile != null || existing == null || (existing == folder && profilePath !in files)) {
                 plan.put(profilePath, RecordCodec.profile(profile))
             }
 
@@ -436,9 +463,46 @@ class SyncEngine(
                 plan.put(RepoPaths.fitnessTest(folder, document.uuid), RecordCodec.fitnessTest(document))
             }
         }
-        if (RepoPaths.README !in files) plan.put(RepoPaths.README, RepositoryReadme.TEXT.toByteArray(Charsets.UTF_8))
+        planFitness(repo, plan, files, folders, userUuids)
+        // The first thing written to a repository that has no README gets it along.
+        if (plan.changes.isNotEmpty() && RepoPaths.README !in files) plan.put(RepoPaths.README, RepositoryReadme.TEXT.toByteArray(Charsets.UTF_8))
         return plan
     }
+
+    /**
+     * The `fitness.json` of every user of the repository (and of the users uploaded for the first time in this plan):
+     * written when its fingerprint differs from the local one, removed when the user has no usable result any more, left
+     * alone when it matches or was written with a higher rules version. See the class documentation.
+     */
+    private suspend fun planFitness(repo: RepositoryRef, plan: Plan, files: Map<String, String>, folders: Map<String, String>, pendingUsers: List<String>) {
+        for (userUuid in (pendingUsers + folders.keys).distinct()) {
+            val profile = store.profile(userUuid)?.takeUnless { it.deleted } ?: continue
+            val existing = folders[userUuid]
+            val folder = plan.folders[userUuid] ?: existing ?: continue
+            val remote = existing?.let { files[RepoPaths.fitness(it)] }?.let { sha -> plan.blobs.getOrPut(sha) { readFitnessBlob(repo, sha) } }
+            val local = store.fitness(userUuid)
+            val target = RepoPaths.fitness(folder)
+            when {
+                remote != null && remote.rulesVersion > FitnessProfiles.RULES_VERSION -> Unit // written by a newer app: never overwritten
+                local == null -> if (remote != null) {
+                    plan.delete(target)
+                    plan.derivedFitness += userUuid
+                }
+                remote != null && remote.fingerprint == local.fingerprint -> Unit
+                else -> {
+                    val bytes = RecordCodec.fitness(local, RecordVersion(clock.nowMillis(), store.deviceId))
+                    plan.put(target, bytes)
+                    plan.blobs[GitBlob.sha(bytes)] = FitnessBlob(local.fingerprint, local.rulesVersion)
+                    plan.derivedFitness += userUuid
+                }
+            }
+            if (userUuid in plan.derivedFitness) plan.names.putIfAbsent(userUuid, profile.name)
+        }
+    }
+
+    /** A file that cannot be understood counts as a file of an older version with other inputs: it is written again. */
+    private suspend fun readFitnessBlob(repo: RepositoryRef, sha: String): FitnessBlob =
+        RecordCodec.parseFitness(client.blob(repo, sha))?.let { FitnessBlob(it.fingerprint, it.rulesVersion) } ?: FitnessBlob("", 0)
 
     /** Moves a user's whole folder by referencing the existing blobs: nothing is uploaded again. */
     private fun renameFolder(plan: Plan, files: Map<String, String>, from: String, to: String) {

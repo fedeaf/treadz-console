@@ -14,8 +14,8 @@ data class FitnessTestDocument(
  * Where the fitness test results of the users are kept, as far as the synchronisation is concerned. The Room data
  * layer implements it over the same rows as `FitnessTestRepository`.
  *
- * Changing the results changes the user's fitness profile, which `profile.json` carries (see `SyncProfile.fitness`):
- * the sync rewrites the profile file whenever results of the user are uploaded.
+ * Changing the results changes the user's fitness profile, which is derived data in its own file (`fitness.json`, see
+ * [SyncStore.fitness]): the sync compares its fingerprint with the results present on the device on every cycle.
  */
 interface FitnessTestDocumentStore : DocumentStore<FitnessTestDocument>
 

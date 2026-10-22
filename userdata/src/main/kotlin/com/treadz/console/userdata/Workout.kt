@@ -138,6 +138,8 @@ data class WorkoutDetail(
      * `null` otherwise and for a record written by a newer app than this one (unreadable).
      */
     val sessionRecord: GeneratedSessionRecord? = null,
+    /** What changed the load during the workout, in the order set by [WorkoutHistoryRepository.setEvents]; empty for none. */
+    val events: List<WorkoutEvent> = emptyList(),
 )
 
 /**

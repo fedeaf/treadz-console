@@ -23,7 +23,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 
-/** Programs, fitness tests, the fitness block of the profile and the plan of a workout, through a fake GitHub. */
+/** Programs, fitness tests, the derived fitness.json and the plan of a workout, through a fake GitHub. */
 @RunWith(RobolectricTestRunner::class)
 class ProgramAndFitnessSyncTest {
 
@@ -129,12 +129,13 @@ class ProgramAndFitnessSyncTest {
 
     // ------------------------------------------------------------ fitness tests and the profile
 
-    @Test fun `a fitness test is uploaded under fitness-tests and the profile file gets the fitness block`() {
+    @Test fun `a fitness test is uploaded under fitness-tests and gets its own fitness json, the profile file is untouched`() {
         val a = device("tablet", 1)
         val ana = a.createUser("Ana")
         a.sync()
         val before = repo.text("${folderOf("ana")}profile.json")!!
         assertFalse(before, before.contains("\"fitness\""))
+        assertNull(repo.text("${folderOf("ana")}fitness.json"))
 
         a.saveTest(ana, ebbelingResult(TEST_1, T0 - 3 * day, vo2max = 41.0))
         a.sync()
@@ -143,11 +144,11 @@ class ProgramAndFitnessSyncTest {
         val file = repo.text("${folder}fitness-tests/$TEST_1.json")!!
         assertTrue(file, file.contains("\"result\": {\n    \"schemaVersion\": 1,"))
         assertEquals(ebbelingResult(TEST_1, T0 - 3 * day, vo2max = 41.0), FitnessTestJson.decode(String(file.substringAfter("\"result\": ").substringBeforeLast(",\n  \"updated_at\"").toByteArray())))
-        val profile = repo.text("${folder}profile.json")!!
-        assertTrue(profile, profile.contains("\"fitness\": {\n    \"schemaVersion\": 1,"))
-        assertTrue(profile, profile.contains("\"valueMlKgMin\": 41.0"))
-        // the record's own version is untouched: it is still the version of the profile edit
-        assertEquals(before.substringAfter("\"updated_at\""), profile.substringAfterLast("\"updated_at\"").let { "\"updated_at\"$it" }.substringAfter("\"updated_at\""))
+        val fitness = repo.text("${folder}fitness.json")!!
+        assertTrue(fitness, fitness.contains("\"rules_version\": ${FitnessProfiles.RULES_VERSION},"))
+        assertTrue(fitness, fitness.contains("\"fitness\": {\n    \"schemaVersion\": 1,"))
+        assertTrue(fitness, fitness.contains("\"valueMlKgMin\": 41.0"))
+        assertEquals("profile.json is exactly as it was", before, repo.text("${folder}profile.json"))
         assertEquals("Ana · fitness test 2026-10-05 00:40 · Ebbeling walk · VO2max 41.0", repo.log().last())
     }
 
@@ -199,8 +200,8 @@ class ProgramAndFitnessSyncTest {
         b.at(T0 + 2_000)
         b.saveTest(anaB, maxTestResult(TEST_2, T0 - 5 * day, mas = 13.0))
 
-        a.sync() // A: profile.json with {T1}
-        b.sync() // B: pulls T1, uploads T2 and profile.json with {T1, T2}
+        a.sync() // A: T1 and fitness.json with {T1}
+        b.sync() // B: pulls T1, uploads T2 and fitness.json with {T1, T2}
         a.sync() // A: pulls T2
         val commits = repo.log().size
         for (round in 1..3) {
@@ -213,10 +214,10 @@ class ProgramAndFitnessSyncTest {
         assertEquals(2, expected.vo2max!!.sources.size)
         assertEquals(expected, runBlocking { b.data.fitnessTests.fitnessProfile(anaB.id).first() })
         // the file holds exactly that block
-        val profile = repo.text("${folderOf("ana")}profile.json")!!
-        assertTrue(profile, profile.contains("\"computedAt\": \"${java.time.Instant.ofEpochMilli(T0 - 5 * day)}\""))
-        assertTrue(profile, profile.contains("\"resultId\": \"$TEST_1\""))
-        assertTrue(profile, profile.contains("\"resultId\": \"$TEST_2\""))
+        val fitness = repo.text("${folderOf("ana")}fitness.json")!!
+        assertTrue(fitness, fitness.contains("\"computedAt\": \"${java.time.Instant.ofEpochMilli(T0 - 5 * day)}\""))
+        assertTrue(fitness, fitness.contains("\"resultId\": \"$TEST_1\""))
+        assertTrue(fitness, fitness.contains("\"resultId\": \"$TEST_2\""))
     }
 
     @Test fun `the block in the file is the same whichever device writes it and in whichever order the tests arrived`() {
@@ -234,8 +235,10 @@ class ProgramAndFitnessSyncTest {
             order.forEach { d.saveTest(user, it) }
             d.at(T0 + 100 * day) // wall-clock time differs too
             d.sync()
-            val file = r.files().keys.first { it.endsWith("/profile.json") }
-            return fitnessBlock(r.text(file)!!)!!.substringBefore("\n  \"updated_at\"")
+            val file = r.files().keys.first { it.endsWith("/fitness.json") }
+            val text = r.text(file)!!
+            // the same inputs give the same fingerprint, and the same block, on every device
+            return Regex("\"fingerprint\": \"[0-9a-f]{64}\"").find(text)!!.value + fitnessBlock(text)!!.substringBefore("\n  \"updated_at\"")
         }
         assertEquals(blockWrittenBy(results, 1, "tablet"), blockWrittenBy(results.reversed(), 2, "phone"))
     }
@@ -256,20 +259,25 @@ class ProgramAndFitnessSyncTest {
         val folder = folderOf("ana")
         val tombstone = repo.text("${folder}fitness-tests/$TEST_3.json")!!
         assertTrue(tombstone, tombstone.contains("\"deleted\": true") && !tombstone.contains("\"result\""))
-        assertFalse(repo.text("${folder}profile.json")!!.contains(TEST_3))
+        assertFalse(repo.text("${folder}fitness.json")!!.contains(TEST_3))
+        assertTrue(repo.text("${folder}fitness.json")!!.contains(TEST_1))
 
         b.sync()
         assertNull(runBlocking { b.data.fitnessTests.get(TEST_3) })
         assertEquals(listOf(TEST_1), runBlocking { b.data.fitnessTests.fitnessProfile(b.profile().id).first() }!!.vo2max!!.sources.map { it.resultId })
 
-        // the last one: the block disappears from the file
+        // the last one: nothing usable is left, the file goes
         a.at(T0 + 2_000)
         runBlocking { a.data.fitnessTests.delete(TEST_1) }
         a.sync()
-        assertFalse(repo.text("${folder}profile.json")!!.contains("\"fitness\""))
+        assertNull(repo.text("${folder}fitness.json"))
+        b.sync()
+        assertNull(runBlocking { b.data.fitnessTests.fitnessProfile(b.profile().id).first() })
+        assertNull("the other device does not bring it back", b.sync().commitSha)
+        assertNull(repo.text("${folder}fitness.json"))
     }
 
-    @Test fun `adding a test never hides a concurrent edit of the profile`() {
+    @Test fun `adding a test never touches a concurrent edit of the profile`() {
         val a = device("tablet", 1)
         val ana = a.createUser("Ana")
         a.sync()
@@ -281,26 +289,27 @@ class ProgramAndFitnessSyncTest {
         runBlocking { b.data.profiles.update(anaB.id, edit(anaB, heightCm = 150)) } // offline edit
         a.at(T0 + 5_000)
         a.saveTest(ana, ebbelingResult(TEST_1, T0 - day))
-        a.sync() // uploads the test and rewrites profile.json with the profile's old version
-        b.sync() // the edit is still newer than the version in the file: it wins and is uploaded
+        a.sync() // uploads the test and fitness.json; profile.json is not part of it
+        b.sync() // the edit goes up
         a.sync()
 
         assertEquals(150, a.profile().heightCm)
         assertEquals(150, b.profile().heightCm)
         val profile = repo.text("${folderOf("ana")}profile.json")!!
-        assertTrue(profile, profile.contains("\"height_cm\": 150") && profile.contains("\"resultId\": \"$TEST_1\""))
+        assertTrue(profile, profile.contains("\"height_cm\": 150") && !profile.contains("\"fitness\":"))
+        assertTrue(repo.text("${folderOf("ana")}fitness.json")!!.contains("\"resultId\": \"$TEST_1\""))
         val commits = repo.log().size
         assertNull(a.sync().commitSha)
         assertNull(b.sync().commitSha)
         assertEquals(commits, repo.log().size)
     }
 
-    @Test fun `a fitness block that somebody edited by hand is ignored and not fought over`() {
+    @Test fun `a fitness json that somebody edited by hand but kept the fingerprint of is ignored and not fought over`() {
         val a = device("tablet", 1)
         val ana = a.createUser("Ana")
         a.saveTest(ana, ebbelingResult(TEST_1, T0 - day, vo2max = 41.0))
         a.sync()
-        val path = "${folderOf("ana")}profile.json"
+        val path = "${folderOf("ana")}fitness.json"
         val tampered = repo.text(path)!!.replace("\"valueMlKgMin\": 41.0", "\"valueMlKgMin\": 99.0")
         assertTrue(tampered != repo.text(path))
         replaceFile(path, tampered)

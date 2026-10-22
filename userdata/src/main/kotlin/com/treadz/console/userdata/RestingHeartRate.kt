@@ -152,14 +152,6 @@ object RestingHeartRates {
         reference(measurements.map { RestingPoint(it.measuredAtMillis, it.bpm) }, nowMillis)
 
     /**
-     * The reference as written to the synchronised `profile.json` for people to read: computed as of the newest
-     * measurement, so it depends only on synchronised data (never on the clock of the device that writes it). `null`
-     * without measurements.
-     */
-    fun snapshotBpm(points: List<RestingPoint>): Int? =
-        if (points.isEmpty()) null else reference(points, points.maxOf { it.atMillis })?.bpm
-
-    /**
      * Compares a measurement with the reference computed **without it**, as of its own time: the other measurements of
      * the 30 days before it. Elevated means at least [ELEVATED_THRESHOLD_BPM] above that reference. A [ReferenceStatus.Stale]
      * reference (nothing in the 30 days before) is not compared: there is no recent baseline.

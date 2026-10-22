@@ -38,7 +38,7 @@ class FitnessRecalculationSyncTest {
     private fun paths() = repo.files().keys.toList().sorted()
     private fun folder() = paths().first { it.startsWith("users/ana-") && it.endsWith("/profile.json") }.removeSuffix("profile.json")
     private fun testFile() = repo.text("${folder()}fitness-tests/$TEST_3.json")!!
-    private fun profileFile() = repo.text("${folder()}profile.json")!!
+    private fun fitnessFile() = repo.text("${folder()}fitness.json")!!
 
     /** The `result` part of a fitness test file (what must be the same whoever wrote it), without the version. */
     private fun resultPart(file: String) = file.substringAfter("\"result\": ").substringBeforeLast(",\n  \"updated_at\"")
@@ -91,8 +91,8 @@ class FitnessRecalculationSyncTest {
         assertTrue(repo.log().last(), repo.log().last().contains("estimated MAS 10."))
         assertTrue(repo.log().last(), repo.log().last().contains("VT1 1"))
 
-        // profile.json carries the VO2max of the walking test and the thresholds profile
-        val profile = profileFile()
+        // fitness.json carries the VO2max of the walking test and the thresholds profile
+        val profile = fitnessFile()
         assertTrue(profile, profile.contains("\"thresholds\": {"))
         assertTrue(profile, profile.contains("\"testType\": \"maxHeartRateWalk\""))
         assertTrue(profile, profile.contains("\"estimated\": true"))
@@ -175,13 +175,13 @@ class FitnessRecalculationSyncTest {
         assertEquals(settled, repo.log().size)
     }
 
-    @Test fun `the profile file shows the discrepancy and the submaximal factor`() {
+    @Test fun `fitness json shows the discrepancy and the submaximal factor`() {
         val old = oldDeviceWithTest()
         ok(runBlocking { old.data.fitnessTests.save(old.profile().id, ebbelingResult(TEST_1, T0 - 2 * DAY_MS, vo2max = 60.0)) })
         old.sync()
         val tablet = device("tablet", 2, recalculates = true)
         tablet.at(T0 + 1_000).sync()
-        val profile = profileFile()
+        val profile = fitnessFile()
         assertTrue(profile, profile.contains("\"discrepancy\": true"))
         assertTrue(profile, profile.contains("\"discrepant\": true"))
         assertTrue(profile, profile.contains("\"weightFactor\": 0.25"))

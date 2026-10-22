@@ -34,7 +34,7 @@ data class FitnessTestRecord(
  * The weighted VO2max, the MAS and the measured maximum heart rate belong to the user's profile. There are two views
  * of the same data (see [FitnessProfiles]):
  *  - [fitnessProfile], the **snapshot**: the same on every device that has the same results. It is what the synchronised
- *    `profile.json` carries (for people and Claude to read) and is not stored: it is derived, so it can never be stale.
+ *    `fitness.json` carries (for people and Claude to read) and is not stored: it is derived, so it can never be stale.
  *  - [liveFitnessProfile], computed with the real current time: results age and expire while the app is not used. Use
  *    it for personalisation and for the maximum heart rate decision.
  */
@@ -103,6 +103,15 @@ interface FitnessTestRepository {
  * every implementation, so they all agree.
  */
 object FitnessProfiles {
+
+    /**
+     * Version of the calculation rules behind the snapshot, part of the [FitnessFingerprint] of `fitness.json` in the data
+     * repository. **Raise it whenever the output of `FitnessProfileCalculator` or of [snapshot] changes for the same
+     * results** (a new rule, a changed weight, a new field in the profile document): every device then writes the file
+     * again, and a device with a lower version never overwrites a file written with a higher one. A test pins the
+     * snapshot of a fixed set of results, so that a change of the rules does not go unnoticed.
+     */
+    const val RULES_VERSION = 1
 
     /**
      * The **snapshot**: `FitnessProfileCalculator` with `now` = the start time of the newest usable result (valid,

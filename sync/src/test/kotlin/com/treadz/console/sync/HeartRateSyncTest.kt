@@ -61,12 +61,12 @@ class HeartRateSyncTest {
 
     // ------------------------------------------------------------ resting heart rate
 
-    @Test fun `the resting heart rate history is uploaded as a csv, the profile file shows the reference, and the other device gets it all`() {
+    @Test fun `the resting heart rate history is uploaded as a csv, the profile file is left alone, and the other device gets it all`() {
         val a = device("tablet", 1)
         val ana = a.createUser("Ana")
         a.sync()
         val profileBefore = repo.text("${folderOf("ana")}profile.json")!!
-        assertTrue(profileBefore, profileBefore.contains("\"resting_hr_bpm\": null"))
+        assertFalse(profileBefore, profileBefore.contains("resting_hr_bpm"))
 
         a.addResting(ana, 3, 56, lowest = 55.6, coverage = 0.97, rmssd = 42.5)
         a.addResting(ana, 2, 58, RestingHeartRateSource.Console)
@@ -81,13 +81,8 @@ class HeartRateSyncTest {
         )
         assertEquals(listOf("56,strap,55.6,0.97,42.5", "58,console,,,", "57,manual,,,"), csv.lines().drop(1).filter { it.isNotBlank() }.map { it.split(',').subList(2, 7).joinToString(",") })
         assertEquals("Sync · 3 resting heart rates · Ana", repo.log().last())
-        // the profile file shows the reference (the median) and keeps its own version
-        val profile = repo.text("${folder}profile.json")!!
-        assertTrue(profile, profile.contains("\"resting_hr_bpm\": 57"))
-        assertEquals(
-            profileBefore.substringAfter("\"updated_at\""),
-            profile.substringAfter("\"updated_at\""),
-        )
+        // the reference (the median) is derived: the profile file does not show it and does not change at all
+        assertEquals(profileBefore, repo.text("${folder}profile.json"))
 
         val b = device("phone", 2)
         b.sync()
@@ -148,11 +143,11 @@ class HeartRateSyncTest {
         assertEquals(listOf(54, 62), a.resting(ana).map { it.bpm })
         assertEquals(listOf(54, 62), b.resting(anaB).map { it.bpm })
 
-        // and with everything deleted the file shows no reference
+        // and with everything deleted there is no reference
         a.at(T0 + 5_000)
         a.resting(ana).forEach { ok(runBlocking { a.data.restingHeartRates.delete(it.id) }) }
         a.sync()
-        assertTrue(repo.text("${folderOf("ana")}profile.json")!!.contains("\"resting_hr_bpm\": null"))
+        assertFalse(repo.text("${folderOf("ana")}profile.json")!!.contains("resting_hr_bpm"))
         b.sync()
         assertTrue(b.resting(anaB).isEmpty())
         assertNull(b.profile().restingHeartRateBpm)
@@ -165,7 +160,7 @@ class HeartRateSyncTest {
         val folder = folderOf("ana")
         // an older app wrote the resting value in the profile file and knows nothing of the csv
         val old = repo.text("${folder}profile.json")!!
-            .replace("\"resting_hr_bpm\": null", "\"resting_hr_bpm\": 58")
+            .replace("\"max_hr_bpm\":", "\"resting_hr_bpm\": 58,\n  \"max_hr_bpm\":")
             .replace(Regex("\"updated_at\": \"[^\"]+\""), "\"updated_at\": \"2026-10-08T01:00:00.000Z\"")
             .replace(Regex("\"updated_by\": \"[^\"]+\""), "\"updated_by\": \"old-phone\"")
         replaceFile("${folder}profile.json", old)
@@ -362,8 +357,8 @@ class HeartRateSyncTest {
         val file = repo.text("${folder}fitness-tests/$TEST_3.json")!!
         assertTrue(file, file.contains("\"testType\": \"maxHeartRateWalk\""))
         assertEquals(result, FitnessTestJson.decode(file.substringAfter("\"result\": ").substringBeforeLast(",\n  \"updated_at\"")))
-        val profile = repo.text("${folder}profile.json")!!
-        assertTrue(profile, profile.contains("\"measuredBpm\": 186"))
+        val fitness = repo.text("${folder}fitness.json")!!
+        assertTrue(fitness, fitness.contains("\"measuredBpm\": 186"))
 
         val b = device("phone", 2)
         b.sync()

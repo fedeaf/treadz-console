@@ -168,6 +168,8 @@ private class PerformanceCards(private val state: PerformanceUiState, private va
             }
             // Opened, the zone list below says it.
             if (PerformanceCard.Thresholds !in state.expanded) state.zones?.let { Passive(it.source.label(), "perf_zones_source") }
+            // The workouts say the thresholds may have moved: a test is recommended (the profile never changes by itself).
+            TestRecommendationNotes(state.recommendations)
         }) {
             state.zones?.let { ZoneList(it) }
             if (history.isNotEmpty()) {

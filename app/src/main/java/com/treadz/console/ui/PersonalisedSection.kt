@@ -3,15 +3,11 @@ package com.treadz.console.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,9 +25,8 @@ import com.treadz.console.programs.personalised.GeneratorNoticeCode
 import com.treadz.console.training.CouchCardState
 import com.treadz.console.training.GeneratorCardState
 import com.treadz.console.training.ProgramsUiState
-import com.treadz.console.training.SavedSessionState
 
-/** The "Personalised" part of the programs list: the generators, the sessions saved from each, and the Couch to 5K plan. */
+/** The "Personalised" part of the programs list: the generators and the Couch to 5K plan. Their sessions are inside each one. */
 fun LazyGridScope.personalisedItems(state: ProgramsUiState, actions: ProgramsActions) {
     item(span = { GridItemSpan(maxLineSpan) }) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -49,67 +44,23 @@ fun LazyGridScope.personalisedItems(state: ProgramsUiState, actions: ProgramsAct
     item(key = "generator-couch", span = { GridItemSpan(maxLineSpan) }) { CouchCard(state.couch, actions) }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GeneratorCard(card: GeneratorCardState, actions: ProgramsActions) {
     val id = card.descriptor.id
     Panel(Modifier.fillMaxWidth().testTag("generator_$id")) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(
-                Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { actions.onOpenGenerator(id) }).testTag("open_generator_$id"),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(generatorNameRes(id)), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (card.descriptor.heartRateGuided) Tag(stringResource(R.string.generator_tag_heart_rate), MaterialTheme.colorScheme.error, Modifier.testTag("generator_hr_tag_$id"))
-                }
-                Text(
-                    stringResource(generatorDescriptionRes(id)),
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                )
-                RowButton(stringResource(R.string.generator_new_session), { actions.onOpenGenerator(id) }, Modifier.testTag("new_session_$id"))
+        Column(
+            Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = { actions.onOpenGenerator(id) }).testTag("open_generator_$id").padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(generatorNameRes(id)), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (card.descriptor.heartRateGuided) Tag(stringResource(R.string.generator_tag_heart_rate), MaterialTheme.colorScheme.error, Modifier.testTag("generator_hr_tag_$id"))
             }
-            if (card.sessions.isNotEmpty()) {
-                SectionLabel(stringResource(R.string.generator_saved_sessions, card.sessions.size), Modifier.padding(top = 4.dp))
-                card.visibleSessions.forEach { SavedSessionRow(id, it, actions) }
-                if (card.canFold) {
-                    RowButton(
-                        if (card.expanded) stringResource(R.string.generator_show_fewer) else stringResource(R.string.generator_show_all, card.hiddenCount),
-                        { actions.onToggleSessions(id) },
-                        Modifier.testTag("toggle_sessions_$id"),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SavedSessionRow(generatorId: String, session: SavedSessionState, actions: ProgramsActions) {
-    val locale = currentLocale()
-    val details = listOfNotNull(
-        session.mode?.label(),
-        session.durationMinutes?.let { stringResource(R.string.duration_minutes, it) },
-        session.series?.let { stringResource(R.string.generator_series_count, it) },
-    )
-    Panel(Modifier.fillMaxWidth().testTag("saved_${session.programId}"), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                (listOf(Format.dateTime(session.createdAtMillis, locale)) + details).joinToString(" · "),
-                Modifier.testTag("saved_title_${session.programId}"),
-                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                stringResource(generatorDescriptionRes(id)),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis,
             )
-            // On a phone the buttons are narrower, so the four actions take fewer lines.
-            val wide = LocalLayout.current.wide
-            val padding = if (wide) ButtonDefaults.ContentPadding else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            val gap = if (wide) 8.dp else 6.dp
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(gap), verticalArrangement = Arrangement.spacedBy(gap)) {
-                RowButton(stringResource(R.string.saved_repeat), { actions.onOpen(session.programId) }, Modifier.testTag("repeat_${session.programId}"), contentPadding = padding)
-                RowButton(stringResource(R.string.saved_regenerate), { actions.onRegenerate(generatorId, session.programId) }, Modifier.testTag("regenerate_${session.programId}"), contentPadding = padding)
-                RowButton(stringResource(R.string.saved_duplicate), { actions.onDuplicate(session.programId) }, Modifier.testTag("duplicate_program_${session.programId}"), contentPadding = padding)
-                RowButton(stringResource(R.string.action_delete), { actions.onDelete(session.programId) }, Modifier.testTag("delete_program_${session.programId}"), destructive = true, contentPadding = padding)
-            }
+            RowButton(stringResource(R.string.generator_new_session), { actions.onOpenGenerator(id) }, Modifier.testTag("new_session_$id"))
         }
     }
 }

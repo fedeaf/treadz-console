@@ -113,12 +113,17 @@ fun plannedTargetText(block: ResolvedBlock, approximate: Boolean = true): String
     )
 }
 
-/** "Heart rate 118–134 bpm", or the percentages when the user's maximum is not known. */
+/**
+ * "Heart rate 118–134 bpm", or "Heart rate zone 2: 121–131 bpm" for a zone of the user's profile (resolved with their zones now);
+ * the percentages when the user's maximum is not known.
+ */
 @Composable
 fun zoneText(zone: com.treadz.console.programs.model.HeartRateZone, profile: HeartRateProfile?): String =
     if (profile != null && profile.isUsable) {
         val bpm = HeartRateZones.toBpm(zone, profile)
-        stringResource(R.string.block_list_hr_zone_bpm, bpm.lowBpm, bpm.highBpm)
+        val own = zone.profileZone
+        if (own != null && bpm.fromProfile) stringResource(R.string.block_list_hr_zone_profile_bpm, own, bpm.lowBpm, bpm.highBpm)
+        else stringResource(R.string.block_list_hr_zone_bpm, bpm.lowBpm, bpm.highBpm)
     } else {
         stringResource(
             if (zone.basis == HeartRateBasis.HeartRateReserve) R.string.block_list_hr_zone_reserve else R.string.block_list_hr_zone_max,

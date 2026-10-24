@@ -25,8 +25,13 @@ import kotlin.math.roundToInt
  * values**; the control moves [adjust] between [minimum] and [maximum] (text, as typed: km/h or %).
  */
 data class HeartRateDraft(
-    /** 0-4: Z1-Z5 of [HeartRateZones.STANDARD]; `null` for a zone of the user's own ([customLow], [customHigh]). */
-    val standardZone: Int? = 1,
+    /**
+     * 1-5: that zone of the **user's own zones** (their thresholds or level, [HeartRateZone.profileZone]), converted to bpm
+     * when the session starts. It wins over [standardZone]. A new heart-rate block asks for zone 2 of the profile.
+     */
+    val profileZone: Int? = 2,
+    /** 0-4: Z1-Z5 of [HeartRateZones.STANDARD] (when [profileZone] is not set); `null` for a zone of the user's own percentages ([customLow], [customHigh]). */
+    val standardZone: Int? = null,
     /** % of the basis, as typed. */
     val customLow: String = "60",
     val customHigh: String = "70",
@@ -188,9 +193,11 @@ object ProgramDrafts {
     }
 
     private fun draftOf(t: BlockTarget.HeartRate): HeartRateDraft {
+        val profile = t.zone.profileZone
         val standard = HeartRateZones.STANDARD.indexOfFirst { it.lowPercent == t.zone.lowPercent && it.highPercent == t.zone.highPercent }
         return HeartRateDraft(
-            standardZone = standard.takeIf { it >= 0 },
+            profileZone = profile,
+            standardZone = standard.takeIf { it >= 0 && profile == null },
             customLow = t.zone.lowPercent.toString(),
             customHigh = t.zone.highPercent.toString(),
             reserve = t.zone.basis == HeartRateBasis.HeartRateReserve,
@@ -207,7 +214,7 @@ object ProgramDrafts {
 
     // ---- heart-rate blocks
 
-    /** The heart-rate target a block starts with when the user switches to "Heart rate": zone 2, adjusting the speed. */
+    /** The heart-rate target a block starts with when the user switches to "Heart rate": zone 2 of their profile, adjusting the speed. */
     fun heartRateDraftFor(block: BlockDraft, speedMax: Double, inclineMax: Double): HeartRateDraft =
         HeartRateDraft().withAutoBounds(block, speedMax, inclineMax)
 
@@ -241,6 +248,7 @@ object ProgramDrafts {
 
     /** The zone a heart-rate draft asks for, or `null` while the typed percentages are not numbers. */
     fun zoneOf(hr: HeartRateDraft): HeartRateZone? {
+        hr.profileZone?.let { return HeartRateZone.ofProfile(it.coerceIn(1, 5)) }
         val basis = if (hr.reserve) HeartRateBasis.HeartRateReserve else HeartRateBasis.MaxHeartRate
         val standard = hr.standardZone?.let { HeartRateZones.STANDARD.getOrNull(it) }
         if (standard != null) return standard.copy(basis = basis)
@@ -311,7 +319,7 @@ object ProgramDrafts {
                     if (v == null) problems[ref(field)] = if (text.isBlank()) EditorProblem.Required else EditorProblem.NotWhole
                     return v ?: 0
                 }
-                val zone = if (hr.standardZone != null) {
+                val zone = if (hr.profileZone != null || hr.standardZone != null) {
                     zoneOf(hr) ?: HeartRateZone(HeartRateBasis.MaxHeartRate, 60, 70)
                 } else {
                     val low = percent(hr.customLow, EditorField.ZoneLow)

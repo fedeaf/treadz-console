@@ -41,10 +41,9 @@ sealed interface Screen {
     data object FitnessTests : Screen
 
     /**
-     * The inputs of a personalised program and the session generated from them. [fromProgramId] is a saved personalised
-     * program whose inputs fill the form ("Regenerate with today's data"), or `null`.
+     * The inputs of a personalised program and the session generated from them, and the sessions already done with it.
      */
-    data class Generator(val generatorId: String, val fromProgramId: String? = null) : Screen
+    data class Generator(val generatorId: String) : Screen
 
     /** Warning, subject and start speed of a fitness test. */
     data class FitnessStart(val type: FitnessTestType) : Screen

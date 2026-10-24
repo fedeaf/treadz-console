@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -84,6 +83,7 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
             LiveWideLayout(
                 sizes, Modifier.weight(1f),
                 main = {
+                    StrapWarning(test)
                     InstructionPanel(test, Modifier.weight(1f).fillMaxWidth())
                     // Incline, speed and heart rate: the same order and the same fixed size as the other live screens.
                     Row(Modifier.fillMaxWidth().height(sizes.adjustPanelHeight), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -113,6 +113,7 @@ fun FitnessRunScreen(ui: MainUiState, run: RunUiState, controls: ControlActions,
             LiveCompactLayout(
                 sizes, Modifier.weight(1f).fillMaxWidth(),
                 content = {
+                    StrapWarning(test)
                     InstructionPanel(test, Modifier.fillMaxWidth())
                     // On a phone the ramp start controls come first: they only exist during the warm-up and the figures would push them off screen.
                     RampStartPanel(test, actions)
@@ -156,6 +157,26 @@ private fun phaseColor(phase: FitnessTestPhase) = when (phase) {
     FitnessTestPhase.Stage1, FitnessTestPhase.Stage2, FitnessTestPhase.Incremental -> MaterialTheme.extra.ok
     FitnessTestPhase.Finished, FitnessTestPhase.Idle -> MaterialTheme.colorScheme.onSurfaceVariant
     else -> MaterialTheme.extra.warning
+}
+
+/**
+ * "Wet the strap or adjust it": while the warm-up of a maximal test sees too many wrong beats in the heart rate strap
+ * ([com.treadz.console.programs.fitness.StrapCheck.poor]). It goes by itself when the beats get better and it never blocks
+ * the test.
+ */
+@Composable
+private fun StrapWarning(test: FitnessTestProgress) {
+    val check = test.strapCheck?.takeIf { it.poor } ?: return
+    Panel(Modifier.fillMaxWidth().testTag("strap_warning").semantics { liveRegion = LiveRegionMode.Polite }, borderColor = MaterialTheme.extra.warning) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(stringResource(R.string.test_strap_poor), Modifier.testTag("strap_warning_text"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.extra.warning)
+            Text(
+                stringResource(R.string.test_strap_poor_detail, Format.number("%.0f", check.artifactPercent)),
+                Modifier.testTag("strap_warning_detail"),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 /** What to do now, in big letters, and how long this part lasts. */

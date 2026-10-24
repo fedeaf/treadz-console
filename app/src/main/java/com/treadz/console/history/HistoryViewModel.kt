@@ -2,7 +2,6 @@ package com.treadz.console.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.sync.service.SyncService
 import com.treadz.console.sync.service.SyncSetup
 import com.treadz.console.userdata.DataResult
@@ -82,13 +81,7 @@ class HistoryViewModel(
     /** The Couch to 5K session number of each workout of the active user that was one (it lives in the session record). */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val couchSessions: Flow<Map<Long, Int>> = userData.profiles.activeUser.flatMapLatest { user ->
-        if (user == null) {
-            flowOf(emptyMap())
-        } else {
-            userData.workouts.sessionRecords(user.id, CouchToFiveK.ID).map { records ->
-                records.mapNotNull { r -> CouchToFiveK.sessionOf(r.record)?.let { r.workoutId to it } }.toMap()
-            }
-        }
+        if (user == null) flowOf(emptyMap()) else ProgramSessions.couchSessionNumbers(userData, user.id)
     }
 
     private data class Content(

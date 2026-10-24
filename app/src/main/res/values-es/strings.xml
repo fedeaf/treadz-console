@@ -1006,16 +1006,9 @@
     <string name="generator_couch_to_5k_description">Un plan de 27 sesiones, tres por semana, que te lleva de caminar a correr 30 minutos seguidos. Mira cómo fue tu última sesión para decidir la siguiente.</string>
     <string name="generator_tag_heart_rate">Pulso</string>
     <string name="generator_new_session">Nueva sesión</string>
-    <string name="generator_saved_sessions">Sesiones guardadas (%1$d)</string>
-    <string name="generator_show_all">Ver todas (%1$d más)</string>
-    <string name="generator_show_fewer">Ver menos</string>
-    <string name="saved_repeat">Repetir</string>
-    <string name="saved_regenerate">Regenerar</string>
-    <string name="saved_duplicate">Duplicar como libre</string>
     <string name="programs_personalised">Personalizados</string>
-    <string name="programs_personalised_intro">Sesiones hechas para ti a partir de tus datos. Las guardadas se pueden repetir o generar de nuevo.</string>
+    <string name="programs_personalised_intro">Sesiones hechas para ti a partir de tus datos. Cada una se genera al empezarla; tus sesiones aparecen dentro de cada programa.</string>
     <string name="generator_not_found">Este generador no está disponible en esta versión de la app.</string>
-    <string name="generator_regenerating">Se genera de nuevo con los datos de hoy. Se han rellenado los valores de la sesión guardada; cámbialos si quieres.</string>
     <string name="generator_mode">Ejercicio</string>
     <string name="mode_walk">Caminando</string>
     <string name="mode_run">Corriendo</string>
@@ -1041,7 +1034,7 @@
     <string name="generator_problem_walking_speed">Revisa la velocidad de caminata.</string>
     <string name="generator_problem_rejected">No se puede generar una sesión con estos valores.</string>
     <string name="generated_on">Generado el %1$s</string>
-    <string name="generated_repeat_note">Se repite tal cual se generó, con los mismos valores. «Regenerar» crea uno nuevo con los datos de hoy.</string>
+    <string name="generated_repeat_note">Se repite tal cual se generó, con los mismos valores.</string>
     <string name="notice_estimated_values">Valores estimados: la intensidad es un 10 por ciento menor. Haz un test de forma para afinarlos.</string>
     <string name="notice_body_data">No se conoce tu altura o tu peso, así que se ha supuesto una complexión media.</string>
     <string name="notice_started_from_history">Las carreras empiezan a %1$s, donde se estabilizó tu pulso la última vez.</string>
@@ -1276,4 +1269,17 @@
     <string name="editor_keep_note">Empieza con el valor que tenga la cinta al empezar el bloque.</string>
     <string name="editor_keep_hr_note">Empieza con el valor que tenga la cinta, dentro de los límites del bloque.</string>
     <string name="err_first_block_keeps">No en el primer bloque: la cinta empieza parada, así que no hay nada que mantener.</string>
+    <!-- Improvements batch: events, the α1 brake notice, the 85 % rule, the recommendation of a test, the strap check, zones of the profile, sessions inside each program. -->
+    <string name="brake_notice">Bajada por α1: señal de umbral aeróbico</string>
+    <string name="result_not_maximal">Esfuerzo no máximo: tu pico (%1$d ppm) no llegó al 85 %% de tu FCmáx (%2$d ppm). Este test no da VO2máx ni VAM.</string>
+    <string name="test_reco_higher">En tus últimos %1$d entrenos el %2$s parece unas %3$d ppm más alto: ¿haces un test?</string>
+    <string name="test_reco_lower">En tus últimos %1$d entrenos el %2$s parece unas %3$d ppm más bajo: ¿haces un test?</string>
+    <string name="test_strap_poor">Moja la banda o ajústala</string>
+    <string name="test_strap_poor_detail">Cerca del %1$s %% de los latidos no son fiables.</string>
+    <string name="editor_hr_zones_profile">Tus zonas (siguen tus umbrales)</string>
+    <string name="editor_hr_zones_standard">Zonas estándar (% del máximo) o tus propios porcentajes</string>
+    <string name="editor_hr_profile_zone_chip">Z%1$d · %2$s</string>
+    <string name="block_list_hr_zone_profile_bpm">Pulso zona %1$d: %2$d–%3$d ppm</string>
+    <string name="program_sessions_title">Tus sesiones (%1$d)</string>
+    <string name="program_sessions_empty">Todavía no has hecho este programa.</string>
 </resources>

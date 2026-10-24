@@ -20,6 +20,7 @@ import com.treadz.console.training.EditorProblem
 import com.treadz.console.training.FieldRef
 import com.treadz.console.training.ProgramEditorViewModel
 import com.treadz.console.training.SingleStepDraft
+import com.treadz.console.training.UserZones
 import com.treadz.console.training.segments
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -39,7 +40,7 @@ class ProgramEditorHeartRateTest {
     private val data = app.userData
     private val userId get() = runBlocking { data.profiles.activeUserId()!! }
 
-    private fun newEditor() = ProgramEditorViewModel(null, data, app.controller)
+    private fun newEditor() = ProgramEditorViewModel(null, data, app.controller, app::today)
     private val ProgramEditorViewModel.state get() = uiState.value
     private fun ProgramEditorViewModel.block(step: Int) = (state.draft.steps[step] as SingleStepDraft).block
     private val maxBpm get() = runBlocking { data.fitnessTests.heartRateMax(userId).first()!!.bpm }
@@ -51,7 +52,8 @@ class ProgramEditorHeartRateTest {
         val vm = heartRateEditor()
         val hr = checkNotNull(vm.block(1).heartRate)
 
-        assertEquals(1, hr.standardZone) // zone 2
+        assertEquals(2, hr.profileZone) // zone 2 of the user's profile
+        assertNull(hr.standardZone)
         assertEquals(HeartRateAdjust.Speed, hr.adjust)
         assertFalse(hr.reserve)
         assertEquals("8.0", vm.block(1).speed)
@@ -100,26 +102,81 @@ class ProgramEditorHeartRateTest {
         assertEquals(6.0, parsed.maximum, 0.001)
     }
 
+    /** The user's five zones and the heart-rate profile of the engine, as the editor builds them. */
+    private fun userProfile(): HeartRateProfile = runBlocking {
+        val user = data.profiles.activeUser.first()!!
+        UserZones.heartRateProfile(
+            user, data.fitnessTests.liveFitnessProfile(user.id).first(), data.fitnessTests.heartRateMax(user.id).first(),
+            data.restingHeartRates.reference(user.id).first()?.bpm, app.date,
+        )!!
+    }
+
     @Test fun theZoneIsShownInBpmForTheActiveUserAndFollowsTheValues() {
         val vm = heartRateEditor()
         val profile = HeartRateProfile(maxBpm, null)
-        assertEquals(HeartRateZones.toBpm(HeartRateZones.STANDARD[1], profile), vm.state.zoneBpm[1 to null])
+        // The default is zone 2 of the user's own zones, in the bpm the session will use.
+        val own = HeartRateZones.toBpm(HeartRateZone.ofProfile(2), userProfile())
+        assertTrue(own.fromProfile)
+        assertEquals(own, vm.state.zoneBpm[1 to null])
 
-        vm.setZone(1, null, 3) // zone 4
+        // A standard zone is a percentage of the maximum.
+        vm.setZone(1, null, 3) // standard zone 4
+        assertNull(vm.block(1).heartRate!!.profileZone)
         assertEquals(HeartRateZones.toBpm(HeartRateZones.STANDARD[3], profile), vm.state.zoneBpm[1 to null])
 
-        // A zone of the user's own starts from the zone that was set.
+        // Percentages of one's own start from the zone that was set.
         vm.setZone(1, null, null)
-        val own = vm.block(1).heartRate!!
-        assertNull(own.standardZone)
-        assertEquals("80", own.customLow)
-        assertEquals("90", own.customHigh)
+        val custom = vm.block(1).heartRate!!
+        assertNull(custom.standardZone)
+        assertNull(custom.profileZone)
+        assertEquals("80", custom.customLow)
+        assertEquals("90", custom.customHigh)
         vm.editHeartRate(1, null) { it.copy(customLow = "55", customHigh = "65") }
         assertEquals(HeartRateZones.toBpm(HeartRateZone(HeartRateBasis.MaxHeartRate, 55, 65), profile), vm.state.zoneBpm[1 to null])
 
         // While a percentage is not a number there is no zone to show.
         vm.editHeartRate(1, null) { it.copy(customLow = "") }
         assertNull(vm.state.zoneBpm[1 to null])
+    }
+
+    @Test fun aBlockCanTargetAnyZoneOfTheProfileAndItIsSavedAsSuch() {
+        val vm = heartRateEditor()
+        vm.setName("Profile zones")
+        vm.setProfileZone(1, null, 4)
+        val hr = vm.block(1).heartRate!!
+        assertEquals(4, hr.profileZone)
+        assertNull(hr.standardZone)
+        assertEquals(HeartRateZones.toBpm(HeartRateZone.ofProfile(4), userProfile()), vm.state.zoneBpm[1 to null])
+        assertEquals(4, vm.state.plan!!.blocks[1].heartRate!!.zone.profileZone)
+
+        var saved = false
+        vm.save { saved = true }
+        assertTrue(saved)
+        val program = runBlocking { data.programs.programs(userId).first() }.single().program
+        val target = (program.steps[1] as Block).target as BlockTarget.HeartRate
+        assertEquals(HeartRateZone.ofProfile(4), target.zone)
+
+        // Reopened, it is still zone 4 of the profile (not the standard zone with the same percentages).
+        val reopened = ProgramEditorViewModel(program.id, data, app.controller, app::today)
+        assertEquals(4, reopened.block(1).heartRate!!.profileZone)
+        assertNull(reopened.block(1).heartRate!!.standardZone)
+
+        // Choosing a standard zone takes the profile zone away.
+        reopened.setZone(1, null, 3)
+        assertNull(reopened.block(1).heartRate!!.profileZone)
+        assertEquals(3, reopened.block(1).heartRate!!.standardZone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 80, 90), reopened.state.plan!!.blocks[1].heartRate!!.zone)
+    }
+
+    @Test fun theZoneInBpmFollowsTheZonesOfTheProfileWhenTheyChange() {
+        val vm = heartRateEditor()
+        val before = vm.state.zoneBpm[1 to null]!!
+        // The user's maximum heart rate changes (a measured one): the zones of the profile move with it, and the editor shows it.
+        val user = runBlocking { data.profiles.activeUser.first()!! }
+        runBlocking { data.profiles.update(user.id, com.treadz.console.userdata.GenericProfile.input(app.date).copy(maxHeartRateBpm = 200)) }
+        val after = vm.state.zoneBpm[1 to null]!!
+        assertTrue("$before -> $after", after.highBpm > before.highBpm)
+        assertEquals(HeartRateZones.toBpm(HeartRateZone.ofProfile(2), userProfile()), after)
     }
 
     @Test fun theReserveIsOffUntilTheUserHasARestingHeartRate() {
@@ -131,6 +188,8 @@ class ProgramEditorHeartRateTest {
         val ana = data.createProfile("Ana") // her profile has a resting heart rate of 60
         runBlocking { data.profiles.setActiveUser(ana.id) }
         assertTrue(vm.state.hasResting)
+        // A percentage of the reserve belongs to the standard zones and the user's own percentages, not to the zones of the profile.
+        vm.setZone(1, null, 1)
         vm.setReserve(1, null, true)
         assertTrue(vm.block(1).heartRate!!.reserve)
 
@@ -232,7 +291,7 @@ class ProgramEditorHeartRateTest {
         assertEquals(9.0, target.maximum, 0.001)
         assertEquals(BlockTarget.Absolute(5.5, 4.0), target.start)
 
-        val reopened = ProgramEditorViewModel(program.id, data, app.controller)
+        val reopened = ProgramEditorViewModel(program.id, data, app.controller, app::today)
         val hr = checkNotNull(reopened.block(1).heartRate)
         assertEquals(2, hr.standardZone)
         assertEquals(HeartRateAdjust.Incline, hr.adjust)

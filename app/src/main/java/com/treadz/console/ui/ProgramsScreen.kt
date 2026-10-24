@@ -42,13 +42,9 @@ data class ProgramsActions(
     val onOpenFitnessTests: () -> Unit = {},
     /** Opens the generator screen of a personalised program (new session). */
     val onOpenGenerator: (String) -> Unit = {},
-    /** Opens the generator screen with the inputs of a saved personalised program, to generate it again with today's data. */
-    val onRegenerate: (generatorId: String, programId: String) -> Unit = { _, _ -> },
-    /** Unfolds or folds the saved sessions of a generator. */
-    val onToggleSessions: (String) -> Unit = {},
 )
 
-/** The standard programs and the active user's own programs. */
+/** The active user's own programs, the personalised ones (generated when started) and the standard ones, in that order. */
 @Composable
 fun ProgramsScreen(state: ProgramsUiState, actions: ProgramsActions, modifier: Modifier = Modifier) {
     val layout = LocalLayout.current
@@ -65,9 +61,6 @@ fun ProgramsScreen(state: ProgramsUiState, actions: ProgramsActions, modifier: M
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) { FitnessEntry(actions.onOpenFitnessTests) }
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel(stringResource(R.string.programs_standard)) }
-            items(state.standard, key = { it.id }) { card -> ProgramCard(card, actions) }
-            personalisedItems(state, actions)
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionLabel(stringResource(R.string.programs_mine), Modifier.weight(1f))
@@ -86,6 +79,9 @@ fun ProgramsScreen(state: ProgramsUiState, actions: ProgramsActions, modifier: M
             } else {
                 items(state.mine, key = { it.id }) { card -> ProgramCard(card, actions) }
             }
+            personalisedItems(state, actions)
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel(stringResource(R.string.programs_standard)) }
+            items(state.standard, key = { it.id }) { card -> ProgramCard(card, actions) }
             if (state.failed) item(span = { GridItemSpan(maxLineSpan) }) { ErrorText(stringResource(R.string.error_storage)) }
         }
     }
@@ -126,7 +122,6 @@ private fun ProgramCard(card: ProgramCardState, actions: ProgramsActions) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(name, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (card.kind == ProgramKind.Personalised) Tag(card.kind.label(), MaterialTheme.colorScheme.secondary)
             }
             if (!description.isNullOrBlank()) {
                 Text(description, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -141,10 +136,7 @@ private fun ProgramCard(card: ProgramCardState, actions: ProgramsActions) {
             if (card.kind != ProgramKind.Standard) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (card.editable) RowButton(stringResource(R.string.action_edit), { actions.onEdit(card.id) }, Modifier.testTag("edit_program_${card.id}"))
-                    RowButton(
-                        stringResource(if (card.kind == ProgramKind.Personalised) R.string.saved_duplicate else R.string.program_duplicate),
-                        { actions.onDuplicate(card.id) }, Modifier.testTag("duplicate_program_${card.id}"),
-                    )
+                    RowButton(stringResource(R.string.program_duplicate), { actions.onDuplicate(card.id) }, Modifier.testTag("duplicate_program_${card.id}"))
                     RowButton(stringResource(R.string.action_delete), { actions.onDelete(card.id) }, Modifier.testTag("delete_program_${card.id}"), destructive = true)
                 }
             }

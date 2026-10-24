@@ -84,7 +84,7 @@ class FakeApp(
     val trainingErrors = mutableListOf<Throwable>()
 
     override val training: TrainingCoordinator by lazy {
-        TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, trainingScope, onError = { trainingErrors += it }, today = { today() })
+        TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, trainingScope, onError = { trainingErrors += it }, today = { today() }, clock = trainingClock)
     }
 
 

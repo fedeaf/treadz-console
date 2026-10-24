@@ -23,6 +23,9 @@ import com.treadz.console.R
 import com.treadz.console.analysis.thresholds.ThresholdPoint
 import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.thresholds.ThresholdReason
+import com.treadz.console.analysis.trends.RecommendationDirection
+import com.treadz.console.analysis.trends.ThresholdRecommendation
+import com.treadz.console.analysis.workout.ThresholdKind
 import com.treadz.console.analysis.zones.ZoneRange
 import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.analysis.zones.ZoneSource
@@ -148,6 +151,37 @@ private fun ProfileThresholdRow(label: String, estimate: ThresholdEstimate, tag:
             estimate.quality.label(), Modifier.fillMaxWidth().testTag("${tag}_quality"),
             style = MaterialTheme.typography.bodySmall, color = estimate.quality.color(), textAlign = TextAlign.End,
         )
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Recommendation of a test
+
+/** "In your last 4 workouts VT1 looks about 8 bpm higher: want to take a test?" */
+@Composable
+fun ThresholdRecommendation.text(): String = stringResource(
+    if (direction == RecommendationDirection.Higher) R.string.test_reco_higher else R.string.test_reco_lower,
+    workouts,
+    stringResource(if (kind == ThresholdKind.Vt1) R.string.perf_vt1_short else R.string.perf_vt2_short),
+    differenceBpm,
+)
+
+/**
+ * What the user's workouts suggest about their thresholds: a test is recommended, nothing changes by itself. It cannot be
+ * dismissed and goes when a new test is done. Nothing when there is no recommendation.
+ */
+@Composable
+fun TestRecommendationNotes(recommendations: List<ThresholdRecommendation>, modifier: Modifier = Modifier) {
+    if (recommendations.isEmpty()) return
+    Column(modifier.fillMaxWidth().testTag("test_recommendations"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        recommendations.forEach { r ->
+            Panel(Modifier.fillMaxWidth().testTag("test_recommendation_${r.kind.name.lowercase()}"), borderColor = MaterialTheme.colorScheme.secondary) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatusDot(MaterialTheme.colorScheme.secondary, size = 12.dp)
+                    Text(r.text(), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }
 

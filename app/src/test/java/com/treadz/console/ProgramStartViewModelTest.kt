@@ -48,7 +48,7 @@ class ProgramStartViewModelTest {
 
     private fun viewModel(programId: String): ProgramStartViewModel {
         ana // the demo users exist before the screen opens
-        return ProgramStartViewModel(programId, app.userData, app.training, controller)
+        return ProgramStartViewModel(programId, app.userData, app.training, controller, app::today)
     }
 
     private val ProgramStartViewModel.state get() = uiState.value
@@ -316,5 +316,39 @@ class ProgramStartViewModelTest {
         assertEquals(shown.blocks.map { it.phase }, again.blocks.map { it.phase })
         assertNotNull(again)
         assertTrue(shown.blocks.all { it.end is BlockEnd.Duration })
+    }
+
+    // ---- The zones of the profile and the sessions of the program ----
+
+    @Test fun theHeartRateProfileOfThePreviewCarriesTheUsersZonesSoAZoneOfTheProfileIsShownInTheBpmOfTheSession() {
+        restingBelt()
+        val profile = checkNotNull(viewModel("standard-pyramid").state.heartRateProfile)
+        val zones = checkNotNull(profile.zones)
+        assertEquals(5, zones.zones.size)
+        assertEquals(zones.vt1Bpm, profile.vt1Bpm)
+        // The preview resolves a zone of the profile with them, exactly as the engine will.
+        val shown = com.treadz.console.programs.heartrate.HeartRateZones.toBpm(com.treadz.console.programs.model.HeartRateZone.ofProfile(2), profile)
+        assertTrue(shown.fromProfile)
+        assertEquals(zones.zones.first { it.number == 2 }.highBpm, shown.highBpm)
+    }
+
+    @Test fun theSessionsOfAProgramAreTheWorkoutsThatRanItNewestFirst() {
+        restingBelt()
+        val plan = rig.standardPlan("standard-pyramid")
+        val vm = viewModel("standard-pyramid")
+        assertTrue(vm.state.sessions.workouts.isEmpty())
+
+        fun add(plan: com.treadz.console.programs.plan.ResolvedPlan, daysAgo: Long): Long {
+            val start = app.nowMillis() - daysAgo * 86_400_000L
+            val samples = com.treadz.console.fakes.PerformanceFixtures.samples(com.treadz.console.fakes.PerformanceFixtures.Session(minutes = 10), start)
+            val id = app.userData.addWorkout(ana.id, com.treadz.console.fakes.PerformanceFixtures.stats(samples), samples, start)
+            runBlocking { app.userData.workouts.link(id, com.treadz.console.userdata.WorkoutLink(plan = plan)) }
+            return id
+        }
+        val first = add(plan, 5)
+        val second = add(plan, 1)
+        add(rig.standardPlan("standard-hill"), 2)
+        assertEquals(listOf(second, first), vm.state.sessions.workouts.map { it.id })
+        assertEquals(listOf("standard-pyramid"), vm.state.sessions.workouts.map { it.programId }.distinct())
     }
 }

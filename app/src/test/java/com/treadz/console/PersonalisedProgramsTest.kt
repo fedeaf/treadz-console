@@ -12,7 +12,6 @@ import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.model.ProgramOrigin
 import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.personalised.CouchToFiveKDecision
-import com.treadz.console.programs.personalised.ExerciseMode
 import com.treadz.console.programs.personalised.GeneratorNoticeCode
 import com.treadz.console.programs.personalised.ProgramGenerators
 import com.treadz.console.training.GeneratorCardState
@@ -26,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -34,7 +32,7 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** The Personalised part of the programs list: the generators, their saved sessions and the Couch to 5K card. */
+/** The Personalised part of the programs list: the generators and the Couch to 5K card; the programs of the user. */
 class PersonalisedProgramsTest {
 
     @get:Rule val main = MainDispatcherRule()
@@ -62,54 +60,17 @@ class PersonalisedProgramsTest {
 
     @Test fun theGeneratorsAreListedInTheRegistrysOrderWithCouchToFiveKOnItsOwn() {
         assertEquals(listOf("zone2", "tempo", "norwegian-4x4", "intervals-30-30"), state.generators.map { it.descriptor.id })
-        assertTrue(state.generators.all { it.sessions.isEmpty() })
         assertEquals(ProgramGenerators.all.map { it.descriptor.id }.toSet(), (state.generators.map { it.descriptor.id } + CouchToFiveK.ID).toSet())
         assertTrue(state.generators.filter { it.descriptor.heartRateGuided }.map { it.descriptor.id }.containsAll(listOf("zone2", "tempo", "norwegian-4x4")))
         assertFalse(card("intervals-30-30").descriptor.heartRateGuided)
     }
 
-    // ---- Saved sessions ----
+    // ---- Sessions saved by an older version ----
 
-    @Test fun savedSessionsAreGroupedUnderTheirGeneratorNewestFirstWithTheLatestThreeOnView() {
-        val ids = (1..5).map { saveSession("zone2", noon - (6 - it) * day, GeneratorForm(mode = if (it % 2 == 0) ExerciseMode.Walk else ExerciseMode.Run, durationMinutes = 20 + it * 5)) }
-        saveSession("tempo", noon - day)
-
-        val zone2 = card("zone2")
-        assertEquals(ids.reversed(), zone2.sessions.map { it.programId })
-        assertEquals(ids.reversed().take(3), zone2.visibleSessions.map { it.programId })
-        assertEquals(2, zone2.hiddenCount)
-        assertTrue(zone2.canFold)
-        assertEquals(1, card("tempo").sessions.size)
-        assertFalse(card("tempo").canFold)
-
-        // Each one says its date, mode and main input.
-        val newest = zone2.sessions.first()
-        assertEquals(noon - day, newest.createdAtMillis)
-        assertEquals(ExerciseMode.Run, newest.mode)
-        assertEquals(45, newest.durationMinutes)
-        assertNull(newest.series)
-        assertEquals(ExerciseMode.Walk, zone2.sessions[1].mode)
-
-        // "Show all" unfolds and folds again.
-        vm.toggleExpanded("zone2")
-        assertEquals(5, card("zone2").visibleSessions.size)
-        assertEquals(0, card("zone2").hiddenCount)
-        vm.toggleExpanded("zone2")
-        assertEquals(3, card("zone2").visibleSessions.size)
-    }
-
-    @Test fun theMainInputOfThirtyThirtyIsItsNumberOfSeries() {
-        saveSession("intervals-30-30", noon, GeneratorForm(mode = ExerciseMode.Run, series = 18))
-        val saved = card("intervals-30-30").sessions.single()
-        assertEquals(18, saved.series)
-        assertNull(saved.durationMinutes)
-    }
-
-    @Test fun sessionsOfAnotherUserOrAFutureGeneratorDoNotLandUnderTheCards() {
-        val other = data.createProfile("Beto")
-        val generated = GeneratedFixtures.generate(data, user, "zone2", null, today, noon)
-        runBlocking { data.programs.save(other.id, generated.program) }
-        // A program of a generator this version does not know (synced from a newer app) stays in "My programs".
+    @Test fun personalisedProgramsSavedBeforeAreListedNowhere() {
+        saveSession("zone2", noon - day)
+        saveSession("tempo", noon)
+        // A program of a generator this version does not know (synced from a newer app) is not listed either: it has an origin.
         val future = Program(
             id = "", name = "Future", kind = ProgramKind.Personalised,
             steps = listOf(Block(BlockPhase.Work, BlockEnd.Duration(600), BlockTarget.Absolute(6.0, 1.0))),
@@ -117,40 +78,49 @@ class PersonalisedProgramsTest {
         )
         runBlocking { data.programs.save(user.id, future) }
 
-        assertTrue(state.generators.all { it.sessions.isEmpty() })
-        val mine = state.mine.single()
-        assertEquals("Future", mine.name)
-        assertEquals(ProgramKind.Personalised, mine.kind)
-        assertFalse(mine.editable)
+        assertTrue(state.mine.isEmpty())
+        assertEquals(listOf("zone2", "tempo", "norwegian-4x4", "intervals-30-30"), state.generators.map { it.descriptor.id })
     }
 
-    @Test fun deletingASavedSessionAsksFirstAndRemovesIt() {
-        val id = saveSession("tempo", noon)
+    private fun saveFree(name: String = "Mine"): String {
+        val free = Program(
+            id = "", name = name, kind = ProgramKind.Free,
+            steps = listOf(Block(BlockPhase.Work, BlockEnd.Duration(600), BlockTarget.Absolute(6.0, 1.0))),
+        )
+        return (runBlocking { data.programs.save(user.id, free) } as ProgramSaveResult.Saved).program.id
+    }
+
+    @Test fun myProgramsAreTheFreeOnesWithoutOrigin() {
+        saveSession("zone2", noon)
+        val id = saveFree()
+        assertEquals(listOf(id), state.mine.map { it.id })
+        assertTrue(state.mine.single().editable)
+    }
+
+    @Test fun deletingAProgramAsksFirstAndRemovesIt() {
+        val id = saveFree()
         vm.requestDelete(id)
         assertEquals(id, state.confirmingDeleteId)
-        assertNotNull(state.nameOf(id))
+        assertEquals("Mine", state.nameOf(id))
         vm.cancelDelete()
-        assertEquals(1, card("tempo").sessions.size)
+        assertEquals(1, state.mine.size)
 
         vm.requestDelete(id)
         vm.confirmDelete()
-        assertTrue(card("tempo").sessions.isEmpty())
+        assertTrue(state.mine.isEmpty())
         assertNull(runBlocking { data.programs.get(id) })
     }
 
-    @Test fun duplicatingAsFreeMakesAnEditableCopyWithoutOrigin() {
-        val id = saveSession("norwegian-4x4", noon)
+    @Test fun duplicatingMakesAnEditableCopy() {
+        val id = saveFree()
         var copyId: String? = null
         vm.duplicate(id) { copyId = it }
         val copy = checkNotNull(runBlocking { data.programs.get(checkNotNull(copyId)) }).program
-        val original = checkNotNull(runBlocking { data.programs.get(id) }).program
 
         assertEquals(ProgramKind.Free, copy.kind)
         assertNull(copy.origin)
-        assertEquals(original.steps, copy.steps)
-        assertEquals("${original.name} (copy)", copy.name)
-        // The original stays under its generator; the copy is one of "My programs" and can be edited.
-        assertEquals(1, card("norwegian-4x4").sessions.size)
+        assertEquals("Mine (copy)", copy.name)
+        assertEquals(2, state.mine.size)
         assertTrue(state.mine.single { it.id == copyId }.editable)
     }
 
@@ -221,7 +191,6 @@ class PersonalisedProgramsTest {
         user
         runBlocking { data.profiles.setActiveUser(null) }
         assertNull(state.couch)
-        assertTrue(state.generators.all { it.sessions.isEmpty() })
         assertTrue(runBlocking { data.programs.programs(user.id).first() }.isEmpty())
     }
 }

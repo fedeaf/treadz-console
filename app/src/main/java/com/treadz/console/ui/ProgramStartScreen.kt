@@ -46,8 +46,8 @@ data class ProgramStartActions(
     val onRestoreDefaults: () -> Unit = {},
     val onStart: () -> Unit = {},
     val onSaveAsFree: (String) -> Unit = {},
-    /** Opens the generator with the inputs of this personalised program, to generate it again with today's data. */
-    val onRegenerate: () -> Unit = {},
+    /** Opens the detail of one of the sessions listed in the screen. */
+    val onOpenWorkout: (Long) -> Unit = {},
 )
 
 /** Start screen of a program: what to choose, the plan it gives, and START. */
@@ -70,6 +70,7 @@ fun ProgramStartScreen(state: ProgramStartUiState, actions: ProgramStartActions,
                     Column(Modifier.weight(0.9f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Intro(state, actions)
                         StartForm(state, actions)
+                        ProgramSessionsSection(state.sessions, actions.onOpenWorkout)
                     }
                     if (state.origin != null || state.plan?.blocks?.any { it.heartRate != null } == true) {
                         // With the list of blocks the preview is taller than the screen: it scrolls.
@@ -87,6 +88,7 @@ fun ProgramStartScreen(state: ProgramStartUiState, actions: ProgramStartActions,
                     Intro(state, actions)
                     StartForm(state, actions)
                     PlanPreview(state, actions.onSaveAsFree, Modifier.fillMaxWidth(), fill = false)
+                    ProgramSessionsSection(state.sessions, actions.onOpenWorkout)
                 }
                 StartBar(state, actions)
             }
@@ -122,7 +124,6 @@ private fun Intro(state: ProgramStartUiState, actions: ProgramStartActions) {
                 if (details.isNotEmpty()) Text(details.joinToString(" · "), Modifier.testTag("generated_inputs"), style = MaterialTheme.typography.bodyLarge)
                 GeneratedZoneOrigin(inputs)
                 Text(stringResource(R.string.generated_repeat_note), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                RowButton(stringResource(R.string.saved_regenerate), actions.onRegenerate, Modifier.testTag("regenerate_button"))
             }
         }
     }

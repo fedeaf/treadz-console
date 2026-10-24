@@ -267,14 +267,14 @@ object FitnessProfileCalculator {
                 days <= rules.maximalRecencyDays
         }
         // The walking test's VO2max (ACSM on a ramp) weighs less while a valid running test counts in the profile.
-        val recentRunning = usable.any { (r, _) ->
+        val validRunning = usable.any { (r, _) ->
             val o = checkNotNull(r.outputs)
             r.testType == FitnessTestType.MaxIncrementalRun && o.effort == EffortAssessment.Maximal && !o.vo2maxIsLowerBound
         }
         val factors = usable.map { (r, _) ->
             when {
                 r.testType == FitnessTestType.EbbelingWalk && recentMaximal -> rules.submaximalFactorWithMaximal
-                r.testType == FitnessTestType.MaxHeartRateWalk && recentRunning -> rules.walkingFactorWithRunning
+                r.testType == FitnessTestType.MaxHeartRateWalk && validRunning -> rules.walkingFactorWithRunning
                 else -> 1.0
             }
         }

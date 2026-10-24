@@ -34,7 +34,7 @@ class SimTrainingRig(
     val links = RecordingSessionLinks()
     val programRunner = ProgramRunner(controller, bg, clock)
     val fitnessRunner = FitnessTestRunner(controller, bg, clock)
-    val training = TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, bg)
+    val training = TrainingCoordinator(controller, programRunner, fitnessRunner, links, userData, bg, clock = clock)
 
     init {
         sim.heartRateModel = model

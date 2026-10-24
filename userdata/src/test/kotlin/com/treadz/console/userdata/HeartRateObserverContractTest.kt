@@ -375,4 +375,41 @@ class HeartRatePeakTrackerTest {
         assertEquals(HeartRateSourceKind.TreadmillConsole, peak.source)
         assertNull(HeartRatePeakTracker.of(emptyList()))
     }
+
+    /** One strap reading per second with the RR that arrived with it. */
+    private fun strap(t: HeartRatePeakTracker, from: Long, seconds: Int, bpm: Int, rr: List<Int>, source: HeartRateSourceKind = HeartRateSourceKind.DirectStrap) =
+        repeat(seconds) { t.add(from + it * 1000L, bpm, source, rr) }
+
+    @Test fun `a strap reading its RR do not confirm is not a peak`() {
+        val t = HeartRatePeakTracker()
+        strap(t, 0, 60, 127, listOf(472, 472))
+        // 12 s of 137 from the strap while the beats are a mix of impossible intervals
+        strap(t, 60_000, 12, 137, listOf(472, 300, 260))
+        strap(t, 72_000, 30, 127, listOf(472, 472))
+        assertEquals(127, t.peak!!.bpm)
+    }
+
+    @Test fun `a real rise confirmed by the RR is the peak`() {
+        val t = HeartRatePeakTracker()
+        strap(t, 0, 60, 127, listOf(472, 472))
+        strap(t, 60_000, 30, 138, listOf(435, 435))
+        assertEquals(138, t.peak!!.bpm)
+    }
+
+    @Test fun `without RR every window counts, as before`() {
+        val t = HeartRatePeakTracker()
+        strap(t, 0, 60, 127, emptyList(), HeartRateSourceKind.TreadmillConsole)
+        strap(t, 60_000, 12, 137, emptyList(), HeartRateSourceKind.TreadmillConsole)
+        assertEquals(137, t.peak!!.bpm)
+    }
+
+    @Test fun `from stored samples the RR of the strap are used too`() {
+        fun sample(seq: Int, bpm: Int, rr: List<Int>) = WorkoutSample(
+            seq, T0 + seq * 1000L, seq, 5.6, 5.6, 7.0, 0, 0, bpm, BeltStatus.Running, false, HeartRateSourceKind.DirectStrap, rr,
+        )
+        val samples = (0 until 60).map { sample(it, 127, listOf(472, 472)) } +
+            (60 until 72).map { sample(it, 137, listOf(472, 300, 260)) } +
+            (72 until 100).map { sample(it, 127, listOf(472, 472)) }
+        assertEquals(127, HeartRatePeakTracker.of(samples)!!.bpm)
+    }
 }

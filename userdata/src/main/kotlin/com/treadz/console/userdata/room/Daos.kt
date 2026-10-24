@@ -197,6 +197,10 @@ internal interface WorkoutDao {
     @Query("UPDATE workouts SET userId = :userId, dirty = 1, updatedAtMillis = :at, updatedBy = :by WHERE id = :id AND deleted = 0")
     suspend fun assign(id: Long, userId: Long, at: Long, by: String): Int
 
+    /** The calories computed when the workout is assigned (part of that change: [assign] stamps and marks it). */
+    @Query("UPDATE workouts SET calories = :calories WHERE id = :id AND deleted = 0")
+    suspend fun setCalories(id: Long, calories: Int): Int
+
     /** Tombstones a workout; its samples are dropped (the tombstone keeps the identity and the summary). */
     @Query(
         "UPDATE workouts SET deleted = 1, dirty = 1, planJson = NULL, sessionRecordJson = NULL, eventsJson = NULL, updatedAtMillis = :at, updatedBy = :by " +

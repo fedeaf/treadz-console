@@ -103,6 +103,29 @@ class LoadEventsRunnerTest {
         rig.runner.stop()
     }
 
+    // ------------------------------------------------------------------ block starts
+
+    @Test
+    fun `block starts - where every block really started, skipped or at its end, in the progress and as events`() = runTest {
+        val rig = ProgramRig(this)
+        rig.connect()
+        rig.start(planOf(timed(300, 6.0, 0.0, BlockPhase.WarmUp), timed(60, 6.0, 2.0), timed(60, 5.0, 0.0, BlockPhase.CoolDown)))
+        rig.awaitTrue(message = "running") { rig.progress.state == RunState.Running && rig.controller.state.value.speedKmh >= 5.9 }
+        delay(100_000)
+        assertEquals(RunnerResult.Success, rig.runner.skipToNext())
+        val skippedAt = rig.progress.totalElapsedSeconds
+        rig.awaitTrue(message = "cool-down") { rig.progress.currentBlockIndex == 2 }
+        val starts = rig.progress.blockStarts
+        assertEquals(listOf(0, 1, 2), starts.map { it.blockIndex })
+        assertEquals(0, starts[0].programSeconds)
+        assertTrue(starts[1].programSeconds in skippedAt - 1..skippedAt, "$starts vs skip at $skippedAt")
+        // the work block ran its full minute after the skip
+        assertTrue(starts[2].programSeconds - starts[1].programSeconds in 59..61, "$starts")
+        val events = rig.runner.loadEvents.value.of(LoadEventType.BlockStarted)
+        assertEquals(starts.drop(1).map { LoadEvent(it.programSeconds, LoadEventType.BlockStarted, block = it.blockIndex) }, events)
+        rig.runner.stop()
+    }
+
     // ------------------------------------------------------------------ heart-rate regulation
 
     @Test
@@ -123,7 +146,7 @@ class LoadEventsRunnerTest {
         assertTrue(increases.all { it.quantity == LoadQuantity.Speed })
         assertTrue(decreases.last().seconds < increases.first().seconds)
         // Nothing but the regulation happened.
-        assertTrue(events.all { it.type == LoadEventType.HeartRateDecrease || it.type == LoadEventType.HeartRateIncrease }, "$events")
+        assertTrue(events.all { it.type == LoadEventType.HeartRateDecrease || it.type == LoadEventType.HeartRateIncrease || it.type == LoadEventType.BlockStarted }, "$events")
         // The regulation does not start before the block does (180 s of warm-up).
         assertTrue(events.all { it.seconds >= 180 })
         rig.runner.stop()

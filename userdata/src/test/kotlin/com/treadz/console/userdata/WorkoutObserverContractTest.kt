@@ -2,6 +2,7 @@
 
 package com.treadz.console.userdata
 
+import com.treadz.console.analysis.fitness.EnergyExpenditure
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.TreadmillEvent
@@ -29,6 +30,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import org.robolectric.RobolectricTestRunner
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 /**
@@ -135,7 +137,8 @@ abstract class WorkoutObserverContractTest {
         assertEquals(T0 + 12_000, w.endedAtMillis)
         assertEquals(10, w.stats.durationSeconds)
         assertEquals(20, w.stats.distanceMeters)
-        assertEquals(10, w.stats.calories)
+        // without the user's weight there are no calories (the treadmill's own count is not used)
+        assertEquals(0, w.stats.calories)
         // moving average of the samples with the belt moving: five at 6, five at 10 and one decelerating at 2
         assertEquals((5 * 6.0 + 5 * 10.0 + 2.0) / 11, w.stats.averageSpeedKmh, 1e-9)
         assertEquals(10.0, w.stats.maxSpeedKmh, 0.0)
@@ -156,7 +159,7 @@ abstract class WorkoutObserverContractTest {
         // the treadmill zeroes distance, time and calories in that packet: the sample keeps what the session reached
         assertEquals(10, last.elapsedSeconds)
         assertEquals(20, last.distanceMeters)
-        assertEquals(10, last.calories)
+        assertEquals(0, last.calories)
         val fifth = detail.samples[5]
         assertEquals(6.0, fifth.speedKmh, 0.0)
         assertEquals(5, fifth.elapsedSeconds)
@@ -389,7 +392,7 @@ abstract class WorkoutObserverContractTest {
         assertEquals("the sample before the stop is the last one still moving", 0.1, samples[samples.size - 2].speedKmh, 0.0)
         assertEquals(10, last.elapsedSeconds)
         assertEquals(10, last.distanceMeters)
-        assertEquals(2, last.calories)
+        assertEquals(0, last.calories)
         assertEquals(10, w.stats.durationSeconds)
         assertEquals(10, w.stats.distanceMeters)
         assertEquals("belt standing still does not count in the average", 4.0, samples.filter { it.beltStatus == BeltStatus.Running }.map { it.speedKmh }.average(), 0.0)
@@ -605,6 +608,45 @@ abstract class WorkoutObserverContractTest {
         run(3)
         stopBelt()
         assertEquals(1, all().size)
+    }
+
+    // ---- Calories ----
+
+    /** Gross kcal of [seconds] at [speed] and [incline] for [kg], as the app computes them. */
+    private fun kcal(seconds: Int, speed: Double, incline: Double, kg: Double) = EnergyExpenditure.kcalPerMinute(speed, incline, kg) * seconds / 60.0
+
+    @Test fun `the calories are computed from the speed, the incline and the owner's weight, live and stored`() = scenario {
+        assertTrue(data.weights.add(userId!!, LocalDate.ofEpochDay(T0 / DAY_MS), 80.0) is DataResult.Success)
+        assertNull(observer.liveCalories.value)
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(60, speed = 5.6, incline = 7.0)
+        val live = observer.liveCalories.value!!
+        stopBelt()
+        // 60 s at 5.6 km/h and 7 % (Looney et al. 2019), then 1 s decelerating at 2 km/h
+        val expected = kcal(60, 5.6, 7.0, 80.0) + kcal(1, 2.0, 0.0, 80.0)
+        val w = only()
+        assertEquals(Math.round(expected).toInt(), w.stats.calories)
+        assertTrue("$live", live in w.stats.calories - 1..w.stats.calories)
+        assertNull("the live figure goes with the stop", observer.liveCalories.value)
+        val samples = data.workouts.detail(w.id)!!.samples
+        assertEquals(w.stats.calories, samples.last().calories)
+        assertEquals("accumulated", samples.map { it.calories }.sorted(), samples.map { it.calories })
+    }
+
+    @Test fun `a workout recorded without a weight gets its calories when it is assigned`() = scenario(withUser = false) {
+        push(state(BeltStatus.Starting, speed = 0.0))
+        run(120)
+        stopBelt()
+        val workout = data.workouts.unassignedWorkouts().first().single()
+        assertEquals(0, workout.stats.calories)
+        val ana = (data.profiles.create(validInput("Ana")) as DataResult.Success).value
+        data.weights.add(ana.id, LocalDate.ofEpochDay(T0 / DAY_MS), 70.0)
+        assertEquals(DataResult.Success(Unit), data.workouts.assign(workout.id, ana.id))
+        // 120 s at 8 km/h (ACSM running), then 1 s at 2 km/h
+        val expected = Math.round(kcal(120, 8.0, 0.0, 70.0) + kcal(1, 2.0, 0.0, 70.0)).toInt()
+        val assigned = data.workouts.workouts(ana.id).first().single()
+        assertEquals(expected, assigned.stats.calories)
+        assertEquals(expected, data.workouts.detail(workout.id)!!.samples.last().calories)
     }
 
     // ---- Owner ----

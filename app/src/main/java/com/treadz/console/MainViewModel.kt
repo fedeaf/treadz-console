@@ -76,6 +76,8 @@ class MainViewModel(
     private val strap: StrapController? = null,
     /** Time of the automatic connection window. */
     private val clock: Clock = Clock.System,
+    /** Calories of the workout being recorded, computed by the app (the treadmill's own count is not shown). */
+    liveCalories: Flow<Int?> = flowOf(null),
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -133,6 +135,7 @@ class MainViewModel(
     /** Everything the state needs besides the controller's connection, treadmill, recording and alerts. */
     private data class Extras(
         val local: Local,
+        val calories: Int?,
         val user: UserProfile?,
         val unassigned: Int,
         val syncError: SyncError?,
@@ -144,14 +147,16 @@ class MainViewModel(
         val strap: StrapUiState,
     )
 
+    private val localAndCalories = combine(local, liveCalories) { l, c -> l to c }
+
     private val extras = combine(
-        local,
+        localAndCalories,
         people,
         controlsAndSession,
         controller.bluetoothEnabled,
         controller.connectionProblem,
-    ) { local, people, controls, bluetooth, reconnectProblem ->
-        Extras(local, people.user, people.unassigned, people.syncError, controls.first, controls.second, people.finishedWorkout, bluetooth, reconnectProblem, people.strap)
+    ) { (local, calories), people, controls, bluetooth, reconnectProblem ->
+        Extras(local, calories, people.user, people.unassigned, people.syncError, controls.first, controls.second, people.finishedWorkout, bluetooth, reconnectProblem, people.strap)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -165,6 +170,7 @@ class MainViewModel(
         MainUiState(
             connection = connection,
             treadmill = treadmill,
+            liveCalories = extras.calories,
             scanning = local.scanning,
             scanFinished = local.scanFinished,
             devices = local.devices,

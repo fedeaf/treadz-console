@@ -32,11 +32,11 @@ import kotlin.math.roundToInt
 /**
  * The metrics of one workout (energy, time in zones, load, efficiency, drift, fitness index, recovery, α1, signal quality).
  * Every figure sits with what qualifies it; a metric that does not apply is simply absent and one that is missing because
- * of the data is replaced by a single passive line. The ACSM calories are shown next to the treadmill's own count
- * ([treadmillKcal]), never in its place.
+ * of the data is replaced by a single passive line. The calories are the app's estimate from the speed, the incline and
+ * the weight of that day (for workouts recorded since they are stored that way, the same as the workout's total).
  */
 @Composable
-fun WorkoutAnalysisPanel(view: WorkoutAnalysisView, treadmillKcal: Int, modifier: Modifier = Modifier) {
+fun WorkoutAnalysisPanel(view: WorkoutAnalysisView, modifier: Modifier = Modifier) {
     Panel(modifier.fillMaxWidth().testTag("analysis_panel")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionLabel(stringResource(R.string.analysis_title))
@@ -44,7 +44,6 @@ fun WorkoutAnalysisPanel(view: WorkoutAnalysisView, treadmillKcal: Int, modifier
                 Heading(stringResource(R.string.analysis_energy_title))
                 energy.netKcal?.let { FactRow(stringResource(R.string.analysis_kcal_net), "${Format.calories(it.roundToInt())} ${stringResource(R.string.unit_calories)}", tag = "analysis_kcal_net") }
                 energy.grossKcal?.let { FactRow(stringResource(R.string.analysis_kcal_gross), "${Format.calories(it.roundToInt())} ${stringResource(R.string.unit_calories)}", tag = "analysis_kcal_gross") }
-                FactRow(stringResource(R.string.analysis_kcal_console), "${Format.calories(treadmillKcal)} ${stringResource(R.string.unit_calories)}", tag = "analysis_kcal_console")
                 FactRow(stringResource(R.string.analysis_mets), stringResource(R.string.analysis_mets_value, Format.number("%.1f", energy.meanMets)), tag = "analysis_mets")
                 FactRow(stringResource(R.string.analysis_vo2), stringResource(R.string.value_vo2max, Format.number("%.1f", energy.meanVo2MlKgMin)), tag = "analysis_vo2")
                 energy.percentOfVo2max?.let { FactRow(stringResource(R.string.analysis_pct_vo2max), stringResource(R.string.value_percent, Format.whole(it.roundToInt())), tag = "analysis_pct_vo2max") }

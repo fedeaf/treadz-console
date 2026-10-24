@@ -223,7 +223,7 @@ class Alpha1BrakeRunnerTest {
             brake.map { LoadEvent(it.programSeconds, LoadEventType.Alpha1Reduction, LoadQuantity.Incline, it.toValue) },
             loadEvents.filter { it.type == LoadEventType.Alpha1Reduction },
         )
-        assertTrue(loadEvents.all { it.type == LoadEventType.Alpha1Reduction || it.type == LoadEventType.HeartRateIncrease || it.type == LoadEventType.HeartRateDecrease }, "$loadEvents")
+        assertTrue(loadEvents.all { it.type == LoadEventType.Alpha1Reduction || it.type == LoadEventType.HeartRateIncrease || it.type == LoadEventType.HeartRateDecrease || it.type == LoadEventType.BlockStarted }, "$loadEvents")
         assertEquals(loadEvents, rig.eventsOf<ProgramEvent.Finished>().single().loadEvents)
 
         val finished = rig.eventsOf<ProgramEvent.Finished>().single()

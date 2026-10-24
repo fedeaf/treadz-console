@@ -1,6 +1,8 @@
 package com.treadz.console.analysis.workout
 
 import com.treadz.console.analysis.fitness.Acsm
+import com.treadz.console.analysis.fitness.EnergyCounter
+import com.treadz.console.analysis.fitness.EnergyExpenditure
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.heartrate.HeartRateBands
 import com.treadz.console.analysis.rr.RrCleaning
@@ -74,11 +76,12 @@ object WorkoutAnalyzer {
 
     /**
      * Version of this algorithm; stored with every analysis, which is recalculated when it changes. 2 (2026-10-23): the
-     * section of the thresholds implied by the stable stretches ([ThresholdEstimatesSection]) was added.
+     * section of the thresholds implied by the stable stretches ([ThresholdEstimatesSection]) was added. 3 (2026-10-24):
+     * the fitness index only takes stretches up to 75 % of the heart-rate reserve (was 85 %), and the calories come from
+     * [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above), as the stored ones.
      */
-    const val ALGORITHM_VERSION = 2
+    const val ALGORITHM_VERSION = 3
 
-    private const val KCAL_PER_LITRE_OXYGEN = 5.0
 
     fun analyse(
         samples: List<WorkoutSample>,
@@ -168,8 +171,13 @@ object WorkoutAnalyzer {
         }
         val mean = sumVo2 / seconds
         val weight = context.weightKg?.takeIf { it > 0.0 }
-        // ml/kg/min · kg / 1000 = L/min; one second is 1/60 min.
-        fun kcal(sumMlKgMin: Double, kg: Double) = sumMlKgMin * kg / 1000.0 / 60.0 * KCAL_PER_LITRE_OXYGEN
+        // Gross energy with the equations of the stored calories (EnergyExpenditure); net = gross minus 1 MET.
+        val gross = weight?.let { kg ->
+            val counter = EnergyCounter(kg)
+            for (k in 0 until tl.size) if (tl.moving[k]) counter.add(1.0, tl.speed[k], tl.incline[k])
+            counter.kcal
+        }
+        val restKcal = weight?.let { kg -> Acsm.REST_VO2 * seconds / 60.0 * kg / 1000.0 * EnergyExpenditure.KCAL_PER_LITRE_OXYGEN }
         return Section.of(
             EnergyAnalysis(
                 movingSeconds = seconds,
@@ -178,8 +186,8 @@ object WorkoutAnalyzer {
                 meanVo2MlKgMin = mean,
                 meanMets = mean / Acsm.REST_VO2,
                 percentOfVo2max = context.vo2maxMlKgMin?.takeIf { it > 0.0 }?.let { mean / it * 100.0 },
-                grossKcal = weight?.let { kcal(sumVo2, it) },
-                netKcal = weight?.let { kcal(sumVo2 - Acsm.REST_VO2 * seconds, it) },
+                grossKcal = gross,
+                netKcal = if (gross != null && restKcal != null) gross - restKcal else null,
             ),
         )
     }

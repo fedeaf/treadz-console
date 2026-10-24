@@ -112,7 +112,7 @@ rules as `weight.csv`: the last edit of a row wins.
 | `elapsed_s` | treadmill session time in seconds (keeps counting during a pause) |
 | `speed_kmh`, `target_speed_kmh` | real belt speed; requested speed (empty if unknown) |
 | `incline_pct` | incline in percent |
-| `distance_m`, `kcal` | accumulated distance and energy as reported by the treadmill |
+| `distance_m`, `kcal` | accumulated distance as reported by the treadmill, and accumulated energy computed by the app (see `calories` below) |
 | `hr_bpm` | heart rate, empty without a monitor |
 | `belt_status` | `idle`, `starting`, `running`, `paused` or `safety_key_removed` |
 | `stale` | `true` if the values were not current (frozen data) |
@@ -127,6 +127,11 @@ Files written before the last two columns existed lack them.
 `max_incline_pct` (1 decimal)), plus, when the workout has a usable heart rate, `peak_hr_bpm`, `peak_hr_source` and
 `peak_hr_at`: the highest 5-second mean heart rate of the workout (impossible readings, such as a fall of 25 bpm in 5
 seconds when the strap is taken off, are discarded first), the source of its readings and when it was reached.
+`calories` (and the `kcal` column) is the gross energy (rest included) computed by the app from the speed, the incline
+and the user's weight: walking up to 7 km/h with the equation of Looney et al. 2019 (Load Carriage Decision Aid with its
+grade term), faster with the ACSM running equation and 5 kcal per litre of oxygen. It is 0 for a workout recorded without
+a user or a real weight (it is computed when the workout is assigned to a user who has a weight). Workouts recorded by older versions keep the treadmill's own count, which
+assumes a body weight of its own.
 
 A workout done for a program or a fitness test also has `program_id` and `program_name` (what the program was called
 then), `fitness_test_id` (the file `fitness-tests/<id>.json`) and `plan`: the plan that was executed, a self-contained
@@ -151,14 +156,17 @@ regulation, continuous or between repetitions), `alpha1_reduction` (the real-tim
 `ceiling_reduction` (safety reduction above the ceiling of the zone), `max_heart_rate_reached` (with the reduction made,
 if any), `no_heart_rate_fallback` (back to the start value of the block for lack of heart rate) and
 `heart_rate_control_resumed` (the heart-rate control is active again, because the user resumed it after a manual change
-or because it resumed by itself when the heart rate came back). Workouts without `events` have none recorded (the field
+or because it resumed by itself when the heart rate came back) and, in programs, `block_started` (a block started, with
+`block`, its index in the plan copy: at the natural end of the previous one, or because the user skipped forward or back
+or restarted it; the first block starts at 0 without an event). Workouts without `events` have none recorded (the field
 is absent when there are none). The events are part of the workout record: the latest `updated_at` wins.
 
 ```
 "events": [
   {"seconds": 305, "type": "manual_change", "quantity": "speed", "value": 7.5},
   {"seconds": 612, "type": "heart_rate_decrease", "quantity": "incline", "value": 4.0},
-  {"seconds": 640, "type": "heart_rate_control_resumed"}
+  {"seconds": 640, "type": "heart_rate_control_resumed"},
+  {"seconds": 1980, "type": "block_started", "block": 2}
 ]
 ```
 

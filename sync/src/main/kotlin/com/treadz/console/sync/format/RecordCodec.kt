@@ -285,8 +285,8 @@ internal object RecordCodec {
 
     /**
      * The `events` array, one event per line: `{"seconds": 305, "type": "heart_rate_decrease", "quantity": "speed", "value": 5.4}`.
-     * `quantity` and `value` are left out when the event changes nothing. Speeds are written with 2 decimals and inclines
-     * with 1, like the stats.
+     * `quantity` and `value` are left out when the event changes nothing; `block` is only in a `block_started`. Speeds are
+     * written with 2 decimals and inclines with 1, like the stats.
      */
     private fun eventsText(events: List<WorkoutEvent>): String = events.joinToString(",\n", prefix = "[\n", postfix = "\n]") { e ->
         val quantity = e.quantity
@@ -296,6 +296,7 @@ internal object RecordCodec {
             val decimals = if (quantity == WorkoutEventQuantity.Speed) SPEED_DECIMALS else INCLINE_DECIMALS
             line.append(", \"quantity\": \"${quantity.code}\", \"value\": ${decimal(rounded(value, decimals))}")
         }
+        e.block?.let { line.append(", \"block\": $it") }
         line.append('}').toString()
     }
 

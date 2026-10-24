@@ -273,6 +273,25 @@ class DocumentSyncStoreTest {
         assertTrue(data.fitnessTests.results(ana.id).first().isEmpty())
     }
 
+    @Test fun `an older remote test with the same content as our pending one is taken and nothing is uploaded`() = runBlocking<Unit> {
+        val ana = createAna()
+        val user = anaUuid()
+        tests.applyRemote(listOf(testDoc(TEST_1, user, T0 + 100, vo2 = 43.0)))
+        // This device recalculates the result to what another device already uploaded, before pulling it.
+        clock.nowMillis = T0 + 5_000
+        data.fitnessTests.save(ana.id, ebbelingResult(TEST_1, T0 - DAY_MS, 44.0))
+        assertEquals(1, tests.pending().size)
+        assertEquals(0, tests.applyRemote(listOf(testDoc(TEST_1, user, T0 + 200, vo2 = 44.0))))
+        assertTrue(tests.pending().isEmpty())
+        assertEquals(44.0, data.fitnessTests.get(TEST_1)!!.result.outputs!!.vo2maxMlKgMin, 0.0)
+        // A different content still wins by version: ours stays pending.
+        clock.nowMillis = T0 + 6_000
+        data.fitnessTests.save(ana.id, ebbelingResult(TEST_1, T0 - DAY_MS, 45.0))
+        assertEquals(0, tests.applyRemote(listOf(testDoc(TEST_1, user, T0 + 300, vo2 = 44.0))))
+        assertEquals(45.0, data.fitnessTests.get(TEST_1)!!.result.outputs!!.vo2maxMlKgMin, 0.0)
+        assertEquals(1, tests.pending().size)
+    }
+
     @Test fun `a downloaded test changes the fitness profile`() = runBlocking<Unit> {
         val ana = createAna()
         assertNull(data.fitnessTests.fitnessProfile(ana.id).first())

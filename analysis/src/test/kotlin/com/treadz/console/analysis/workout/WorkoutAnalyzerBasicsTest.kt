@@ -20,7 +20,7 @@ class WorkoutAnalyzerBasicsTest {
     // ------------------------------------------------------------------ energy
 
     @Test
-    fun `energy of a constant walk matches the ACSM equation`() {
+    fun `energy of a constant walk - ACSM oxygen demand, calories from Looney et al 2019`() {
         val a = analyse(session(600, speed = { 5.0 }), context(vo2max = 40.0))
         assertEquals(WorkoutAnalyzer.ALGORITHM_VERSION, a.algorithmVersion)
         val e = a.energy.value!!
@@ -29,10 +29,10 @@ class WorkoutAnalyzerBasicsTest {
         assertEquals(11.8333, e.meanVo2MlKgMin, 1e-3)
         assertEquals(11.8333 / 3.5, e.meanMets, 1e-3)
         assertEquals(11.8333 / 40.0 * 100.0, e.percentOfVo2max!!, 1e-2)
-        // 11.8333 ml/kg/min * 70 kg = 828.33 ml/min = 0.82833 L/min * 5 kcal/L = 4.1417 kcal/min, 10 min.
-        assertEquals(41.4167, e.grossKcal!!, 1e-2)
-        // Net: (11.8333 - 3.5) * 70 / 1000 * 5 = 2.9167 kcal/min.
-        assertEquals(29.1667, e.netKcal!!, 1e-2)
+        // Looney: S = 1.3889 m/s, M = 1.44 + 1.94 S^0.43 + 0.24 S^4 = 4.5674 W/kg; * 70 kg * 60 s / 4184 J = 4.5849 kcal/min, 10 min.
+        assertEquals(45.8486, e.grossKcal!!, 1e-2)
+        // Net: minus 1 MET, 3.5 * 70 / 1000 * 5 = 1.225 kcal/min.
+        assertEquals(33.5986, e.netKcal!!, 1e-2)
         assertEquals(5.0, e.meanSpeedKmh, 1e-9)
         assertEquals(5.0 * 600 / 3600, e.distanceKm, 1e-9)
     }

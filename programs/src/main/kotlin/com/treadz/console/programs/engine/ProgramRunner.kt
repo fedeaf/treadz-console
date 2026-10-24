@@ -165,6 +165,9 @@ class ProgramRunner(
     private val hrCarry = mutableMapOf<Pair<Int, Int?>, Pair<Double, Double>>()
     private val hrSummaries = mutableListOf<HeartRateBlockSummary>()
 
+    /** When each block really started, in the order they ran ([ProgramProgress.blockStarts]). */
+    private val blockStarts = mutableListOf<BlockStart>()
+
     // ------------------------------------------------------------------ user actions
 
     /**
@@ -214,6 +217,8 @@ class ProgramRunner(
             hrCarry.clear()
             hrSummaries.clear()
             loadLog.clear()
+            blockStarts.clear()
+            blockStarts += BlockStart(0, 0)
             setBlockTargets(newPlan.blocks[0])
             needsApply = false
             publish()
@@ -936,6 +941,10 @@ class ProgramRunner(
         blockIndex = index
         blockElapsedMs = carryMs
         blockMeters = carryMeters
+        // The block really started when the previous one reached its end: the carried time is already its own.
+        val startedAt = max(0, programSeconds() - (carryMs / 1000).toInt())
+        blockStarts += BlockStart(index, startedAt)
+        loadLog.add(LoadEvent(startedAt, LoadEventType.BlockStarted, block = index))
         setBlockTargets(p.blocks[index], targetSpeed, targetIncline)
         needsApply = true
         hrApplyPending = false
@@ -1106,6 +1115,7 @@ class ProgramRunner(
             heartRateSource = hr.source,
             heartRateControl = heartRateStatus(block),
             heartRateSummaries = hrSummaries.toList(),
+            blockStarts = blockStarts.toList(),
         )
     }
 }

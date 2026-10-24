@@ -144,7 +144,15 @@ data class ProgramProgress(
     val heartRateControl: HeartRateControlStatus? = null,
     /** Summaries of the heart-rate blocks finished so far, in order (see [HeartRateBlockSummary.settledValue]). */
     val heartRateSummaries: List<HeartRateBlockSummary> = emptyList(),
+    /**
+     * When each block really started on the program clock, in the order they ran (the first one at 0): a skipped block
+     * ends early, a restarted or revisited block appears again. The last one is the current block.
+     */
+    val blockStarts: List<BlockStart> = emptyList(),
 )
+
+/** Block [blockIndex] of the plan started at [programSeconds] of the program clock. */
+data class BlockStart(val blockIndex: Int, val programSeconds: Int)
 
 /** Events of a run, in order, for the recorder and the history. [atMillis] is the injected clock's epoch time. */
 sealed interface ProgramEvent {

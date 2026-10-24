@@ -299,6 +299,7 @@ class RecordCodecTest {
             WorkoutEvent(612, WorkoutEventType.HeartRateDecrease, WorkoutEventQuantity.Speed, 6.4),
             WorkoutEvent(640, WorkoutEventType.HeartRateControlResumed),
             WorkoutEvent(700, WorkoutEventType.MaxHeartRateReached),
+            WorkoutEvent(900, WorkoutEventType.BlockStarted, block = 2),
         )
         val withEvents = workout.copy(events = events)
         val json = text(RecordCodec.workout(withEvents))
@@ -308,7 +309,8 @@ class RecordCodecTest {
                 {"seconds": 305, "type": "manual_change", "quantity": "incline", "value": 4.0},
                 {"seconds": 612, "type": "heart_rate_decrease", "quantity": "speed", "value": 6.4},
                 {"seconds": 640, "type": "heart_rate_control_resumed"},
-                {"seconds": 700, "type": "max_heart_rate_reached"}
+                {"seconds": 700, "type": "max_heart_rate_reached"},
+                {"seconds": 900, "type": "block_started", "block": 2}
               ],
               "updated_at"
         """.trimIndent().prependIndent("  ").trimStart()

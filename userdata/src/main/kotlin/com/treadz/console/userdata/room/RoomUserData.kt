@@ -39,7 +39,7 @@ internal class RoomUserData(
 ) : SyncableUserData {
     private val stamper = Stamper(clock, deviceId, uuidSource)
     private val uploadHold = UploadHold()
-    private val workoutRepository = RoomWorkoutRepository(db, stamper, uploadHold)
+    private val workoutRepository = RoomWorkoutRepository(db, stamper, uploadHold, zone)
 
     override val profiles: ProfileRepository = RoomProfileRepository(db, clock, zone, seedGenericProfile, stamper)
     override val weights: WeightRepository = RoomWeightRepository(db, clock, zone, stamper)
@@ -67,5 +67,7 @@ internal class RoomUserData(
         controller, workoutRepository, profiles::activeUserId, clock, config, onError, heartRateSource,
         // The maximum heart rate in use, for the plausibility rules of the workout's heart rate peak.
         heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
+        // The owner's current weight, for the calories (not the made-up weight of the generic profile).
+        bodyWeightKg = { userId -> userId?.let { weights.latestWeight(it).first()?.takeIf { e -> !e.isPlaceholder }?.weightKg } },
     )
 }

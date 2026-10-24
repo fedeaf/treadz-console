@@ -134,8 +134,13 @@ data class AnalysisRules(
     val steadyInclineTolerancePercent: Double = 1.0,
     /** Fitness index uses the last part of a stretch (the heart rate needs time to settle). */
     val steadyTailFraction: Double = 0.6,
+    /**
+     * Fitness index: the stretch's heart rate as a share of the reserve must lie in this range. Above about 75 % the
+     * equivalence of % of the heart-rate reserve and % of the VO2 reserve it relies on no longer holds well (hard
+     * efforts gave estimates far too low); it was 85 % up to version 2 of the analysis.
+     */
     val fitnessMinReserveFraction: Double = 0.40,
-    val fitnessMaxReserveFraction: Double = 0.85,
+    val fitnessMaxReserveFraction: Double = 0.75,
 
     /** Recovery: length of the window whose mean heart rate defines the peak. */
     val peakWindowSeconds: Int = 30,

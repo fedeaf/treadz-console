@@ -127,7 +127,7 @@ interface ProgramGenerator {
  * | id | structure | intensity |
  * |---|---|---|
  * | `zone2` | 5 min + main + 5 min, 20-90 min | main block heart-rate guided in zone 2 of the zone model, continuous |
- * | `tempo` | 10-20 min warm-up + 2-3 × (8-10 min + 3 min) + 5 min, 37-60 min | work at 80-88 % MAS, guided in zone 4 of the zone model, continuous |
+ * | `tempo` | 10-20 min warm-up + 2-3 × (8-10 min + 3 min) + 5 min, 37-60 min | work guided in zone 4 of the zone model (start from a measured VT1, else 84 % MAS), continuous |
  * | `norwegian-4x4` | 10 + 4 × (4 + 3) + 5 min | work guided at 85-95 % HRmax, between repetitions |
  * | `intervals-30-30` | 10 min + N × (30 s + 30 s) + 5 min, N 6-30 | 30 s at 100-105 % MAS / 30 s easy, fixed values |
  * | `couch-to-5k` | the 27 classic sessions, see [CouchToFiveK] | jog at 60-65 % MAS; long runs guided in zone 3 of the zone model |
@@ -529,7 +529,7 @@ internal object Zone2Generator : ProgramGenerator {
 }
 
 /**
- * Tempo / threshold: warm-up (10-20 min, easy) + N × (L min at 80-88 % MAS + 3 min recovery) + 5 min, with N 2-3 and L
+ * Tempo / threshold: warm-up (10-20 min, easy) + N × (L min in zone 4, starting from a measured VT1 or else at 84 % MAS, + 3 min recovery) + 5 min, with N 2-3 and L
  * 8-10 min: the combination with the most work whose warm-up fits 10-20 min. The work blocks are guided in zone 4 of the
  * zone model (continuous: they last 6 min or more) starting at 84 % MAS, or from a measured VT1. Version 2: zone 4 from
  * the zone model (it was 80-90 % of the reserve) and the start from a measured VT1.
@@ -596,7 +596,7 @@ internal object TempoGenerator : ProgramGenerator {
         return g.result(
             steps,
             defaultName = "Tempo $n × $l min",
-            description = "$warm min warm-up, $n × ($l min at threshold, 80-88 % of the maximal aerobic speed, heart-rate guided in " +
+            description = "$warm min warm-up, $n × ($l min at threshold, heart-rate guided in " +
                 "${ProgramGenerators.zoneText(zone)} + 3 min easy), 5 min cool-down.",
         )
     }

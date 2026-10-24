@@ -35,6 +35,8 @@ import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import java.time.LocalDate
 
 /**
@@ -71,6 +73,9 @@ interface AppDependencies {
     /** The "your heart rate reached X, use it as your maximum?" offers. */
     val peakOffers: PeakOfferController
 
+    /** Calories of the workout being recorded, as they are stored (`null` without a session or a weight). */
+    val liveCalories: Flow<Int?> get() = flowOf(null)
+
     /** A resting heart-rate measurement fed by [heartRate] (it runs in [scope] and starts with `start()`). */
     fun restingSession(scope: CoroutineScope): RestingHeartRateSession
 
@@ -93,7 +98,7 @@ interface AppDependencies {
  * optional collaborators (synchronisation, training, strap) can be left out by mistake.
  */
 fun AppDependencies.mainViewModel(clock: Clock = Clock.System): MainViewModel =
-    MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, clock)
+    MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, clock, liveCalories)
 
 /** [scope] lives as long as the process: the runners and the workout history observer run in it. */
 class RealDependencies(private val context: Context, private val scope: CoroutineScope) : AppDependencies {
@@ -120,6 +125,7 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
     val workoutObserver: WorkoutHistoryObserver by lazy {
         userData.workoutObserver(controller, heartRateSource = heartRate, onError = { Log.e("TreadZ", "Workout history error", it) })
     }
+    override val liveCalories: Flow<Int?> get() = workoutObserver.liveCalories
 
     override val training: TrainingCoordinator by lazy {
         TrainingCoordinator(

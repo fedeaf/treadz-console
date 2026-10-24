@@ -997,7 +997,7 @@
     <string name="generator_zone2_name">Zone 2 easy run</string>
     <string name="generator_zone2_description">A long, easy session whose speed (or incline) adjusts by itself to keep your heart rate in zone 2, with a warm-up and a cool-down.</string>
     <string name="generator_tempo_name">Tempo / threshold</string>
-    <string name="generator_tempo_description">Two or three long efforts at threshold pace (about 80 to 88 percent of your aerobic speed), guided by your heart rate, with easy minutes between them.</string>
+    <string name="generator_tempo_description">Two or three long efforts at threshold pace (your zone 4), guided by your heart rate, with easy minutes between them.</string>
     <string name="generator_norwegian_4x4_name">Norwegian 4x4</string>
     <string name="generator_norwegian_4x4_description">Four hard efforts of 4 minutes at 85 to 95 percent of your maximum heart rate, each followed by 3 easy minutes, with a warm-up and a cool-down.</string>
     <string name="generator_intervals_30_30_name">30/30 intervals</string>
@@ -1213,8 +1213,7 @@
     <string name="analysis_energy_title">Energy</string>
     <string name="analysis_kcal_net">Calories above rest (estimate)</string>
     <string name="analysis_kcal_gross">Total calories (estimate)</string>
-    <string name="analysis_kcal_console">Treadmill\'s own count</string>
-    <string name="analysis_energy_note">Estimated from speed and incline; the treadmill counts its own way.</string>
+    <string name="analysis_energy_note">Estimated from speed, incline and your weight.</string>
     <string name="analysis_mets">Average effort</string>
     <string name="analysis_mets_value">%1$s METs</string>
     <string name="analysis_vo2">Average oxygen use</string>

@@ -89,11 +89,19 @@ abstract class InMemoryDocumentStore<D : UserDocument> : DocumentStore<D> {
                 applied++
             } else if (d.version == current.document.version) {
                 next = next + (d.uuid to current.copy(pending = false))
+            } else if (current.pending && !current.document.deleted && !d.deleted && sameContent(current.document, d)) {
+                next = next + (d.uuid to Entry(d, pending = false))
             }
         }
         entries.value = next
         return applied
     }
+
+    /**
+     * Whether a newer pending local document says the same as an older remote one, which is then taken instead (nothing
+     * to upload). Off by default: last writer wins.
+     */
+    protected open fun sameContent(local: D, remote: D): Boolean = false
 
     override suspend fun markSynced(synced: List<SyncedRef>) {
         var next = entries.value

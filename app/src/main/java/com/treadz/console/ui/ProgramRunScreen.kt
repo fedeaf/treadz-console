@@ -46,7 +46,7 @@ import com.treadz.console.programs.plan.ResolvedBlock
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.training.ContinueFailure
 import com.treadz.console.training.RunUiState
-import com.treadz.console.training.positionSeconds
+import com.treadz.console.training.asRun
 import com.treadz.console.training.segments
 
 /** What the screens of a program or fitness test in progress can ask for. */
@@ -311,13 +311,14 @@ private fun BlockPanel(
 /** The plan with the position of the program and, as it fills, what the treadmill really did. */
 @Composable
 private fun RunChart(progress: ProgramProgress, segments: List<com.treadz.console.training.PlanSegment>, actual: ActualSeries, modifier: Modifier) {
+    // The blocks where they really ran (a skipped one ends early), the current one from its real start.
     PlannedVersusActualChart(
-        segments = segments,
+        segments = segments.asRun(progress.blockStarts, lastElapsedSeconds = progress.blockElapsedSeconds),
         actualSpeed = actual.speed,
         actualIncline = actual.incline,
         description = stringResource(R.string.run_plan_description),
         modifier = modifier,
-        positionSeconds = progress.positionSeconds(segments),
+        positionSeconds = progress.totalElapsedSeconds.toDouble(),
         chartTag = "run_chart",
     )
 }
@@ -591,7 +592,7 @@ private fun ProgramFinished(
                 // The plan as it was run ("+1" included) and what was really done, drawn as the history will show it.
                 val actual = rememberActual(run)
                 PlannedVersusActualChart(
-                    segments = segments,
+                    segments = segments.asRun(progress.blockStarts, endSeconds = progress.totalElapsedSeconds),
                     actualSpeed = actual.speed,
                     actualIncline = actual.incline,
                     description = stringResource(R.string.run_plan_description),

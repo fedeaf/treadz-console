@@ -33,6 +33,13 @@ enum class LoadEventType(val code: String) {
 
     /** The heart-rate control is active again: the user resumed it after a manual change, or the heart rate came back. */
     HeartRateControlResumed("heart_rate_control_resumed"),
+
+    /**
+     * A block of the program started, its targets apply from then ([LoadEvent.block] is its index in the plan): at its
+     * natural end, or because the user skipped forward or back or restarted it. The first block starts at 0 without an
+     * event. Programs only.
+     */
+    BlockStarted("block_started"),
 }
 
 /** What a [LoadEvent] changed. */
@@ -53,12 +60,14 @@ enum class LoadQuantity(val code: String) {
  * @property quantity What changed; `null` when the event changes nothing (the heart-rate control resumed, or the maximum
  *   heart rate was reached without any reduction).
  * @property value The new value of [quantity] (km/h or %); `null` when [quantity] is.
+ * @property block The index of the block in the plan for a [LoadEventType.BlockStarted], `null` otherwise.
  */
 data class LoadEvent(
     val seconds: Int,
     val type: LoadEventType,
     val quantity: LoadQuantity? = null,
     val value: Double? = null,
+    val block: Int? = null,
 )
 
 /**
@@ -87,9 +96,9 @@ class LoadEventLog {
 
     /** Same as the other [add], for an event already built. */
     fun add(event: LoadEvent) {
-        val (seconds, type, quantity, value) = event
+        val (seconds, type, quantity, value, block) = event
         val v = value?.takeIf { it.isFinite() }?.let { (it * 100.0).roundToLong() / 100.0 }
-        val event = if (quantity != null && v != null) LoadEvent(seconds.coerceAtLeast(0), type, quantity, v) else LoadEvent(seconds.coerceAtLeast(0), type)
+        val event = if (quantity != null && v != null) LoadEvent(seconds.coerceAtLeast(0), type, quantity, v, block) else LoadEvent(seconds.coerceAtLeast(0), type, block = block)
         synchronized(lock) {
             val current = _events.value
             if (current.lastOrNull() == event) return

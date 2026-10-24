@@ -87,7 +87,7 @@ abstract class WorkoutEventsContractTest {
         assertEquals(
             listOf(
                 "manual_change", "heart_rate_increase", "heart_rate_decrease", "alpha1_reduction", "ceiling_reduction",
-                "max_heart_rate_reached", "no_heart_rate_fallback", "heart_rate_control_resumed",
+                "max_heart_rate_reached", "no_heart_rate_fallback", "heart_rate_control_resumed", "block_started",
             ),
             WorkoutEventType.entries.map { it.code },
         )

@@ -52,7 +52,7 @@ import java.util.Locale
  * | `elapsed_s` | treadmill session time in seconds (keeps counting during a pause) |
  * | `speed_kmh`, `target_speed_kmh` | real belt speed; requested speed (empty if unknown) |
  * | `incline_pct` | incline in percent |
- * | `distance_m`, `kcal` | accumulated distance and energy as reported by the treadmill |
+ * | `distance_m`, `kcal` | accumulated distance as reported by the treadmill, and accumulated energy computed by the app |
  * | `hr_bpm` | heart rate, empty without a monitor |
  * | `belt_status` | `idle`, `starting`, `running`, `paused` or `safety_key_removed` |
  * | `stale` | `true` if the values were not current (frozen data), else `false` |

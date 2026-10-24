@@ -30,6 +30,8 @@ import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.export.ExportError
 import com.treadz.console.userdata.export.ExportFormat
 import com.treadz.console.userdata.export.SavedExport
+import com.treadz.console.training.asRun
+import com.treadz.console.training.blockStartsOf
 import com.treadz.console.training.segments
 import kotlin.math.roundToInt
 
@@ -79,7 +81,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 ) {
                     if (state.owner == null) UnassignedBanner(actions)
                     Summary(detail, state, actions)
-                    state.analysis?.let { WorkoutAnalysisPanel(it, detail.summary.stats.calories) }
+                    state.analysis?.let { WorkoutAnalysisPanel(it) }
                     detail.sessionRecord?.let { SessionRecordPanel(it) }
                     ExportSection(state, actions)
                     DeleteWorkoutButton(actions)
@@ -95,7 +97,7 @@ fun WorkoutDetailScreen(state: WorkoutDetailUiState, actions: WorkoutDetailActio
                 detail.sessionRecord?.let { SessionRecordPanel(it) }
                 ExportSection(state, actions)
                 Charts(detail, Modifier.fillMaxWidth())
-                state.analysis?.let { WorkoutAnalysisPanel(it, detail.summary.stats.calories) }
+                state.analysis?.let { WorkoutAnalysisPanel(it) }
                 DeleteWorkoutButton(actions)
             }
         }
@@ -283,7 +285,10 @@ private fun Charts(detail: WorkoutDetail, modifier: Modifier) {
         samples.mapNotNull { s -> value(s)?.let { ChartPoint((s.timestampMillis - start) / 1000.0, it) } }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        detail.plan?.let { plan -> PlannedVersusActual(plan, samples, if (layout.wide) Modifier.weight(1.4f) else Modifier.height(240.dp)) }
+        detail.plan?.let { plan ->
+            val starts = androidx.compose.runtime.remember(detail.events, detail.sessionRecord) { blockStartsOf(detail.events, detail.sessionRecord) }
+            PlannedVersusActual(plan, starts, samples, if (layout.wide) Modifier.weight(1.4f) else Modifier.height(240.dp))
+        }
         chart(speedText, "chart_speed", MaterialTheme.colorScheme.primary, series { it.speedKmh }, { Format.speed(it) }, 0.0, stringResource(R.string.chart_empty))
         chart(inclineText, "chart_incline", MaterialTheme.colorScheme.secondary, series { it.inclinePercent }, { Format.incline(it) }, 0.0, stringResource(R.string.chart_empty))
         chart(
@@ -312,11 +317,22 @@ private fun UnassignedBanner(actions: WorkoutDetailActions) {
     }
 }
 
-/** What the program asked for (speed and incline) against what the treadmill did, on the program's own clock. */
+/**
+ * What the program asked for (speed and incline) against what the treadmill did, on the program's own clock. With
+ * [starts] (when each block really started) the blocks are drawn where they ran: a skipped block ends early.
+ */
 @Composable
-private fun PlannedVersusActual(plan: com.treadz.console.programs.plan.ResolvedPlan, samples: List<WorkoutSample>, modifier: Modifier) {
-    val segments = androidx.compose.runtime.remember(plan) { plan.segments() }
-    val speed = androidx.compose.runtime.remember(samples) { ChartMath.downsample(runningSeries(samples) { it.speedKmh }, MAX_PLAN_CHART_POINTS) }
+private fun PlannedVersusActual(
+    plan: com.treadz.console.programs.plan.ResolvedPlan,
+    starts: List<com.treadz.console.programs.engine.BlockStart>,
+    samples: List<WorkoutSample>,
+    modifier: Modifier,
+) {
+    val running = androidx.compose.runtime.remember(samples) { runningSeries(samples) { it.speedKmh } }
+    val segments = androidx.compose.runtime.remember(plan, starts, running) {
+        plan.segments().asRun(starts, endSeconds = running.lastOrNull()?.x?.toInt())
+    }
+    val speed = androidx.compose.runtime.remember(running) { ChartMath.downsample(running, MAX_PLAN_CHART_POINTS) }
     val incline = androidx.compose.runtime.remember(samples) { ChartMath.downsample(runningSeries(samples) { it.inclinePercent }, MAX_PLAN_CHART_POINTS) }
     val title = stringResource(R.string.detail_plan_chart, programDisplayName(plan.source.programId, plan.source.programName))
     Panel(modifier.fillMaxWidth().testTag("chart_plan")) {

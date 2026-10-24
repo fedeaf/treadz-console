@@ -29,6 +29,7 @@ import com.treadz.console.userdata.ValidationCode
 import com.treadz.console.userdata.ValidationIssue
 import com.treadz.console.userdata.WeightEntry
 import com.treadz.console.userdata.WeightRepository
+import com.treadz.console.userdata.WorkoutAnalysisContexts
 import com.treadz.console.userdata.WorkoutDetail
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutEvent
@@ -38,6 +39,7 @@ import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
 import com.treadz.console.userdata.WorkoutStats
 import com.treadz.console.userdata.WorkoutSummary
+import com.treadz.console.userdata.workout.WorkoutCalories
 import com.treadz.console.userdata.workout.WorkoutSessionStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -402,6 +404,8 @@ internal class RoomWorkoutRepository(
     private val db: UserDataDatabase,
     private val stamper: Stamper,
     private val hold: UploadHold = UploadHold(),
+    /** The time zone of the day of a workout (the weight of that day gives its calories when it is assigned). */
+    private val zone: ZoneId = ZoneId.systemDefault(),
 ) : WorkoutHistoryRepository, WorkoutSessionStore {
     private val users = db.users()
     private val dao = db.workouts()
@@ -530,7 +534,19 @@ internal class RoomWorkoutRepository(
         db.withTransaction {
             val current = dao.get(workoutId)
             if (users.get(userId) == null || current == null) return@withTransaction DataResult.NotFound
-            if (current.userId != userId) dao.assign(workoutId, userId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+            if (current.userId != userId) {
+                dao.assign(workoutId, userId, stamper.at(current.updatedAtMillis), stamper.deviceId)
+                // Recorded without its owner's weight: its calories are computed now, with the weight of that day.
+                if (current.calories == 0 && current.endReason != null) {
+                    val day = WorkoutAnalysisContexts.dayOf(current.startedAtMillis, zone)
+                    val weight = WorkoutAnalysisContexts.weightOn(db.weights().liveForUser(userId).map { it.toEntry() }.filter { !it.isPlaceholder }, day)
+                    if (weight != null && weight > 0.0) {
+                        val samples = WorkoutCalories.withCalories(dao.samples(workoutId).map { it.toSample() }, weight)
+                        dao.insertSamples(samples.map { it.toEntity(workoutId) })
+                        dao.setCalories(workoutId, samples.lastOrNull()?.calories ?: 0)
+                    }
+                }
+            }
             DataResult.Success(Unit)
         }
     }

@@ -14,7 +14,6 @@ import com.treadz.console.userdata.workout.WorkoutSessionStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -125,14 +124,12 @@ class FitnessRecalculationSyncTest {
         assertEquals(tablet.result(), phone.result())
         assertEquals(1, runBlocking { phone.data.fitnessTestDocuments.pending() }.size)
 
-        // its (later) version wins on the repository: same result, other writer and time
+        // its version is later but says the same: it takes the tablet's and the file is not rewritten for its time stamp
         phone.sync()
-        val secondFile = testFile()
-        assertEquals("phone", Regex("\"updated_by\": \"([^\"]+)\"").find(secondFile)!!.groupValues[1])
-        assertNotEquals(firstFile, secondFile)
-        assertEquals(resultPart(firstFile), resultPart(secondFile))
+        assertEquals(firstFile, testFile())
+        assertEquals(0, runBlocking { phone.data.fitnessTestDocuments.pending() }.size)
 
-        // and everybody settles: the tablet takes the phone's version and nobody writes again
+        // and everybody settles: nobody writes again
         tablet.at(T0 + 4_000).sync()
         old.at(T0 + 4_500).sync()
         val commits = repo.log().size

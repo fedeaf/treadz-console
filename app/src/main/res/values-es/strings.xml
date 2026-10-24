@@ -997,7 +997,7 @@
     <string name="generator_zone2_name">Rodaje en zona 2</string>
     <string name="generator_zone2_description">Una sesión larga y suave cuya velocidad (o inclinación) se ajusta sola para mantener tu pulso en la zona 2, con calentamiento y vuelta a la calma.</string>
     <string name="generator_tempo_name">Tempo / umbral</string>
-    <string name="generator_tempo_description">Dos o tres esfuerzos largos a ritmo de umbral (del 80 al 88 por ciento de tu velocidad aeróbica), guiados por tu pulso, con minutos suaves entre ellos.</string>
+    <string name="generator_tempo_description">Dos o tres esfuerzos largos a ritmo de umbral (tu zona 4), guiados por tu pulso, con minutos suaves entre ellos.</string>
     <string name="generator_norwegian_4x4_name">4x4 noruego</string>
     <string name="generator_norwegian_4x4_description">Cuatro esfuerzos duros de 4 minutos al 85-95 por ciento de tu pulso máximo, cada uno seguido de 3 minutos suaves, con calentamiento y vuelta a la calma.</string>
     <string name="generator_intervals_30_30_name">Intervalos 30/30</string>
@@ -1213,8 +1213,7 @@
     <string name="analysis_energy_title">Energía</string>
     <string name="analysis_kcal_net">Calorías sobre el reposo (estimación)</string>
     <string name="analysis_kcal_gross">Calorías totales (estimación)</string>
-    <string name="analysis_kcal_console">Contador de la cinta</string>
-    <string name="analysis_energy_note">Estimadas con la velocidad y la inclinación; la cinta cuenta a su manera.</string>
+    <string name="analysis_energy_note">Estimadas con la velocidad, la inclinación y tu peso.</string>
     <string name="analysis_mets">Esfuerzo medio</string>
     <string name="analysis_mets_value">%1$s MET</string>
     <string name="analysis_vo2">Consumo medio de oxígeno</string>

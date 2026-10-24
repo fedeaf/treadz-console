@@ -29,6 +29,13 @@ enum class WorkoutEventType(val code: String) {
 
     /** The heart rate control is active again: the user resumed it after a manual change, or it resumed by itself when the heart rate came back. */
     HeartRateControlResumed("heart_rate_control_resumed"),
+
+    /**
+     * A block of the program started ([WorkoutEvent.block] is its index in the plan): at its natural end, or because the
+     * user skipped forward or back or restarted it. The first block starts at 0 without an event. Programs only; it places
+     * the plan on the real clock of the workout.
+     */
+    BlockStarted("block_started"),
     ;
 
     companion object {
@@ -70,6 +77,8 @@ data class WorkoutEvent(
     val quantity: WorkoutEventQuantity? = null,
     /** The new value of [quantity] (km/h or %); `null` when [quantity] is. */
     val value: Double? = null,
+    /** The index of the block in the plan for a [WorkoutEventType.BlockStarted], `null` otherwise. */
+    val block: Int? = null,
 )
 
 /**
@@ -97,6 +106,7 @@ object WorkoutEventsJson {
             val quantity = e.quantity
             val value = e.value
             if (quantity != null && value != null) o.put("quantity", quantity.code).put("value", value)
+            e.block?.let { o.put("block", it) }
             array.put(o)
         }
         return array.toString()
@@ -114,6 +124,7 @@ object WorkoutEventsJson {
                     type = type,
                     quantity = if (o.isNull("quantity")) null else WorkoutEventQuantity.ofCode(o.optString("quantity")),
                     value = if (o.isNull("value")) null else o.getDouble("value"),
+                    block = if (o.isNull("block")) null else o.optInt("block"),
                 )
             }
         } catch (e: JSONException) {

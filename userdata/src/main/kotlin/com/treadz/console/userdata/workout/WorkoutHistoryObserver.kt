@@ -1,5 +1,6 @@
 package com.treadz.console.userdata.workout
 
+import com.treadz.console.analysis.fitness.EnergyCounter
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
@@ -71,6 +72,13 @@ import kotlin.math.roundToInt
  * The workout's heart-rate peak ([WorkoutStats.peakHeartRate]) is computed along the way ([HeartRatePeakTracker]) with
  * the user's maximum heart rate resolved by [heartRateMax] when the session starts.
  *
+ * ## Calories
+ * The calories of the samples (accumulated) and of the totals are computed here, not taken from the treadmill (whose
+ * count assumes a body weight of its own): each recorded speed and incline lasts until the next sample (a gap counts for
+ * at most 10 s), with the gross energy of `EnergyExpenditure` and the owner's weight resolved by [bodyWeightKg] when the
+ * session starts. Without a weight (no owner, or no weight entries) they stay at 0; assigning the workout later computes
+ * them (`WorkoutHistoryRepository.assign`). [liveCalories] shows them while the session runs.
+ *
  * ## Crash safety and performance
  * Samples are buffered in memory and written in one transaction at least every
  * [WorkoutObserverConfig.flushIntervalMs], together with the running totals, and again when the session ends. If the
@@ -84,6 +92,7 @@ import kotlin.math.roundToInt
  * @param heartRate where the heart rate and the RR intervals come from; `null` uses the console's heart rate.
  * @param heartRateMax resolves the maximum heart rate of the session's owner when the session starts, for the
  *   plausibility rules of the peak (`null`: only the absolute ceiling applies).
+ * @param bodyWeightKg resolves the weight of the session's owner when the session starts, for the calories (`null`: none).
  */
 class WorkoutHistoryObserver(
     private val controller: TreadmillController,
@@ -94,7 +103,13 @@ class WorkoutHistoryObserver(
     private val onError: (Throwable) -> Unit = {},
     private val heartRate: HeartRateSource? = null,
     private val heartRateMax: suspend (userId: Long?) -> Int? = { null },
+    private val bodyWeightKg: suspend (userId: Long?) -> Double? = { null },
 ) {
+
+    private val _liveCalories = MutableStateFlow<Int?>(null)
+
+    /** Calories of the workout being recorded, as they are stored; `null` without a session or without the owner's weight. */
+    val liveCalories: StateFlow<Int?> = _liveCalories.asStateFlow()
 
     private val _activeWorkoutId = MutableStateFlow<Long?>(null)
 
@@ -244,14 +259,17 @@ class WorkoutHistoryObserver(
             if (state.status != BeltStatus.Idle && !state.isStale && !blockedUntilIdle) {
                 val started = startSession(at) ?: return
                 started.add(state, at, config, heartReading(state))
+                _liveCalories.value = started.kcal
             }
             return
         }
         if (idle) {
             s.add(state, at, config, heartReading(state), terminal = true)
+            _liveCalories.value = s.kcal
             endSession(normalEndReason(s), at)
         } else {
             s.add(state, at, config, heartReading(state))
+            _liveCalories.value = s.kcal
             if (s.decelerationTimedOut(at, config)) endSession(normalEndReason(s), at)
         }
     }
@@ -336,7 +354,16 @@ class WorkoutHistoryObserver(
             onError(e)
             null
         }
-        val s = Session(id, at, maxHeartRate)
+        val weight = try {
+            bodyWeightKg(userId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e)
+            null
+        }
+        val s = Session(id, at, maxHeartRate, weight)
+        _liveCalories.value = s.kcal
         session = s
         _activeWorkoutId.value = id
         _lastWorkoutId.value = id
@@ -379,6 +406,8 @@ class WorkoutHistoryObserver(
         ticker = null
         session = null
         _activeWorkoutId.value = null
+        // The treadmill zeroes its time and distance at the stop: the live calories go with them.
+        _liveCalories.value = null
         try {
             if (!s.hasMoved) {
                 store.discard(s.workoutId)
@@ -403,9 +432,18 @@ class WorkoutHistoryObserver(
         blockedUntilIdle = true
     }
 
-    private class Session(val workoutId: Long, val startedAt: Long, maxHeartRateBpm: Int?) {
+    private class Session(val workoutId: Long, val startedAt: Long, maxHeartRateBpm: Int?, weightKg: Double?) {
         val buffer = ArrayDeque<WorkoutSample>()
         private val peakTracker = HeartRatePeakTracker(maxHeartRateBpm)
+
+        /** The calories of the session, from its speed and incline and the owner's weight; `null` without a weight. */
+        private val energy = weightKg?.takeIf { it > 0.0 }?.let { EnergyCounter(it) }
+        private var energyAt: Long? = null
+        private var energySpeed = 0.0
+        private var energyIncline = 0.0
+
+        /** Calories so far (rounded); `null` without the owner's weight. */
+        val kcal: Int? get() = energy?.kcal?.roundToInt()
 
         /** RR intervals received since the last sample was written. */
         private val pendingRr = ArrayList<Int>()
@@ -476,6 +514,13 @@ class WorkoutHistoryObserver(
             val bpm = if (repeatLast) lastHeartRate else heart.bpm
             val source = if (repeatLast) lastHeartSource else heart.source
             val rr = if (pendingRr.isEmpty()) emptyList() else pendingRr.toList().also { pendingRr.clear() }
+            if (!state.isStale) {
+                // The previous speed and incline lasted until now (a gap counts for at most ENERGY_MAX_GAP_MS).
+                energyAt?.let { from -> energy?.add(minOf(at - from, ENERGY_MAX_GAP_MS) / 1000.0, energySpeed, energyIncline) }
+                energyAt = at
+                energySpeed = if (terminal) 0.0 else state.speedKmh
+                energyIncline = state.inclinePercent
+            }
             val sample = WorkoutSample(
                 seq = seq++,
                 timestampMillis = at,
@@ -484,7 +529,7 @@ class WorkoutHistoryObserver(
                 targetSpeedKmh = state.targetSpeedKmh,
                 inclinePercent = state.inclinePercent,
                 distanceMeters = if (terminal) maxOf(state.distanceMeters, distance) else state.distanceMeters,
-                calories = if (terminal) maxOf(state.calories, calories) else state.calories,
+                calories = kcal ?: 0,
                 heartRateBpm = bpm,
                 beltStatus = state.status,
                 isStale = state.isStale,
@@ -494,7 +539,7 @@ class WorkoutHistoryObserver(
             buffer.addLast(sample)
             duration = maxOf(duration, sample.elapsedSeconds)
             distance = maxOf(distance, sample.distanceMeters)
-            calories = maxOf(calories, sample.calories)
+            calories = sample.calories
             if (!terminal) {
                 lastHeartRate = heart.bpm
                 lastHeartSource = heart.source
@@ -506,7 +551,7 @@ class WorkoutHistoryObserver(
                     speedCount++
                 }
                 maxIncline = maxOf(maxIncline, state.inclinePercent)
-                peakTracker.add(at, heart.bpm, heart.source)
+                peakTracker.add(at, heart.bpm, heart.source, rr)
                 val hr = heart.bpm
                 if (hr != null && hr > 0) {
                     hrSum += hr
@@ -531,6 +576,9 @@ class WorkoutHistoryObserver(
 
         private companion object {
             const val MAX_PENDING_RR = 10_000
+
+            /** A gap between two samples counts for at most this long in the calories ([WorkoutCalories]). */
+            const val ENERGY_MAX_GAP_MS = WorkoutCalories.MAX_GAP_MS
         }
     }
 }

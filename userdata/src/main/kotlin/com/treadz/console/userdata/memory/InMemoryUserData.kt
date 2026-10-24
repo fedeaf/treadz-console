@@ -74,6 +74,8 @@ import com.treadz.console.userdata.WorkoutStats
 import com.treadz.console.userdata.WorkoutSummary
 import com.treadz.console.userdata.room.FitnessRules
 import com.treadz.console.userdata.room.ProgramRules
+import com.treadz.console.userdata.WorkoutAnalysisContexts
+import com.treadz.console.userdata.workout.WorkoutCalories
 import com.treadz.console.userdata.workout.WorkoutHistoryObserver
 import com.treadz.console.userdata.workout.WorkoutObserverConfig
 import com.treadz.console.userdata.workout.WorkoutSessionStore
@@ -492,7 +494,24 @@ class InMemoryUserData(
 
         override suspend fun assign(workoutId: Long, userId: Long): DataResult<Unit> = modify { d ->
             if (d.profiles.none { it.id == userId } || d.workouts.none { it.id == workoutId }) return@modify d to DataResult.NotFound
-            d.copy(workouts = d.workouts.map { if (it.id == workoutId) it.copy(userId = userId) else it }) to DataResult.Success(Unit)
+            d.copy(
+                workouts = d.workouts.map { w ->
+                    if (w.id != workoutId || w.userId == userId) return@map w
+                    // Recorded without its owner's weight: its calories are computed now, as in Room.
+                    val weight = WorkoutAnalysisContexts.weightOn(
+                        d.weights.filter { it.userId == userId && !it.isPlaceholder }.sortedWith(compareBy({ it.date }, { it.createdAtMillis })),
+                        WorkoutAnalysisContexts.dayOf(w.startedAtMillis, zone),
+                    )
+                    val samples = workoutSamples[w.id]
+                    if (w.stats.calories == 0 && !w.isInProgress && weight != null && weight > 0.0 && samples != null) {
+                        val computed = WorkoutCalories.withCalories(samples, weight)
+                        workoutSamples[w.id] = computed.toMutableList()
+                        w.copy(userId = userId, stats = w.stats.copy(calories = computed.lastOrNull()?.calories ?: 0))
+                    } else {
+                        w.copy(userId = userId)
+                    }
+                },
+            ) to DataResult.Success(Unit)
         }
     }
 
@@ -790,6 +809,8 @@ class InMemoryUserData(
     ) = WorkoutHistoryObserver(
         controller, store, profiles::activeUserId, clock, config, onError, heartRateSource,
         heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
+        // The owner's current weight, for the calories (not the made-up weight of the generic profile).
+        bodyWeightKg = { userId -> userId?.let { weights.latestWeight(it).first()?.takeIf { e -> !e.isPlaceholder }?.weightKg } },
     )
 
     /** Adds a finished workout directly (for UI tests and screenshots), assigned to [userId]. Returns its id. */

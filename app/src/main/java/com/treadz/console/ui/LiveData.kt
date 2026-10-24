@@ -136,7 +136,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
             items = listOf(
                 StripItem(stringResource(R.string.metric_distance), Format.distanceKm(t.distanceMeters), stringResource(R.string.unit_distance)),
                 StripItem(stringResource(R.string.metric_time), Format.duration(t.elapsedSeconds), null),
-                StripItem(stringResource(R.string.metric_calories), Format.calories(t.calories), stringResource(R.string.unit_calories)),
+                StripItem(stringResource(R.string.metric_calories), ui.liveCalories?.let { Format.calories(it) } ?: Format.NO_VALUE, stringResource(R.string.unit_calories)),
                 StripItem(stringResource(R.string.metric_heart_rate), Format.heartRate(hr.bpm), if (noHr) null else stringResource(R.string.unit_heart_rate), badge = hr.source),
             ),
             dimmed = stale,
@@ -163,7 +163,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
             metric(R.string.metric_time, Format.duration(t.elapsedSeconds), null)
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            metric(R.string.metric_calories, Format.calories(t.calories), R.string.unit_calories)
+            metric(R.string.metric_calories, ui.liveCalories?.let { Format.calories(it) } ?: Format.NO_VALUE, R.string.unit_calories)
             metric(
                 R.string.metric_heart_rate,
                 Format.heartRate(hr.bpm),
@@ -248,7 +248,7 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
             card(R.string.metric_time, Format.duration(t.elapsedSeconds), null, Modifier.weight(1f).fillMaxSize())
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
-            card(R.string.metric_calories, Format.calories(t.calories), R.string.unit_calories, Modifier.weight(1f).fillMaxSize())
+            card(R.string.metric_calories, ui.liveCalories?.let { Format.calories(it) } ?: Format.NO_VALUE, R.string.unit_calories, Modifier.weight(1f).fillMaxSize())
             card(
                 R.string.metric_heart_rate,
                 Format.heartRate(hr.bpm),

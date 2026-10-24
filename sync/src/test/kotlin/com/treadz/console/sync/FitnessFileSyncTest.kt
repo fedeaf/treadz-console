@@ -285,7 +285,7 @@ class FitnessFileSyncTest {
             "Format version: 1.", "fitness.json", "derived data, never merged", "fingerprint", "rules_version", "higher `rules_version`",
             "`updated_at` changes with every change of content", "`resting_hr_bpm` (the reference of `resting-heart-rate.csv`",
             "`events`", "`manual_change`", "`heart_rate_increase`", "`heart_rate_decrease`", "`alpha1_reduction`", "`ceiling_reduction`",
-            "`max_heart_rate_reached`", "`no_heart_rate_fallback`", "`heart_rate_control_resumed`", "`speed`", "`incline`",
+            "`max_heart_rate_reached`", "`no_heart_rate_fallback`", "`heart_rate_control_resumed`", "`block_started`", "`speed`", "`incline`",
         )) {
             assertTrue("README lacks $needle", readme.contains(needle))
         }

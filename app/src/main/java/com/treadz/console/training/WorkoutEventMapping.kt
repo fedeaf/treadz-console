@@ -17,7 +17,7 @@ fun LoadEvent.toWorkoutEvent(): WorkoutEvent? {
         LoadQuantity.Incline -> WorkoutEventQuantity.Incline
         null -> null
     }
-    return WorkoutEvent(seconds, kind, what, value.takeIf { what != null })
+    return WorkoutEvent(seconds, kind, what, value.takeIf { what != null }, block)
 }
 
 /** The events of a workout as they are stored. */

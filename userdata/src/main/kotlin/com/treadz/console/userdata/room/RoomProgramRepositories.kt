@@ -393,9 +393,18 @@ internal class RoomFitnessTestDocuments(
                     applied++
                 }
                 d.version == localVersion -> if (local.dirty) dao.markSynced(local.uuid, local.updatedAtMillis, local.updatedBy)
+                // Our pending change is newer but says the same (two devices recalculated the same result): take the
+                // remote version and upload nothing, so the file is not rewritten for its time stamp alone.
+                local.dirty && !local.deleted && !d.deleted && sameResult(local.json, d.json) ->
+                    dao.update(remoteEntity(d, owner.id, id = local.id))
             }
         }
         applied
+    }
+
+    private fun sameResult(a: String, b: String): Boolean {
+        val left = readFitnessResult(a) ?: return false
+        return left == readFitnessResult(b)
     }
 
     override suspend fun markSynced(synced: List<SyncedRef>) {

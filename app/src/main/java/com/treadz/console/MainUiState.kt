@@ -19,6 +19,11 @@ import com.treadz.console.userdata.UserProfile
 data class MainUiState(
     val connection: ConnectionState = ConnectionState.Disconnected,
     val treadmill: TreadmillState = TreadmillState(),
+    /**
+     * Calories of the workout being recorded, computed by the app from the speed, the incline and the user's weight
+     * (`null` without a session or a weight). The treadmill's own count ([TreadmillState.calories]) is not shown.
+     */
+    val liveCalories: Int? = null,
     val scanning: Boolean = false,
 
     /** At least one scan has finished (so that "no treadmills" is only shown then). */

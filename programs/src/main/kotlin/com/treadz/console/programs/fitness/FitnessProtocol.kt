@@ -1,6 +1,7 @@
 package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.rr.RrCleaning
 import com.treadz.console.analysis.samples.RrInterval
 import com.treadz.console.analysis.samples.RrSeries
 import com.treadz.console.analysis.samples.SampleHeartRateSource
@@ -152,6 +153,25 @@ internal abstract class FitnessProtocol(
      */
     fun addRrIntervals(t: Long, rrMs: List<Int>) {
         if (isEffortPhase) RrSeries.append(rrIntervals, at(t), rrMs)
+        if (checksStrap && phase == FitnessTestPhase.WarmUp) updateStrapCheck(t)
+    }
+
+    /** The protocol checks the strap during its warm-up ([strapCheck]): the two maximal tests. */
+    protected open val checksStrap: Boolean get() = false
+
+    /** The last strap check of the warm-up (see [FitnessTestProgress.strapCheck]); `null` until it can be made. */
+    private var strapCheck: StrapCheck? = null
+
+    /**
+     * Strap check: the share of artifacts of all the RR received so far in the warm-up, with the same correction as the
+     * threshold engine ([RrCleaning]), from [FitnessTestConfig.strapCheckFromSeconds] into the warm-up. Recomputed with
+     * every batch of RR, so it clears by itself when the share falls back. It never blocks the test.
+     */
+    private fun updateStrapCheck(t: Long) {
+        if (t < config.strapCheckFromSeconds * 1000L || rrIntervals.size < config.strapCheckMinBeats) return
+        val cleaned = RrCleaning.clean(rrIntervals.map { it.rrMs })
+        val percent = FitnessFormulas.round1(cleaned.artifactCount * 100.0 / cleaned.size)
+        strapCheck = StrapCheck(percent, percent > config.strapCheckMaxArtifactPercent)
     }
 
     /** Hook for protocols that discard impossible readings; the default keeps every valid reading. */
@@ -397,7 +417,10 @@ internal abstract class FitnessProtocol(
             toMillis = at(t),
             maxHeartRateBpm = subject.hrMaxBpm,
             restingHeartRateBpm = subject.restingHeartRateBpm,
-            vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
+            // An effort that was not maximal has no VO2max to express the thresholds against.
+            vo2maxMlKgMin = outputs?.vo2maxMlKgMin?.takeIf {
+                FitnessTestRecalculation.withheldReason(measurements(), endReason ?: FitnessEndReason.CommandFailed, subject.hrMaxBpm, config) == null
+            },
         )
 
     protected abstract fun measurements(): FitnessTestMeasurements
@@ -453,6 +476,9 @@ internal abstract class FitnessProtocol(
         val valid = flags.none { it.severity == FlagSeverity.Invalidating }
         val effortEnd = effortEndT ?: 0L
         val end = endT ?: effortEnd
+        val measurements = measurements()
+        // The final peak (it may still rise until the test finishes) decides whether the effort was maximal at all.
+        val withheld = if (valid) FitnessTestRecalculation.withheldReason(measurements, endReason ?: FitnessEndReason.CommandFailed, subject.hrMaxBpm, config) else null
         return FitnessTestResult(
             id = id,
             testType = testType,
@@ -476,11 +502,12 @@ internal abstract class FitnessProtocol(
                 maxSpeedLimitKmh = maxSpeedLimitKmh,
                 maxInclineLimitPercent = maxInclineLimitPercent,
             ),
-            measurements = measurements(),
+            measurements = measurements,
             minutes = minutes.toList(),
             coolDownSeconds = coolDownStartT?.let { (max(0L, (coolDownEndT ?: end) - it) / 1000).toInt() } ?: 0,
-            outputs = if (valid) outputs else null,
+            outputs = if (valid && withheld == null) outputs else null,
             thresholds = if (valid) thresholds else null,
+            outputsWithheld = withheld,
         )
     }
 
@@ -508,6 +535,7 @@ internal abstract class FitnessProtocol(
             heartRateBpm = reading.bpm,
             heartRateValidity = reading.validity,
             canEndTest = isEffortPhase,
+            strapCheck = strapCheck.takeIf { phase == FitnessTestPhase.WarmUp },
             canExtendPhase = canExtendPhase,
             manualChangesAllowed = manualChangesAllowed,
             endReason = endReason,

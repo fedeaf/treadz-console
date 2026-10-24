@@ -22,6 +22,9 @@ import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.SafetyClamp
+import com.treadz.console.treadmill.events.LoadEvent
+import com.treadz.console.treadmill.events.LoadEventLog
+import com.treadz.console.treadmill.events.LoadEventType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -102,6 +105,17 @@ class ProgramRunner(
 
     /** Events of the run, in order. No replay. */
     val events: SharedFlow<ProgramEvent> = _events.asSharedFlow()
+
+    private val loadLog = LoadEventLog()
+
+    /**
+     * The load events of the run so far: what changed the speed or the incline besides the plan's own blocks (manual
+     * changes, the heart-rate regulation, the α1 brake, the safety reductions, the maximum heart rate, the fall back
+     * without heart rate and the control resuming), with the program clock as time. A new list at every event; emptied
+     * when a program starts, kept after it ends (it is also in [ProgramEvent.Finished.loadEvents]). The app stores it with
+     * the workout during the run and at its end; it holds no reasoning and no heart-rate or α1 values.
+     */
+    val loadEvents: StateFlow<List<LoadEvent>> = loadLog.events
 
     private val lock = Any()
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -195,6 +209,7 @@ class ProgramRunner(
             hrControl = null
             hrCarry.clear()
             hrSummaries.clear()
+            loadLog.clear()
             setBlockTargets(newPlan.blocks[0])
             needsApply = false
             publish()
@@ -858,14 +873,18 @@ class ProgramRunner(
         val t = clock.nowMillis()
         val ps = programSeconds()
         for (signal in c.pending) {
-            emit(
-                when (signal) {
-                    is HeartRateSignal.Adjusted -> ProgramEvent.HeartRateAdjusted(t, ps, c.blockIndex, c.adjust, signal.from, signal.to, signal.reason, signal.heartRateBpm?.let { Math.round(it * 10) / 10.0 })
-                    is HeartRateSignal.CeilingExceeded -> ProgramEvent.HeartRateCeilingExceeded(t, ps, c.blockIndex, signal.heartRateBpm, signal.ceilingBpm, signal.reduced)
-                    is HeartRateSignal.MaxReached -> ProgramEvent.HeartRateMaxReached(t, ps, c.blockIndex, signal.heartRateBpm, signal.maxBpm, signal.reduced)
-                    is HeartRateSignal.StateChanged -> ProgramEvent.HeartRateControlChanged(t, ps, c.blockIndex, signal.state)
-                },
-            )
+            val event: ProgramEvent? = when (signal) {
+                is HeartRateSignal.Adjusted -> ProgramEvent.HeartRateAdjusted(t, ps, c.blockIndex, c.adjust, signal.from, signal.to, signal.reason, signal.heartRateBpm?.let { Math.round(it * 10) / 10.0 })
+                is HeartRateSignal.CeilingExceeded -> ProgramEvent.HeartRateCeilingExceeded(t, ps, c.blockIndex, signal.heartRateBpm, signal.ceilingBpm, signal.reduced)
+                is HeartRateSignal.MaxReached -> ProgramEvent.HeartRateMaxReached(t, ps, c.blockIndex, signal.heartRateBpm, signal.maxBpm, signal.reduced)
+                is HeartRateSignal.StateChanged -> ProgramEvent.HeartRateControlChanged(t, ps, c.blockIndex, signal.state)
+                // Not a program event of its own: it only goes to the list of load events.
+                HeartRateSignal.ControlResumed -> {
+                    loadLog.add(ps, LoadEventType.HeartRateControlResumed)
+                    null
+                }
+            }
+            if (event != null) emit(event)
         }
         c.pending.clear()
     }
@@ -1001,7 +1020,7 @@ class ProgramRunner(
         outcome = result
         busy = false
         epoch++
-        emit(ProgramEvent.Finished(clock.nowMillis(), programSeconds(), result, endAction, stopResult, hrSummaries.toList()))
+        emit(ProgramEvent.Finished(clock.nowMillis(), programSeconds(), result, endAction, stopResult, hrSummaries.toList(), loadLog.events.value))
         publish()
         runJob?.cancel()
         runJob = null
@@ -1024,6 +1043,7 @@ class ProgramRunner(
     }
 
     private fun emit(event: ProgramEvent) {
+        event.toLoadEvents().forEach(loadLog::add)
         _events.tryEmit(event)
     }
 

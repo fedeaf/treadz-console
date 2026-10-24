@@ -11,8 +11,11 @@ import com.treadz.console.analysis.workout.RecoveryContext
 import com.treadz.console.analysis.workout.Section
 import com.treadz.console.analysis.workout.SessionAlpha1
 import com.treadz.console.analysis.workout.SignalQuality
+import com.treadz.console.analysis.workout.ThresholdEstimatesAnalysis
+import com.treadz.console.analysis.workout.ThresholdKind
 import com.treadz.console.analysis.workout.TrimpAnalysis
 import com.treadz.console.analysis.workout.WorkoutAnalysis
+import com.treadz.console.analysis.workout.WorkoutThresholdEstimate
 import com.treadz.console.analysis.workout.ZoneTimeAnalysis
 import com.treadz.console.analysis.zones.FitnessLevel
 import com.treadz.console.analysis.zones.ZoneRange
@@ -43,6 +46,7 @@ internal object WorkoutAnalysisJson {
             "fitnessIndex" to writeSection(analysis.fitnessIndex, ::writeFitnessIndex),
             "recovery" to writeSection(analysis.recovery, ::writeRecovery),
             "alpha1" to writeSection(analysis.alpha1, ::writeAlpha1),
+            "thresholdEstimates" to writeSection(analysis.thresholdEstimates, ::writeThresholdEstimates),
         ),
     )
 
@@ -69,6 +73,12 @@ internal object WorkoutAnalysisJson {
             fitnessIndex = readSection(root, "fitnessIndex", ::readFitnessIndex),
             recovery = readSection(root, "recovery", ::readRecovery),
             alpha1 = readSection(root, "alpha1", ::readAlpha1),
+            // Documents of algorithm version 1 have no such section (they are recalculated anyway).
+            thresholdEstimates = if (root.has("thresholdEstimates")) {
+                readSection(root, "thresholdEstimates", ::readThresholdEstimates)
+            } else {
+                Section(null, AnalysisReason.NoThresholdReference)
+            },
         )
     }
 
@@ -172,6 +182,25 @@ internal object WorkoutAnalysisJson {
         "meanAlpha1" to a.meanAlpha1,
     )
 
+    private fun writeThresholdEstimates(t: ThresholdEstimatesAnalysis) = linkedMapOf(
+        "stretchesFound" to t.stretchesFound,
+        "estimates" to t.estimates.map { e ->
+            linkedMapOf(
+                "kind" to e.kind.name,
+                "startMillis" to e.startMillis,
+                "endMillis" to e.endMillis,
+                "speedKmh" to e.speedKmh,
+                "inclinePercent" to e.inclinePercent,
+                "cleanWindows" to e.cleanWindows,
+                "alpha1" to e.alpha1,
+                "heartRateBpm" to e.heartRateBpm,
+                "slopePerBpm" to e.slopePerBpm,
+                "impliedBpm" to e.impliedBpm,
+                "weightSeconds" to e.weightSeconds,
+            )
+        },
+    )
+
     // ---------------------------------------------------------------- reading
 
     private fun <T : Any> readSection(parent: Obj, key: String, read: (Obj) -> T): Section<T> {
@@ -268,6 +297,25 @@ internal object WorkoutAnalysisJson {
         secondsAtOrAbove = o.int("secondsAtOrAbove"),
         secondsBelow = o.int("secondsBelow"),
         meanAlpha1 = o.double("meanAlpha1"),
+    )
+
+    private fun readThresholdEstimates(o: Obj) = ThresholdEstimatesAnalysis(
+        stretchesFound = o.int("stretchesFound"),
+        estimates = o.objects("estimates").map { e ->
+            WorkoutThresholdEstimate(
+                kind = e.enum("kind", ThresholdKind.entries),
+                startMillis = e.long("startMillis"),
+                endMillis = e.long("endMillis"),
+                speedKmh = e.double("speedKmh"),
+                inclinePercent = e.double("inclinePercent"),
+                cleanWindows = e.int("cleanWindows"),
+                alpha1 = e.double("alpha1"),
+                heartRateBpm = e.double("heartRateBpm"),
+                slopePerBpm = e.double("slopePerBpm"),
+                impliedBpm = e.double("impliedBpm"),
+                weightSeconds = e.int("weightSeconds"),
+            )
+        },
     )
 
     private fun toInt(v: Any?): Int = (v as? Number)?.toInt() ?: throw IllegalArgumentException("not a number: $v")

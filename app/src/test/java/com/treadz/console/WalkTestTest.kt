@@ -202,7 +202,8 @@ class WalkTestTest {
         val rig = SimTrainingRig(this)
         rig.connect()
         val userId = rig.userData.profiles.activeUserId()!!
-        val subject = FitnessSubject(ageYears = 40, sex = Sex.Male, weightKg = 80.0, hrMaxBpm = 180)
+        // A maximum that the simulated heart rate of a 3-minute ramp reaches 85 % of: below it the test gives no VO2max.
+        val subject = FitnessSubject(ageYears = 40, sex = Sex.Male, weightKg = 80.0, hrMaxBpm = 150)
         assertEquals(StartOutcome.Started, rig.training.startMaxHeartRateWalk(userId, MaxHeartRateWalkParameters(subject, 5.5, 5.0)))
         val id = checkNotNull(rig.links.linked.single().fitnessTestId)
         val vm = RunViewModel(rig.training, rig.userData)

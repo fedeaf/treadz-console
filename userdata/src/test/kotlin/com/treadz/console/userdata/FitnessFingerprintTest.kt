@@ -175,13 +175,13 @@ class FitnessFingerprintTest {
             .digest(FitnessTestJson.encodeProfile(snapshot).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         assertEquals(
             "The fitness profile derived from fixed results changed: raise FitnessProfiles.RULES_VERSION (now ${FitnessProfiles.RULES_VERSION}) and update this value",
-            PINNED_SNAPSHOT_DIGEST_FOR_RULES_VERSION_1,
+            PINNED_SNAPSHOT_DIGEST_FOR_RULES_VERSION_2,
             digest,
         )
-        assertEquals(1, FitnessProfiles.RULES_VERSION)
+        assertEquals(2, FitnessProfiles.RULES_VERSION)
     }
 
     private companion object {
-        const val PINNED_SNAPSHOT_DIGEST_FOR_RULES_VERSION_1 = "8e57f2e3f4e2d1dedfb4028ae34d248619ccf95110fe5cf6768648c191e4ea9e"
+        const val PINNED_SNAPSHOT_DIGEST_FOR_RULES_VERSION_2 = "3143d43ea9684c0ddd84220725bdb18aa270da4430687e6e3d372098c5a3ac6a"
     }
 }

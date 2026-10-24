@@ -67,11 +67,16 @@ import kotlin.math.roundToInt
  *     for VT1 (Rogers B, Giles D, Draper N, Hoos O, Gronwald T. Front Physiol. 2021;11:596567; Gronwald T, Rogers B, Hoos
  *     O. Front Physiol. 2020;11:550572): the time below it is the real time below the aerobic threshold of that day.
  *  8. **Signal quality**: always present.
+ *  9. **Thresholds implied by the stable stretches** ([ThresholdEstimatesSection], strap RR and a test with an α1-heart-rate
+ *     slope in the context): input for the recommendation of a test, never a change of the profile.
  */
 object WorkoutAnalyzer {
 
-    /** Version of this algorithm; stored with every analysis, which is recalculated when it changes. */
-    const val ALGORITHM_VERSION = 1
+    /**
+     * Version of this algorithm; stored with every analysis, which is recalculated when it changes. 2 (2026-10-23): the
+     * section of the thresholds implied by the stable stretches ([ThresholdEstimatesSection]) was added.
+     */
+    const val ALGORITHM_VERSION = 2
 
     private const val KCAL_PER_LITRE_OXYGEN = 5.0
 
@@ -116,6 +121,7 @@ object WorkoutAnalyzer {
             fitnessIndex = gated(localMaxGate) { AerobicSections.fitnessIndex(tl, context, rules) },
             recovery = gated(anyHrGate) { RecoverySection.compute(tl, rules) },
             alpha1 = gated(anyHrGate) { Alpha1Section.compute(tl, rr, cleaned, rules) },
+            thresholdEstimates = gated(localMaxGate) { ThresholdEstimatesSection.compute(tl, rr, cleaned, context, rules) },
         )
     }
 

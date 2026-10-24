@@ -49,6 +49,12 @@ enum class AnalysisReason {
 
     /** RR intervals exist but no α1 window is valid (too few beats or more than 5 % artifacts). */
     NoValidWindows,
+
+    /**
+     * The context has no α1-heart-rate slope: the user has no test with thresholds yet (or it was taken after this
+     * workout), so the thresholds cannot be estimated from the workout.
+     */
+    NoThresholdReference,
 }
 
 /**
@@ -70,6 +76,12 @@ data class Section<out T : Any>(val value: T?, val reason: AnalysisReason?) {
  * @property maxHeartRateBpm The effective maximum heart rate.
  * @property zones The zone set in force that day; `null` = no time in zones.
  * @property vo2maxMlKgMin The profile VO2max that day, only to express the mean oxygen demand as % of it.
+ * @property alpha1SlopePerBpm The slope of the α1-heart-rate regression (α1 per bpm, negative) of the user's latest test
+ *   with thresholds before the workout (`ThresholdMetrics.slopePerBpm`); `null` = no such test, and then the thresholds
+ *   cannot be estimated from the workout ([AnalysisReason.NoThresholdReference]). A value that is not negative is ignored.
+ * @property vt2Bpm VT2 of the profile that day, to recognise a hard effort earlier in the workout (more than a minute
+ *   above it); `null` = the one of [zones] ([ZoneSet.vt2Bpm]), and without any the rule is not applied. VT1 is not needed:
+ *   the estimates are computed from the slope and the workout itself.
  */
 data class WorkoutAnalysisContext(
     val sex: Sex,
@@ -78,6 +90,8 @@ data class WorkoutAnalysisContext(
     val maxHeartRateBpm: Int,
     val zones: ZoneSet? = null,
     val vo2maxMlKgMin: Double? = null,
+    val alpha1SlopePerBpm: Double? = null,
+    val vt2Bpm: Double? = null,
 )
 
 /** Parameters of [WorkoutAnalyzer] (the defaults are the documented method; tests may change them). */
@@ -145,6 +159,30 @@ data class AnalysisRules(
     val alpha1MinMovingFraction: Double = 0.8,
     /** Session α1: the cut between the aerobic and the above-threshold side (Rogers 2021, ≈ VT1). */
     val alpha1Cut: Double = 0.75,
+
+    // ---- stable stretches and the thresholds they imply (see [ThresholdEstimatesSection])
+    /** A stable stretch lasts at least this long (speed and incline unchanged)... */
+    val stretchMinSeconds: Int = 300,
+    /** ...of which the first part is left out (the heart rate is still settling)... */
+    val stretchSettleSeconds: Int = 120,
+    /** ...and after it the heart rate (smoothed over [stretchHeartRateSmoothingSeconds]) stays within this of its mean. */
+    val stretchHeartRateBandBpm: Double = 4.0,
+    val stretchHeartRateSmoothingSeconds: Int = 10,
+    /** "Unchanged": the speed and the incline stay within these of their values at the start of the stretch. */
+    val stretchSpeedToleranceKmh: Double = 0.05,
+    val stretchInclineTolerancePercent: Double = 0.05,
+    /** Only stretches inside this first part of the workout (from the first second with the belt moving). */
+    val stretchWithinSeconds: Int = 2400,
+    /** Not after a hard effort: more than this many seconds above VT2 earlier in the workout. */
+    val stretchHardEffortSeconds: Int = 60,
+    /** Clean RR: windows with at most this share of artifacts (stricter than the 5 % of the threshold engine). */
+    val stretchMaxArtifactFraction: Double = 0.03,
+    /** A stretch needs at least this many clean windows, and at least [stretchMinCleanFraction] of its windows. */
+    val stretchMinCleanWindows: Int = 4,
+    val stretchMinCleanFraction: Double = 0.5,
+    /** VT2 only when running (the walking-to-running speed of the ACSM equations) and with the stretch α1 at or below this. */
+    val vt2MinSpeedKmh: Double = 7.5,
+    val vt2MaxAlpha1: Double = 0.6,
 )
 
 /** How the heart-rate seconds are split by source (seconds with the belt moving and a heart rate). */
@@ -297,10 +335,50 @@ data class SessionAlpha1(
     val meanAlpha1: Double,
 )
 
+/** Which threshold a [WorkoutThresholdEstimate] is of. */
+enum class ThresholdKind { Vt1, Vt2 }
+
+/**
+ * A threshold implied by one stable stretch of a workout, with where it comes from: **a recommendation input only, it
+ * never changes the profile**. The workout it belongs to is the one this analysis belongs to.
+ *
+ * @property startMillis Start and end of the stretch (speed and incline unchanged), on the clock of the samples;
+ *   its first [AnalysisRules.stretchSettleSeconds] are not analysed.
+ * @property speedKmh Load of the stretch.
+ * @property cleanWindows Clean α1 windows (120 s, at most 3 % artifacts) of the analysed part behind [alpha1] and [heartRateBpm].
+ * @property alpha1 Mean α1 of those windows; [heartRateBpm] their mean heart rate (from the RR).
+ * @property slopePerBpm The α1-heart-rate slope of the user's test that the value was computed with.
+ * @property impliedBpm VT1: [heartRateBpm] + (0.75 − [alpha1]) / [slopePerBpm]; VT2: the same with 0.5.
+ * @property weightSeconds Weight of the estimate: the duration of the stretch.
+ */
+data class WorkoutThresholdEstimate(
+    val kind: ThresholdKind,
+    val startMillis: Long,
+    val endMillis: Long,
+    val speedKmh: Double,
+    val inclinePercent: Double,
+    val cleanWindows: Int,
+    val alpha1: Double,
+    val heartRateBpm: Double,
+    val slopePerBpm: Double,
+    val impliedBpm: Double,
+    val weightSeconds: Int,
+)
+
+/**
+ * The thresholds the stable stretches of a workout imply (see [ThresholdEstimatesSection]).
+ *
+ * @property stretchesFound Stable stretches found (long enough, steady heart rate), used or not.
+ * @property estimates At least one; VT1 and VT2 of the same stretch are two entries.
+ */
+data class ThresholdEstimatesAnalysis(val stretchesFound: Int, val estimates: List<WorkoutThresholdEstimate>)
+
 /**
  * The analysis of one workout: independent sections, each with its value or the reason it is missing.
  *
  * @property algorithmVersion [WorkoutAnalyzer.ALGORITHM_VERSION]: an analysis with an older version is recalculated.
+ * @property thresholdEstimates Version 2. Defaults to "no threshold reference" so that code that builds an analysis by
+ *   hand (and a stored analysis written before it existed) still works.
  */
 data class WorkoutAnalysis(
     val algorithmVersion: Int,
@@ -313,4 +391,5 @@ data class WorkoutAnalysis(
     val fitnessIndex: Section<FitnessIndexAnalysis>,
     val recovery: Section<RecoveryAnalysis>,
     val alpha1: Section<SessionAlpha1>,
+    val thresholdEstimates: Section<ThresholdEstimatesAnalysis> = Section.missing(AnalysisReason.NoThresholdReference),
 )

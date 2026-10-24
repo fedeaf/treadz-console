@@ -232,13 +232,13 @@ class FitnessAnalysisTest {
         assertTrue(text.contains("\"schemaVersion\": 2"), text)
         assertTrue(text.contains("\"method\": \"acsmWalkRamp\""), text)
         assertTrue(text.contains("\"masIsEstimated\": true"), text)
-        assertTrue(text.contains("\"algorithmVersion\": 2") && text.contains("\"quality\": \"high\""), text)
+        assertTrue(text.contains("\"algorithmVersion\": ${ThresholdEngine.ALGORITHM_VERSION}") && text.contains("\"quality\": \"high\""), text)
         assertTrue(text.contains("\"heartRateBpm\": 132.4"), text)
         assertEquals(r, FitnessTestJson.decode(text))
 
         val reason = r.copy(thresholds = ThresholdResult.none(ThresholdReason.NoWorkoutSamples))
         val reasonText = FitnessTestJson.encode(reason)
-        assertTrue(reasonText.contains("\"thresholds\": {\"algorithmVersion\": 2, \"reason\": \"noWorkoutSamples\"}"), reasonText)
+        assertTrue(reasonText.contains("\"thresholds\": {\"algorithmVersion\": ${ThresholdEngine.ALGORITHM_VERSION}, \"reason\": \"noWorkoutSamples\"}"), reasonText)
         assertEquals(reason, FitnessTestJson.decode(reasonText))
 
         // Unknown reasons from a newer app are read as "not enough data".
@@ -336,7 +336,7 @@ class FitnessAnalysisTest {
     fun `the thresholds are looked for from the start of the warm-up`() {
         val old = sampleResult(FitnessTestType.MaxHeartRateWalk)
         val t = FitnessTestRecalculation.recalculate(old, walkSamples(old, rrFromWarmUp = true))!!.thresholds!!
-        assertEquals(2, t.algorithmVersion)
+        assertEquals(FitnessTestRecalculation.ALGORITHM_VERSION, t.algorithmVersion)
         assertNotNull(t.vt1, "$t")
         // Windows of 120 s every 10 s over the 780 s from the start of the warm-up (the 660 s ramp alone has 55).
         assertEquals(67, t.metrics!!.totalWindows)

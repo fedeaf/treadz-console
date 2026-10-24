@@ -19,7 +19,8 @@ import org.junit.jupiter.api.Test
  * The α1 brake on exact times, with the evaluations given directly (the estimator has its own tests): readings at 2 Hz,
  * ticks every 250 ms, an evaluation every 10 s of block time. Zone 114-126 bpm (zone 2 at 45-55 % of the reserve for a
  * maximum of 180 and a resting rate of 60), ceiling 134. The first evaluation whose window lies entirely inside the
- * block is the one at block time 120 s, so with α1 low from there the brake fires at 140 s.
+ * block is the one at block time 120 s; the brake needs six counting evaluations (120..170 s) whose median is below 0.70,
+ * so with α1 low from there it fires at 170 s, and then not again for 180 s.
  */
 class Alpha1BrakeControlTest {
 
@@ -95,14 +96,12 @@ class Alpha1BrakeControlTest {
     }
 
     @Test
-    fun `fires on the third low evaluation, not on the second`() {
+    fun `fires on the sixth counting evaluation, not on the fifth`() {
         val s = Sim()
-        s.run(130_000) // evaluations at 120 and 130 s are low
-        assertTrue(s.changes.isEmpty(), "two low evaluations are not enough: ${s.changes}")
-        s.run(5_000)
-        assertTrue(s.changes.isEmpty())
-        s.run(10_000) // the third, at 140 s
-        assertEquals(listOf(Change(140_000L, 4.0, 3.0, HeartRateAdjustReason.Alpha1Brake)), s.changes)
+        s.run(165_000) // evaluations at 120, 130, 140, 150 and 160 s are low: five
+        assertTrue(s.changes.isEmpty(), "five low evaluations are not enough: ${s.changes}")
+        s.run(10_000) // the sixth, at 170 s
+        assertEquals(listOf(Change(170_000L, 4.0, 3.0, HeartRateAdjustReason.Alpha1Brake)), s.changes)
         assertEquals(3.0, s.value)
         assertEquals(1, s.summary().adjustments)
         assertEquals(1, s.summary().alpha1Reductions)
@@ -110,20 +109,49 @@ class Alpha1BrakeControlTest {
     }
 
     @Test
-    fun `an evaluation that is not low restarts the count`() {
+    fun `the trigger is the median of the six, so one high evaluation does not cancel the signal`() {
         val s = Sim()
         s.alpha = { ms -> if (ms == 130_000L) 0.9 else 0.5 }
-        s.run(165_000) // low at 120, high at 130, low at 140, 150 and 160: the third in a row is at 160
-        assertEquals(listOf(Change(160_000L, 4.0, 3.0, HeartRateAdjustReason.Alpha1Brake)), s.changes)
+        s.run(175_000) // 0.5, 0.9, 0.5, 0.5, 0.5, 0.5: median 0.5
+        assertEquals(listOf(Change(170_000L, 4.0, 3.0, HeartRateAdjustReason.Alpha1Brake)), s.changes)
     }
 
     @Test
-    fun `two low evaluations and then a normal one never fire`() {
+    fun `half of the evaluations above the trigger are enough to stop it`() {
+        // Three low (0.5) and three high (1.0): the median is 0.75.
+        val half = Sim()
+        half.alpha = { ms -> if (ms < 150_000L) 0.5 else 1.0 }
+        half.run(175_000)
+        assertTrue(half.changes.isEmpty(), "median 0.75: ${half.changes}")
+        // Four low and two high: the median is 0.5.
+        val most = Sim()
+        most.alpha = { ms -> if (ms < 160_000L) 0.5 else 1.0 }
+        most.run(175_000)
+        assertEquals(1, most.changes.size)
+    }
+
+    @Test
+    fun `a short low episode and then a normal one never fire`() {
         val s = Sim()
         s.alpha = { ms -> if (ms in 120_000L..130_000L) 0.4 else 1.0 }
         s.run(400_000)
         assertTrue(s.changes.isEmpty())
         assertEquals(0, s.summary().alpha1Reductions, "active, with valid windows, never fired")
+    }
+
+    @Test
+    fun `a low episode right after a reduction cannot cause a second one within 180 s`() {
+        // The situation of the improvement plan: the first reduction, and α1 still low in the windows that mostly hold
+        // beats from before it. The second one must wait for 180 s and for six evaluations that all come after the first.
+        val s = Sim()
+        s.alpha = { ms -> if (ms in 120_000L..260_000L) 0.4 else 1.0 }
+        s.run(700_000)
+        assertEquals(listOf(170_000L), s.brakeChanges().map { it.ms }, "${s.changes}")
+        // With α1 low all along, the second reduction comes at 350 s: 180 s later, and not earlier.
+        val low = Sim()
+        low.run(700_000)
+        assertEquals(listOf(170_000L, 350_000L, 530_000L), low.brakeChanges().map { it.ms })
+        assertTrue(low.brakeChanges().zipWithNext().all { (a, b) -> b.ms - a.ms >= 180_000L })
     }
 
     @Test
@@ -134,16 +162,16 @@ class Alpha1BrakeControlTest {
         assertTrue(s.changes.isEmpty())
         val t = Sim()
         t.alpha = { 0.69 }
-        t.run(145_000)
+        t.run(175_000)
         assertEquals(1, t.changes.size)
     }
 
     @Test
-    fun `reductions are at least 90 s apart and stop at the block minimum`() {
+    fun `reductions are at least 180 s apart and stop at the block minimum`() {
         val s = Sim(adjust = HeartRateAdjust.Speed, start = 9.0, min = 8.5, max = 12.0)
-        s.run(700_000)
-        // 140 s, then the first evaluation at least 90 s later (230 s); the second lands on the minimum and nothing follows.
-        assertEquals(listOf(140_000L, 230_000L), s.brakeChanges().map { it.ms })
+        s.run(900_000)
+        // 170 s, then six evaluations after it and at least 180 s later (350 s); the second lands on the minimum and nothing follows.
+        assertEquals(listOf(170_000L, 350_000L), s.brakeChanges().map { it.ms })
         assertEquals(listOf(8.7, 8.5), s.brakeChanges().map { it.to })
         assertEquals(8.5, s.value)
         assertEquals(2, s.summary().alpha1Reductions)
@@ -151,27 +179,27 @@ class Alpha1BrakeControlTest {
     }
 
     @Test
-    fun `without a minimum in the way it keeps lowering every 90 s`() {
+    fun `without a minimum in the way it keeps lowering every 180 s`() {
         val s = Sim(start = 10.0, min = 0.0)
-        s.run(800_000)
-        assertEquals(listOf(140_000L, 230_000L, 320_000L, 410_000L, 500_000L, 590_000L), s.brakeChanges().map { it.ms }.take(6))
+        s.run(1_300_000)
+        assertEquals(listOf(170_000L, 350_000L, 530_000L, 710_000L, 890_000L, 1_070_000L), s.brakeChanges().map { it.ms }.take(6))
         assertEquals(listOf(9.0, 8.0, 7.0, 6.0, 5.0, 4.0), s.brakeChanges().map { it.to }.take(6))
     }
 
     @Test
     fun `running adjusts the speed in steps of 0_3 km h, walking the incline in steps of 1 percent`() {
         val run = Sim(adjust = HeartRateAdjust.Speed, start = 9.0, min = 7.0, max = 12.0)
-        run.run(245_000)
+        run.run(360_000)
         assertEquals(listOf(8.7, 8.4), run.brakeChanges().map { it.to })
         val walk = Sim(adjust = HeartRateAdjust.Incline, start = 6.0, min = 0.0, max = 12.0)
-        walk.run(245_000)
+        walk.run(360_000)
         assertEquals(listOf(5.0, 4.0), walk.brakeChanges().map { it.to })
     }
 
     @Test
     fun `the step is cut at the block minimum, and nothing happens at it`() {
         val s = Sim(adjust = HeartRateAdjust.Speed, start = 8.0, min = 7.9, max = 12.0)
-        s.run(150_000)
+        s.run(175_000)
         assertEquals(listOf(7.9), s.brakeChanges().map { it.to })
         s.run(300_000)
         assertEquals(1, s.changes.size, "already at the minimum: no more orders")
@@ -189,7 +217,7 @@ class Alpha1BrakeControlTest {
         assertTrue(s.changes.isEmpty())
         val edge = Sim()
         edge.artifacts = { 0.03 }
-        edge.run(145_000)
+        edge.run(175_000)
         assertEquals(1, edge.changes.size, "3 % is allowed")
     }
 
@@ -198,10 +226,10 @@ class Alpha1BrakeControlTest {
         val s = Sim()
         // Valid and low at 120 and 130, not valid at 140 (RR missing or more than 5 % artifacts), low again from 150.
         s.alpha = { ms -> if (ms == 140_000L) null else 0.4 }
-        s.run(165_000)
+        s.run(195_000)
         assertTrue(s.changes.isEmpty(), "the count restarted at 140 s: ${s.changes}")
-        s.run(10_000) // 150, 160 and 170: the third in a row after the gap
-        assertEquals(listOf(170_000L), s.brakeChanges().map { it.ms })
+        s.run(10_000) // 150..200: the sixth in a row after the gap
+        assertEquals(listOf(200_000L), s.brakeChanges().map { it.ms })
         // Without any valid window the brake never acts and reports nothing.
         val none = Sim()
         none.alpha = { null }
@@ -218,12 +246,12 @@ class Alpha1BrakeControlTest {
         low.run(300_000, hr = { 110 })
         assertTrue(low.brakeChanges().isEmpty(), "under the zone the regular control raises the load; the brake does not act")
         val edge = Sim(bpm = 114)
-        edge.run(145_000, hr = { 114 })
+        edge.run(175_000, hr = { 114 })
         assertEquals(1, edge.brakeChanges().size)
         // Above the zone counts too (the regular control has been lowering the load meanwhile).
         val above = Sim(start = 10.0, bpm = 130)
-        above.run(145_000, hr = { 130 })
-        assertEquals(listOf(140_000L), above.brakeChanges().map { it.ms })
+        above.run(185_000, hr = { 130 })
+        assertEquals(listOf(180_000L), above.brakeChanges().map { it.ms }, "the regular control lowered the load at 160 s: ${above.changes}")
     }
 
     @Test
@@ -250,7 +278,7 @@ class Alpha1BrakeControlTest {
     fun `never raises the load - not even when the heart rate falls under the zone`() {
         val s = Sim(start = 6.0, min = 0.0)
         // The heart rate drops under the zone after the first reduction (a real response to a lower load) while α1 stays low.
-        s.run(700_000, hr = { ms -> if (ms < 140_000) 120 else 100 })
+        s.run(900_000, hr = { ms -> if (ms < 175_000) 120 else 100 })
         assertEquals(1, s.brakeChanges().size, "under the zone the brake does not act: ${s.changes}")
         assertTrue(s.brakeChanges().all { it.to < it.from })
         // The only increases are the regular control's own, never the brake's.
@@ -263,33 +291,35 @@ class Alpha1BrakeControlTest {
         val s = Sim(start = 6.0)
         // The heart rate falls under the zone after the reduction at 140 s.
         s.alpha = { ms -> if (ms <= 150_000L) 0.4 else 1.0 }
-        s.run(400_000, hr = { ms -> if (ms < 140_000) 120 else 105 })
-        assertEquals(Change(140_000L, 6.0, 5.0, HeartRateAdjustReason.Alpha1Brake), s.changes.first())
+        s.run(400_000, hr = { ms -> if (ms < 175_000) 120 else 105 })
+        assertEquals(Change(170_000L, 6.0, 5.0, HeartRateAdjustReason.Alpha1Brake), s.changes.first())
         val raise = s.changes.first { it.reason == HeartRateAdjustReason.BelowZone }
-        assertTrue(raise.ms >= 140_000L + 90_000L, "no upward correction in the 90 s after the reduction: $raise")
-        assertTrue(raise.ms <= 140_000L + 90_000L + 20_000L, "but then the regular control raises it: $raise")
+        assertTrue(raise.ms >= 170_000L + 90_000L, "no upward correction in the 90 s after the reduction: $raise")
+        assertTrue(raise.ms <= 170_000L + 90_000L + 20_000L, "but then the regular control raises it: $raise")
     }
 
     @Test
     fun `the regular decision due at the same moment is postponed a full interval`() {
         val s = Sim(start = 6.0)
-        // Above the zone (and under the ceiling) from 100 s: regular reductions at 120, then the brake at 140.
+        // Above the zone (and under the ceiling) from 100 s: regular reductions at 120, 140 and 160 s. The sixth evaluation
+        // (170 s) finds a change 10 s old, so the brake waits for 180 s, where it goes before the regular decision.
         s.run(300_000, hr = { ms -> if (ms < 100_000) 120 else 130 })
         assertEquals(Change(120_000L, 6.0, 5.0, HeartRateAdjustReason.AboveZone), s.changes[0])
-        assertEquals(Change(140_000L, 5.0, 4.0, HeartRateAdjustReason.Alpha1Brake), s.changes[1])
-        // The regular decision due at 140 s waited: the next change is at 160 s.
-        assertEquals(160_000L, s.changes[2].ms, "${s.changes}")
+        assertEquals(Change(160_000L, 4.0, 3.0, HeartRateAdjustReason.AboveZone), s.changes[2])
+        assertEquals(Change(180_000L, 3.0, 2.0, HeartRateAdjustReason.Alpha1Brake), s.changes[3])
+        // The regular decision due at 180 s waited: the next change is at 200 s.
+        assertEquals(200_000L, s.changes[4].ms, "${s.changes}")
         assertTrue(s.changes.zipWithNext().all { (a, b) -> b.ms - a.ms >= 20_000L })
     }
 
     @Test
     fun `a change of the control in the last 20 s delays the brake`() {
-        // Evaluations at 125, 135 and 145 s: the third would fire at 145 s, but a regular reduction (heart rate above the
-        // zone) happened at 140 s.
+        // Evaluations at 125, 135 ... 175 s: the sixth would fire at 175 s, but a regular reduction (heart rate above the
+        // zone) happened at 160 s.
         val s = Sim(start = 6.0, evaluationOffsetMs = 5_000)
         s.run(300_000, hr = { ms -> if (ms < 130_000) 120 else 130 })
         assertEquals(Change(140_000L, 6.0, 5.0, HeartRateAdjustReason.AboveZone), s.changes.first())
-        assertEquals(160_000L, s.brakeChanges().first().ms, "${s.changes}")
+        assertEquals(180_000L, s.brakeChanges().first().ms, "${s.changes}")
     }
 
     @Test
@@ -312,10 +342,10 @@ class Alpha1BrakeControlTest {
         s.control.manualOverride()
         s.run(75_000) // 200 s
         s.control.reEnable(s.t, s.value)
-        s.run(135_000) // 335 s: the first complete window after the re-enable is at 320 s, the third low one at 340 s
+        s.run(165_000) // 365 s: the first complete window after the re-enable is at 320 s, the sixth low one at 370 s
         assertTrue(s.changes.isEmpty(), "${s.changes}")
         s.run(10_000)
-        assertEquals(listOf(340_000L), s.brakeChanges().map { it.ms })
+        assertEquals(listOf(370_000L), s.brakeChanges().map { it.ms })
     }
 
     @Test
@@ -324,10 +354,10 @@ class Alpha1BrakeControlTest {
         s.run(200_000)
         assertEquals(1, s.brakeChanges().size)
         s.control.onResume(s.t) // at 200 s
-        s.run(135_000) // 335 s
-        assertEquals(1, s.changes.size, "nothing new before the third window after the resume: ${s.changes}")
+        s.run(165_000) // 365 s
+        assertEquals(1, s.changes.size, "nothing new before the sixth window after the resume: ${s.changes}")
         s.run(10_000)
-        assertEquals(listOf(140_000L, 340_000L), s.brakeChanges().map { it.ms })
+        assertEquals(listOf(170_000L, 370_000L), s.brakeChanges().map { it.ms })
     }
 
     @Test

@@ -16,6 +16,10 @@ import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.SafetyClamp
+import com.treadz.console.treadmill.events.LoadEvent
+import com.treadz.console.treadmill.events.LoadEventLog
+import com.treadz.console.treadmill.events.LoadEventType
+import com.treadz.console.treadmill.events.LoadQuantity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -67,6 +71,12 @@ import kotlin.math.max
  *    effort ends together with the walking test's VO2max ([FitnessTestRecalculation]): a result is complete when the
  *    runner reports it.
  *  - At the end of the cool-down the belt is stopped.
+ *  - **Load events** ([loadEvents]): every manual change of speed or incline, with the test clock; the protocols' own
+ *    changes are not events.
+ *  - **Strap check** ([FitnessTestProgress.strapCheck]): in the warm-up of the two maximal tests, the share of artifacts of
+ *    the RR so far; a warning above 5 %, never a block.
+ *  - **Effort** (maximal tests): a final peak heart rate under 85 % of the maximum in use is not a maximal effort and gives
+ *    no VO2max and no MAS ([FitnessTestResult.outputsWithheld]).
  *
  * Thread safety: all state lives behind one lock and is only changed in short non-suspending sections; controller calls
  * are made outside it. Suspending user actions run in [scope] and are not cancelled with the caller.
@@ -89,6 +99,17 @@ class FitnessTestRunner(
 
     /** Events of the test, in order. No replay. */
     val events: SharedFlow<FitnessTestEvent> = _events.asSharedFlow()
+
+    private val loadLog = LoadEventLog()
+
+    /**
+     * The load events of the test so far, with the test clock as time: every change of speed or incline made by hand (the
+     * console's buttons or the app's, also in the warm-up and the cool-down; "+1" is not one), as
+     * [LoadEventType.ManualChange]. The protocols' own changes are not events. A new list at every event; emptied when a
+     * test starts, kept after it ends (it is also in [FitnessTestEvent.Finished.loadEvents]). The app stores it with the test's
+     * workout during the test and at its end.
+     */
+    val loadEvents: StateFlow<List<LoadEvent>> = loadLog.events
 
     private val lock = Any()
     private val wake = Channel<Unit>(Channel.CONFLATED)
@@ -226,6 +247,7 @@ class FitnessTestRunner(
                 }
             }
             startedAt = clock.nowMillis()
+            loadLog.clear()
             p.begin(startedAt)
             running = true
             appliedSpeed = null
@@ -322,10 +344,19 @@ class FitnessTestRunner(
             val p = protocol
             if (p == null || !running || stopping) return FitnessActionResult.NotAllowed(FitnessRefusal.NotActive, "No test is running")
             if ((speedKmh != null && !speedKmh.isFinite()) || (inclinePercent != null && !inclinePercent.isFinite()) ||
-                p !is MaxHeartRateWalkProtocol || !p.adjustRampStart(speedKmh, inclinePercent)
+                p !is MaxHeartRateWalkProtocol
             ) {
                 return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "The ramp start cannot be changed now")
             }
+            val speedBefore = p.targetSpeed
+            val inclineBefore = p.targetIncline
+            if (!p.adjustRampStart(speedKmh, inclinePercent)) {
+                return FitnessActionResult.NotAllowed(FitnessRefusal.WrongState, "The ramp start cannot be changed now")
+            }
+            // The warm-up follows the new ramp start: what it asks of the treadmill now changed by the user's hand.
+            val seconds = (testTime() / 1000).toInt()
+            p.targetSpeed?.takeIf { it != speedBefore }?.let { loadLog.add(seconds, LoadEventType.ManualChange, LoadQuantity.Speed, it) }
+            p.targetIncline?.takeIf { it != inclineBefore }?.let { loadLog.add(seconds, LoadEventType.ManualChange, LoadQuantity.Incline, it) }
             drainEvents(p)
             publish()
         }
@@ -638,7 +669,28 @@ class FitnessTestRunner(
     }
 
     private fun emit(e: FitnessTestEvent) {
-        _events.tryEmit(e)
+        recordLoadEvents(e)
+        _events.tryEmit(if (e is FitnessTestEvent.Finished) e.copy(loadEvents = loadLog.events.value) else e)
+    }
+
+    /**
+     * The manual changes: those the console reported and those the app made ([FitnessTestEvent.ManualChange] covers both
+     * ways in; the Ebbeling speed the app sets in stage 1 is reported as a speed adjustment with origin App, and the
+     * console's as both). The time is the test clock. Under the lock.
+     */
+    private fun recordLoadEvents(e: FitnessTestEvent) {
+        when (e) {
+            is FitnessTestEvent.ManualChange -> {
+                val seconds = ((e.atMillis - startedAt) / 1000).toInt()
+                e.speedKmh?.let { loadLog.add(seconds, LoadEventType.ManualChange, LoadQuantity.Speed, it) }
+                e.inclinePercent?.let { loadLog.add(seconds, LoadEventType.ManualChange, LoadQuantity.Incline, it) }
+            }
+            is FitnessTestEvent.SpeedAdjusted ->
+                if (e.adjustment.origin == SpeedAdjustmentOrigin.App) {
+                    loadLog.add(e.adjustment.atSecond, LoadEventType.ManualChange, LoadQuantity.Speed, e.adjustment.toKmh)
+                }
+            else -> Unit
+        }
     }
 
     private fun wake() {

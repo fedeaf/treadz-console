@@ -417,6 +417,19 @@ data class FitnessTestOutputs(
 )
 
 /**
+ * Why a valid maximal test that ended by exhaustion gives no VO2max and no MAS (not even as lower bounds): a stable
+ * code for the UI to translate. See [FitnessTestResult.outputsWithheld].
+ */
+enum class OutputsWithheldReason {
+    /**
+     * The peak heart rate of the test (the final one, with the seconds after the effort) was below
+     * [FitnessTestConfig.minPeakFractionOfHrMax] (85 %) of the maximum heart rate in use ([FitnessTestInputs.hrMaxBpm]): the
+     * effort was not maximal, so the test says nothing about the capacity.
+     */
+    PeakHeartRateBelowMinimum,
+}
+
+/**
  * The result of one fitness test. JSON: [FitnessTestJson]. Time values are epoch milliseconds (ISO-8601 in JSON).
  * [outputs] is present only for a [Validity.Valid] result (Ebbeling, maximal running test, maximal walking test; a
  * walking test stored before format version 2 has none until it is recalculated, see [FitnessTestRecalculation]).
@@ -424,6 +437,12 @@ data class FitnessTestOutputs(
  * [thresholds] (format version 2): the DFA-α1 thresholds of a valid maximal test (walking or running) with the
  * algorithm version, or the reason there are none (no RR intervals, no workout samples...). `null` for Ebbeling, for
  * invalid results and for results not analysed yet.
+ *
+ * [outputsWithheld] (added without a format version change: an optional field older readers ignore): the result is valid
+ * but has no [outputs] because the effort was not maximal (peak heart rate under 85 % of the maximum in use), so there is
+ * no VO2max and no MAS, not even as lower bounds; [effortAssessment] is then [EffortAssessment.NotMaximal] (walking test) and
+ * the result never offers a measured maximum heart rate. [thresholds] are kept as the engine found them. `null` for
+ * every other result.
  *
  * [schemaVersion] is, by default, the lowest format version that can hold the result ([schemaVersionFor]): 1 without
  * thresholds and without a walking-test VO2max, so older apps keep reading those documents.
@@ -451,6 +470,7 @@ data class FitnessTestResult(
     val outputs: FitnessTestOutputs?,
     val thresholds: ThresholdResult? = null,
     val schemaVersion: Int = schemaVersionFor(outputs, thresholds),
+    val outputsWithheld: OutputsWithheldReason? = null,
 ) {
     val effortSeconds: Int get() = ((effortEndedAtMillis - startedAtMillis) / 1000).toInt()
 
@@ -460,7 +480,7 @@ data class FitnessTestResult(
      * [MaxHeartRateWalkMeasurements.hrMaxCandidateBpm].
      */
     val measuredHrMaxCandidateBpm: Int?
-        get() = if (validity != Validity.Valid) null
+        get() = if (validity != Validity.Valid || outputsWithheld != null) null
         else outputs?.hrMaxCandidateBpm ?: (measurements as? MaxHeartRateWalkMeasurements)?.hrMaxCandidateBpm
 
     /** Effort assessment of a maximal test (either kind); `null` for Ebbeling or an effort that did not end properly. */

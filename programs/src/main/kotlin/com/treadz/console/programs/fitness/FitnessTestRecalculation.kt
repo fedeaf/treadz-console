@@ -33,6 +33,11 @@ import kotlin.math.roundToLong
  * | Maximal running test | Unchanged (Léger-Mercier from the MAS) | As the walking test | As the walking test |
  * | Ebbeling, invalid results | Unchanged | None | Unchanged |
  *
+ * **Peak under 85 % of the maximum in use** (version 3): the effort was not maximal, so there are no outputs at all (no VO2max
+ * and no MAS, not even as lower bounds), the result stays valid and says why in [FitnessTestResult.outputsWithheld]; the
+ * thresholds are computed as usual (without the % of VO2max) and the walking test's effort is not maximal. Without a usable
+ * heart rate (no peak) the rule does not apply. It is evaluated with the final peak, the one that includes the cool-down.
+ *
  * Heart rate from an unknown source (imported workouts without a source or RR) counts as the console's: it never
  * provides RR intervals. Missing RR intervals or samples are data (the reason), never an error.
  *
@@ -45,7 +50,9 @@ object FitnessTestRecalculation {
 
     /**
      * Version of the derived values (VO2max of the walking test, thresholds and, since version 2, the peak heart rate
-     * with the seconds after the effort), stored in the thresholds block.
+     * with the seconds after the effort; since version 3, no outputs when the peak is under 85 % of the maximum in use),
+     * stored in the thresholds block. It is the threshold engine's version: raising it makes every device recalculate its
+     * stored results once.
      */
     const val ALGORITHM_VERSION = ThresholdEngine.ALGORITHM_VERSION
 
@@ -76,7 +83,9 @@ object FitnessTestRecalculation {
         if (result.measurements is EbbelingMeasurements) return null
         val samples = workoutSamples
         val peaked = samples?.let { refinedPeak(result, it) } ?: result
-        val outputs = when (val m = peaked.measurements) {
+        // The final peak decides whether the effort was maximal at all: under 85 % of the maximum in use there are no outputs.
+        val withheld = withheldReason(peaked.measurements, peaked.endReason, peaked.inputs.hrMaxBpm)
+        val outputs = if (withheld != null) null else when (val m = peaked.measurements) {
             is MaxHeartRateWalkMeasurements -> {
                 val estimate = samples?.let { WalkingTestVo2max.fromSamples(it, result.effortEndedAtMillis) }
                     ?: WalkingTestVo2max.fromStages(m.stages.map { StageLoad(it.speedKmh, it.inclinePercent, it.durationSeconds) })
@@ -98,7 +107,38 @@ object FitnessTestRecalculation {
                 vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
             )
         }
-        return peaked.copy(outputs = outputs, thresholds = thresholds, schemaVersion = FitnessTestResult.SCHEMA_VERSION)
+        val recalculated = peaked.copy(outputs = outputs, thresholds = thresholds, schemaVersion = FitnessTestResult.SCHEMA_VERSION, outputsWithheld = withheld)
+        return if (withheld != null) notMaximal(recalculated) else recalculated
+    }
+
+    /**
+     * Why a valid result gives no VO2max and no MAS even though the test ended by exhaustion: its peak heart rate (the
+     * final one) is under [FitnessTestConfig.minPeakFractionOfHrMax] of [hrMaxBpm], the maximum in use. `null` without a
+     * peak (no usable heart rate: the rule does not apply), for the other end reasons and for Ebbeling.
+     */
+    internal fun withheldReason(
+        measurements: FitnessTestMeasurements,
+        endReason: FitnessEndReason,
+        hrMaxBpm: Int,
+        config: FitnessTestConfig = FitnessTestConfig(),
+    ): OutputsWithheldReason? {
+        if (endReason != FitnessEndReason.Exhausted) return null
+        val peak = when (measurements) {
+            is MaxTestMeasurements -> measurements.peakHeartRateBpm
+            is MaxHeartRateWalkMeasurements -> measurements.peakHeartRateBpm
+            is EbbelingMeasurements -> null
+        } ?: return null
+        return if (peak < hrMaxBpm * config.minPeakFractionOfHrMax) OutputsWithheldReason.PeakHeartRateBelowMinimum else null
+    }
+
+    /** [result] with the flags and the effort of a peak too low to be a maximal effort (a stored plateau verdict no longer holds). */
+    private fun notMaximal(result: FitnessTestResult): FitnessTestResult {
+        val flags = result.flags.filter { it !in PEAK_FLAGS } + FitnessTestFlag.PeakHeartRateLow
+        val measurements = when (val m = result.measurements) {
+            is MaxHeartRateWalkMeasurements -> m.copy(effort = EffortAssessment.NotMaximal)
+            else -> m
+        }
+        return result.copy(flags = flags, measurements = measurements)
     }
 
     /**
@@ -175,17 +215,22 @@ object FitnessTestRecalculation {
      * 5 min of ramp); unknown without a [peak]; maximal when the peak is within [FitnessTestConfig.effortHrMarginBpm] of
      * the user's maximum or there was a heart-rate [plateau]. A peak below that margin carries
      * [FitnessTestFlag.MaximalByHeartRatePlateau] (accepted thanks to the plateau) or [FitnessTestFlag.PeakHeartRateLow].
+     * A peak under [FitnessTestConfig.minPeakFractionOfHrMax] (85 %) of the maximum is never maximal, plateau or not
+     * ([OutputsWithheldReason.PeakHeartRateBelowMinimum]).
      */
     internal fun effortVerdict(peak: Double?, plateau: Boolean, short: Boolean, hrMaxBpm: Int, config: FitnessTestConfig): EffortVerdict {
         val peakLow = peak != null && peak < hrMaxBpm - config.effortHrMarginBpm
+        // Under 85 % of the maximum in use no plateau makes it a maximal effort.
+        val belowMinimum = peak != null && peak < hrMaxBpm * config.minPeakFractionOfHrMax
         val flag = when {
-            !peakLow -> null
-            plateau && !short -> FitnessTestFlag.MaximalByHeartRatePlateau
+            !peakLow && !belowMinimum -> null
+            plateau && !short && !belowMinimum -> FitnessTestFlag.MaximalByHeartRatePlateau
             else -> FitnessTestFlag.PeakHeartRateLow
         }
         val effort = when {
             short -> EffortAssessment.NotMaximal
             peak == null -> EffortAssessment.Unknown
+            belowMinimum -> EffortAssessment.NotMaximal
             peakLow && !plateau -> EffortAssessment.NotMaximal
             else -> EffortAssessment.Maximal
         }

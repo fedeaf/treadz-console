@@ -111,7 +111,7 @@ object FitnessProfiles {
      * again, and a device with a lower version never overwrites a file written with a higher one. A test pins the
      * snapshot of a fixed set of results, so that a change of the rules does not go unnoticed.
      */
-    const val RULES_VERSION = 1
+    const val RULES_VERSION = 2 // 2: maximal walking test ×0.5 with a running test; no outputs below 85 % of the maximum
 
     /**
      * The **snapshot**: `FitnessProfileCalculator` with `now` = the start time of the newest usable result (valid,

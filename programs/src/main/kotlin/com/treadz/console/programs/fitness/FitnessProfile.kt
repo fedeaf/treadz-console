@@ -38,6 +38,13 @@ data class FitnessProfileRules(
     val maximalRecencyDays: Int = 90,
     /** Two sources used differ by more than this times √(SEE₁² + SEE₂²): [Vo2MaxEstimate.discrepancy]. */
     val discrepancyFactor: Double = 1.5,
+    /**
+     * The weight of the maximal walking test's VO2max (ACSM at the load of a ramp that never reaches a steady state, SEE 3.5
+     * assumed) is multiplied by this while a valid maximal running test (effort maximal, not a lower bound) counts in the
+     * profile (within [maxAgeDays]): the running test measures the capacity, the walking one extrapolates it. Decided
+     * with the user on 2026-10-23, same mechanism as [submaximalFactorWithMaximal].
+     */
+    val walkingFactorWithRunning: Double = 0.5,
 )
 
 /** One test result that contributed to the combined VO2max. */
@@ -52,7 +59,10 @@ data class Vo2MaxSource(
     /** Share of this result in the combined value (0-1, the shares add up to 1). */
     val weight: Double,
     val lowerBound: Boolean,
-    /** Extra factor applied to its weight: [FitnessProfileRules.submaximalFactorWithMaximal] or 1. */
+    /**
+     * Extra factor applied to its weight: [FitnessProfileRules.submaximalFactorWithMaximal] (Ebbeling),
+     * [FitnessProfileRules.walkingFactorWithRunning] (maximal walking test) or 1.
+     */
     val weightFactor: Double = 1.0,
     /** It is one of a pair of sources that disagree grossly (see [Vo2MaxEstimate.discrepancy]). */
     val discrepant: Boolean = false,
@@ -206,8 +216,9 @@ data class ThresholdProfile(
  * [FitnessFormulas.MAS_VO2MAX_SEE] and `WalkingTestVo2max`) multiplied by 1.5 when the result has a warning flag
  * (outside the validated population, band not reached, speed cap, effort not maximal...). f_i is
  * [FitnessProfileRules.submaximalFactorWithMaximal] (0.25) for a submaximal test (Ebbeling) when a valid maximal test
- * (effort maximal, not a lower bound) of the last [FitnessProfileRules.maximalRecencyDays] (90) days exists, else 1.
- * Combined = Σ w_i·v_i / Σ w_i. Its uncertainty is √(Σ w_i²·SEE_i²) / Σ w_i, but never below the smallest SEE_i used:
+ * (effort maximal, not a lower bound) of the last [FitnessProfileRules.maximalRecencyDays] (90) days exists, else 1;
+ * and [FitnessProfileRules.walkingFactorWithRunning] (0.5) for the maximal walking test when a valid maximal **running**
+ * test (maximal effort, not a lower bound) counts in the profile. Combined = Σ w_i·v_i / Σ w_i. Its uncertainty is √(Σ w_i²·SEE_i²) / Σ w_i, but never below the smallest SEE_i used:
  * the error of these equations is mostly a person-specific bias (economy, heart-rate response), which repeating a
  * test does not average out. [Vo2MaxEstimate.discrepancy] marks two sources that differ by more than
  * 1.5·√(SEE₁² + SEE₂²) (data only).
@@ -255,8 +266,17 @@ object FitnessProfileCalculator {
             r.testType != FitnessTestType.EbbelingWalk && o.effort == EffortAssessment.Maximal && !o.vo2maxIsLowerBound &&
                 days <= rules.maximalRecencyDays
         }
+        // The walking test's VO2max (ACSM on a ramp) weighs less while a valid running test counts in the profile.
+        val recentRunning = usable.any { (r, _) ->
+            val o = checkNotNull(r.outputs)
+            r.testType == FitnessTestType.MaxIncrementalRun && o.effort == EffortAssessment.Maximal && !o.vo2maxIsLowerBound
+        }
         val factors = usable.map { (r, _) ->
-            if (r.testType == FitnessTestType.EbbelingWalk && recentMaximal) rules.submaximalFactorWithMaximal else 1.0
+            when {
+                r.testType == FitnessTestType.EbbelingWalk && recentMaximal -> rules.submaximalFactorWithMaximal
+                r.testType == FitnessTestType.MaxHeartRateWalk && recentRunning -> rules.walkingFactorWithRunning
+                else -> 1.0
+            }
         }
         val inputs = usable.zip(factors).map { (u, factor) ->
             val (r, days) = u

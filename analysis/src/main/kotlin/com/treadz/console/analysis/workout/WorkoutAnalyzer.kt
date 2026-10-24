@@ -71,6 +71,12 @@ import kotlin.math.roundToInt
  *  8. **Signal quality**: always present.
  *  9. **Thresholds implied by the stable stretches** ([ThresholdEstimatesSection], strap RR and a test with an α1-heart-rate
  *     slope in the context): input for the recommendation of a test, never a change of the profile.
+ * 10. **Fat/carbohydrate split of the energy** ([FuelSection], [com.treadz.console.analysis.energy.SubstrateModel]): an
+ *     estimate from the strap heart rate relative to the person's measured thresholds (RER curve anchored on resting, VT1,
+ *     VT2 and maximum, lowered by duration and for women; Lusk's table gives the fat share of the energy). Needs measured
+ *     VT1, a weight and the valid strap heart rate (checked against its RR) for 80 % of the moving seconds. It does not
+ *     use the heart-rate coverage gates of the other sections: it has its own, and its figures add up to the energy
+ *     section's gross kcal.
  */
 object WorkoutAnalyzer {
 
@@ -78,9 +84,10 @@ object WorkoutAnalyzer {
      * Version of this algorithm; stored with every analysis, which is recalculated when it changes. 2 (2026-10-23): the
      * section of the thresholds implied by the stable stretches ([ThresholdEstimatesSection]) was added. 3 (2026-10-24):
      * the fitness index only takes stretches up to 75 % of the heart-rate reserve (was 85 %), and the calories come from
-     * [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above), as the stored ones.
+     * [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above), as the stored ones. 4
+     * (2026-10-24): the section of the fat/carbohydrate split of the energy ([FuelSection]) was added.
      */
-    const val ALGORITHM_VERSION = 3
+    const val ALGORITHM_VERSION = 4
 
 
     fun analyse(
@@ -125,6 +132,7 @@ object WorkoutAnalyzer {
             recovery = gated(anyHrGate) { RecoverySection.compute(tl, rules) },
             alpha1 = gated(anyHrGate) { Alpha1Section.compute(tl, rr, cleaned, rules) },
             thresholdEstimates = gated(localMaxGate) { ThresholdEstimatesSection.compute(tl, rr, cleaned, context, rules) },
+            fuel = gated(base) { FuelSection.compute(tl, sorted, context, rules) },
         )
     }
 

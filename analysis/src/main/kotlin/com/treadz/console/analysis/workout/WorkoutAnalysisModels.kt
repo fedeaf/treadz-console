@@ -55,6 +55,21 @@ enum class AnalysisReason {
      * workout), so the thresholds cannot be estimated from the workout.
      */
     NoThresholdReference,
+
+    /** The context has no body weight (or not above 0), so the energy cannot be split between fat and carbohydrate. */
+    NoWeight,
+
+    /**
+     * The zones of the context do not come from measured thresholds (or the anchors resting < VT1 < VT2 < maximum do not
+     * increase), so the heart rate cannot be placed on the person's own RER curve.
+     */
+    NoMeasuredThresholds,
+
+    /**
+     * The strap heart rate (a strap connected to the app, in range, confirmed by its RR) covers less than
+     * [AnalysisRules.minHeartRateCoverage] of the time the belt moved, or there is no such heart rate at all.
+     */
+    NoReliableStrapHeartRate,
 }
 
 /**
@@ -384,6 +399,8 @@ data class ThresholdEstimatesAnalysis(val stretchesFound: Int, val estimates: Li
  * @property algorithmVersion [WorkoutAnalyzer.ALGORITHM_VERSION]: an analysis with an older version is recalculated.
  * @property thresholdEstimates Version 2. Defaults to "no threshold reference" so that code that builds an analysis by
  *   hand (and a stored analysis written before it existed) still works.
+ * @property fuel Version 4: the split of the energy between fat and carbohydrate ([FuelSection]). Defaults to "no
+ *   measured thresholds" for the same reason.
  */
 data class WorkoutAnalysis(
     val algorithmVersion: Int,
@@ -397,4 +414,5 @@ data class WorkoutAnalysis(
     val recovery: Section<RecoveryAnalysis>,
     val alpha1: Section<SessionAlpha1>,
     val thresholdEstimates: Section<ThresholdEstimatesAnalysis> = Section.missing(AnalysisReason.NoThresholdReference),
+    val fuel: Section<FuelAnalysis> = Section.missing(AnalysisReason.NoMeasuredThresholds),
 )

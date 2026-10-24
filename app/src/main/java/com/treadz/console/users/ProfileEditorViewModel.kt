@@ -60,6 +60,8 @@ data class ProfileForm(
     val maxHeartRate: String = "",
     val fitnessLevel: FitnessLevel? = null,
     val goal: Goal? = null,
+    /** Id of the avatar picked, `null` for none; an id this version does not know is kept as it is. */
+    val avatarId: String? = null,
     /** Only used when personalising: the real current weight. */
     val weight: String = "",
 )
@@ -165,7 +167,7 @@ class ProfileEditorViewModel(
                 val totalProfiles = profiles.profiles.first().size
                 // The made-up data of the generic profile is not prefilled: the user has to give the real ones.
                 val form = if (loaded.isGeneric) {
-                    ProfileForm(sex = loaded.sex)
+                    ProfileForm(sex = loaded.sex, avatarId = loaded.avatarId)
                 } else {
                     ProfileForm(
                         name = loaded.name,
@@ -176,6 +178,7 @@ class ProfileEditorViewModel(
                         maxHeartRate = loaded.maxHeartRateBpm?.toString().orEmpty(),
                         fitnessLevel = loaded.fitnessLevel,
                         goal = loaded.goal,
+                        avatarId = loaded.avatarId,
                     )
                 }
                 state.update {
@@ -251,6 +254,7 @@ class ProfileEditorViewModel(
     fun setMaxHeartRate(value: String) = edit(InputField.MaxHeartRate) { it.copy(maxHeartRate = value) }
     fun setFitnessLevel(value: FitnessLevel?) = edit(null) { it.copy(fitnessLevel = value) }
     fun setGoal(value: Goal?) = edit(null) { it.copy(goal = value) }
+    fun setAvatar(value: String?) = edit(null) { it.copy(avatarId = value) }
     fun setWeight(value: String) = edit(InputField.Weight) { it.copy(weight = value) }
 
     /** Validates and saves; calls [onSaved] when it worked. Problems are left in [ProfileEditorUiState.errors]. */
@@ -328,7 +332,7 @@ class ProfileEditorViewModel(
             if (weight == null) errors[InputField.Weight] = ValidationCode.OutOfRange
         }
         return Parsed(
-            ProfileInput(form.name, form.sex, height, birth, resting, max, form.fitnessLevel, form.goal),
+            ProfileInput(form.name, form.sex, height, birth, resting, max, form.fitnessLevel, form.goal, form.avatarId),
             weight,
             errors,
         )

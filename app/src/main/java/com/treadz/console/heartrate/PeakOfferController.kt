@@ -70,6 +70,7 @@ class PeakOfferController(
             maxHeartRateBpm = offer.peakBpm,
             fitnessLevel = profile.fitnessLevel,
             goal = profile.goal,
+            avatarId = profile.avatarId,
         )
         val saved = userData.profiles.update(userId, input) is DataResult.Success
         if (saved) answers.update { it + 1 }

@@ -12,6 +12,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.treadz.console.fakes.FakeApp
 import com.treadz.console.fakes.RecordingWorkout
 import com.treadz.console.fakes.createProfile
+import com.treadz.console.fakes.setAvatar
 import com.treadz.console.nav.Screen
 import com.treadz.console.ui.MainActions
 import com.treadz.console.ui.PermissionsUi
@@ -104,6 +105,13 @@ abstract class UserScreenshotScenarios(private val prefix: String) {
         capture("u04_selection_nobody")
     }
 
+    @Test fun u05_selection_with_avatars() {
+        val (ana, beto) = demo()
+        data.setAvatar(ana, "woman")
+        data.setAvatar(beto, "man")
+        capture("u05_selection_avatars")
+    }
+
     // ---- Main screen with users ----
 
     @Test fun m01_main_generic_user_banner() {
@@ -129,6 +137,14 @@ abstract class UserScreenshotScenarios(private val prefix: String) {
         runBlocking { data.profiles.setActiveUser(null) }
         app.controller.showConnected()
         capture("m04_main_no_user", startAt = listOf(Screen.Main))
+    }
+
+    @Test fun m05_main_user_chip_with_avatar() {
+        val (ana, _) = demo()
+        data.setAvatar(ana, "woman")
+        runBlocking { data.profiles.setActiveUser(ana.id) }
+        app.controller.showConnected()
+        capture("m05_main_avatar", startAt = listOf(Screen.Main))
     }
 
     // ---- Profile editor ----
@@ -169,6 +185,12 @@ abstract class UserScreenshotScenarios(private val prefix: String) {
     @Test fun e05_editor_edit_user() {
         val (ana, _) = demo()
         capture("e05_editor_edit", startAt = listOf(Screen.ProfileEditor(ana.id, 1)))
+    }
+
+    @Test fun e09_editor_avatar_choice() {
+        val (ana, _) = demo()
+        data.setAvatar(ana, "woman")
+        capture("e09_editor_avatar", startAt = listOf(Screen.ProfileEditor(ana.id, 1)))
     }
 
     @Test fun e06_editor_name_taken() {

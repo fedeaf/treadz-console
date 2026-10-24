@@ -21,6 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 6. The cache of the per-workout analysis: table `workout_analysis` (derived data, never synchronised). See
  *    [Migration5To6].
  * 7. The events of a workout (what changed the load during it): column `workouts.eventsJson`. See [Migration6To7].
+ * 8. The avatar of a user: column `users.avatar`. See [Migration7To8].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -56,7 +57,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun workoutAnalysis(): WorkoutAnalysisDao
 
     companion object {
-        const val VERSION = 7
+        const val VERSION = 8
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -66,7 +67,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7(), Migration7To8())
     }
 }
 
@@ -262,5 +263,16 @@ internal class Migration6To7 : Migration(6, 7) {
 
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `workouts` ADD COLUMN `eventsJson` TEXT")
+    }
+}
+
+/**
+ * Version 7 to 8 (the avatar of a user). Only adds the nullable column `users.avatar`: every existing row is kept as it
+ * is (no avatar), nothing is flagged `dirty`. The statement is the one of the exported version-8 schema.
+ */
+internal class Migration7To8 : Migration(7, 8) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `users` ADD COLUMN `avatar` TEXT")
     }
 }

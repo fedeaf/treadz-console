@@ -301,6 +301,7 @@ fun TreadZRoot(
                                 onMaxHeartRate = vm::setMaxHeartRate,
                                 onFitnessLevel = vm::setFitnessLevel,
                                 onGoal = vm::setGoal,
+                                onAvatar = vm::setAvatar,
                                 onWeight = vm::setWeight,
                                 onSave = { vm.save(onSaved = navigation::pop) },
                                 onDelete = vm::requestDelete,

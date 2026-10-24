@@ -164,6 +164,10 @@
     <string name="editor_personalize_intro">Replace the generic user with your own data, so your weight, workouts and heart rate zones are yours.</string>
     <string name="editor_not_found">This user no longer exists.</string>
     <string name="field_name">Name</string>
+    <string name="field_avatar">Avatar</string>
+    <string name="avatar_none">No avatar, use the initial of the name</string>
+    <string name="avatar_man">Bald man with a short grey beard</string>
+    <string name="avatar_woman">Woman with very short dark hair and blonde highlights</string>
     <string name="field_sex">Sex</string>
     <string name="sex_male">Male</string>
     <string name="sex_female">Female</string>

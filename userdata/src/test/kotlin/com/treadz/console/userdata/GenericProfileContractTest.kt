@@ -146,6 +146,14 @@ abstract class GenericProfileContractTest {
         assertEquals(listOf(p), data.profiles.profiles.first())
     }
 
+    @Test fun `personalize stores the avatar picked in the form, the generic profile has none`() = runBlocking<Unit> {
+        val g = generic()
+        assertNull(g.avatarId)
+        val p = data.profiles.personalize(g.id, validInput("Ana").copy(avatarId = "woman"), 72.5).ok()
+        assertEquals("woman", p.avatarId)
+        assertEquals("woman", data.profiles.profile(g.id).first()!!.avatarId)
+    }
+
     @Test fun `personalize without a weight keeps the placeholder, still flagged`() = runBlocking<Unit> {
         val g = generic()
         data.profiles.personalize(g.id, validInput("Ana"), null).ok()

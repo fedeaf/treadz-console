@@ -2,6 +2,7 @@ package com.treadz.console.userdata
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -11,6 +12,18 @@ class ProfileRulesTest {
     private val profile = UserProfile(
         id = 1, name = "Ana", sex = Sex.Female, heightCm = 168, birthDate = LocalDate.of(1986, 10, 8),
     )
+
+    @Test fun `an avatar id is lower case letters, digits and underscores, up to the maximum length`() {
+        assertEquals("man", AvatarRules.normalize("man"))
+        assertEquals("woman_2", AvatarRules.normalize(" woman_2 "))
+        assertEquals("a".repeat(AvatarRules.MAX_LENGTH), AvatarRules.normalize("a".repeat(AvatarRules.MAX_LENGTH)))
+        assertNull(AvatarRules.normalize("a".repeat(AvatarRules.MAX_LENGTH + 1)))
+        assertNull(AvatarRules.normalize(null))
+        assertNull(AvatarRules.normalize(""))
+        assertNull(AvatarRules.normalize("Man"))
+        assertNull(AvatarRules.normalize("two words"))
+        assertNull(AvatarRules.normalize("../x"))
+    }
 
     @Test fun `age counts whole years and changes on the birthday`() {
         assertEquals(39, profile.ageOn(LocalDate.of(2026, 10, 7)))

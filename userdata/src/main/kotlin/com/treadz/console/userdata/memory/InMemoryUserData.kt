@@ -41,6 +41,7 @@ import com.treadz.console.userdata.FitnessTestRepository
 import com.treadz.console.userdata.GenericProfile
 import com.treadz.console.userdata.HeartRatePeakRecord
 import com.treadz.console.userdata.InputField
+import com.treadz.console.userdata.AvatarRules
 import com.treadz.console.userdata.ProfileInput
 import com.treadz.console.userdata.ProfileRepository
 import com.treadz.console.userdata.ProgramRepository
@@ -201,6 +202,7 @@ class InMemoryUserData(
                     maxHeartRateBpm = input.maxHeartRateBpm,
                     fitnessLevel = input.fitnessLevel,
                     goal = input.goal,
+                    avatarId = AvatarRules.normalize(input.avatarId),
                     createdAtMillis = clock.nowMillis(),
                     maxHeartRateSetAtMillis = if (input.maxHeartRateBpm != null) clock.nowMillis() else null,
                 )
@@ -244,6 +246,7 @@ class InMemoryUserData(
                 maxHeartRateBpm = input.maxHeartRateBpm,
                 fitnessLevel = input.fitnessLevel,
                 goal = input.goal,
+                avatarId = AvatarRules.normalize(input.avatarId),
                 isGeneric = stillGeneric,
                 maxHeartRateSetAtMillis = when {
                     input.maxHeartRateBpm == null -> null

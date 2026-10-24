@@ -38,10 +38,11 @@ GitHub repository.
 - **Free programs:** build your own with an editor of blocks by time or distance, with speed, incline or a heart-rate
   range, and repeated groups (for example 4 × [4 min hard + 3 min easy]).
 - **Personalised programs**, generated from your heart-rate zones and fitness: zone 2 easy run, tempo / threshold,
-  Norwegian 4x4 and 30/30 intervals. Repeat or regenerate them at any time.
+  Norwegian 4x4 and 30/30 intervals. Each session is generated when it starts, from your current data.
 - **Couch to 5K:** an adaptive plan that gives you the next session each time, moves on when you complete one,
   repeats it when it was too hard and steps back when you could not finish it.
-- Every plan is shown as a chart with your position on it, the current block, the time left and the totals.
+- Every plan is shown as a chart with your position on it, the current block, the time left and the totals. Each
+  program shows the sessions you did with it.
 - Manual changes are respected until the next block. After an interruption the app never restarts the belt on its
   own: you choose to continue or end the program.
 
@@ -50,7 +51,11 @@ GitHub repository.
 - Connects directly to a standard Bluetooth chest strap, or uses the heart rate the treadmill console receives. The
   source is picked automatically and the app falls back to the other one if a strap drops out.
 - **Heart-rate guided blocks:** the app adjusts speed or incline to keep you in a target range, with safety limits:
-  it slows down when you go above your maximum and never pushes harder right after easing off.
+  it slows down when you go above your maximum and never pushes harder right after easing off. A target can be one of
+  the zones of your own profile (from your thresholds), converted to bpm when the session starts.
+- **Real-time DFA-α1 brake** (with a chest strap): in easy blocks it lowers the load one small step when your heart-rate
+  variability signals the aerobic threshold, and tells you why.
+- Every workout keeps a log of what changed its load (your changes, the heart-rate control, the brake, safety limits).
 - Heart-rate zones computed with the Karvonen formula when your resting heart rate is known.
 - **Resting heart rate** measurement (no treadmill needed), with heart-rate variability (RMSSD) and a history; the
   reference is the median of the last 30 days.
@@ -65,6 +70,8 @@ GitHub repository.
   measure your maximum heart rate efficiently.
 - Clear on-screen instructions, warm-up and cool-down, and a validity check of every result (heart-rate quality,
   real maximal effort, interruptions).
+- A test only counts as maximal when your heart rate gets close to your maximum. The app checks your chest strap in
+  the warm-up and suggests a new test when your workouts show that your thresholds have moved.
 - A fitness summary in each profile: VO2max weighted by accuracy and age of each test, MAS and measured maximum heart
   rate, with fitness norms for your age and sex.
 

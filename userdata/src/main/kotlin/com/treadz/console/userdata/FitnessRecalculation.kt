@@ -95,9 +95,15 @@ internal object FitnessRecalculationInputs {
      * The stored samples as the neutral samples of `:analysis`, in the same order, without the stale ones (see
      * [FitnessRecalculator]).
      */
-    fun samples(stored: List<WorkoutSample>): List<AnalysisSample> = stored.filter { !it.isStale }.map { s ->
+    fun samples(stored: List<WorkoutSample>): List<AnalysisSample> = stored.filter { !it.isStale }.map(::sample)
+
+    /**
+     * One stored sample as a neutral sample (stale or not: [samples] leaves the stale ones out). The live fat/carbohydrate
+     * split of the workout observer converts its rows with this too, so that live and stored see the same samples.
+     */
+    fun sample(s: WorkoutSample): AnalysisSample {
         val bpm = s.heartRateBpm?.takeIf { it > 0 }
-        AnalysisSample(
+        return AnalysisSample(
             timeMillis = s.timestampMillis,
             speedKmh = s.speedKmh,
             inclinePercent = s.inclinePercent,

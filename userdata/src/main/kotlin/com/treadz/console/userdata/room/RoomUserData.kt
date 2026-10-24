@@ -13,6 +13,7 @@ import com.treadz.console.userdata.StartParametersRepository
 import com.treadz.console.userdata.SyncableUserData
 import com.treadz.console.userdata.WeightRepository
 import com.treadz.console.userdata.StoredWorkoutAnalysisRecalculator
+import com.treadz.console.userdata.WorkoutAnalysisContexts
 import com.treadz.console.userdata.WorkoutAnalysisRecalculator
 import com.treadz.console.userdata.WorkoutAnalysisRepository
 import com.treadz.console.userdata.WorkoutHistoryRepository
@@ -30,7 +31,7 @@ import java.util.UUID
 internal class RoomUserData(
     private val db: UserDataDatabase,
     clock: Clock = Clock.System,
-    zone: ZoneId = ZoneId.systemDefault(),
+    private val zone: ZoneId = ZoneId.systemDefault(),
     /** Creates the generic profile when the database is empty (always on in the app; tests may turn it off). */
     seedGenericProfile: Boolean = true,
     /** Stable id of this installation; stamped on every change so that other devices can resolve conflicts. */
@@ -51,8 +52,9 @@ internal class RoomUserData(
     override val restingHeartRates: RestingHeartRateRepository = RoomRestingHeartRateRepository(db, clock, stamper)
     override val fitnessRecalculator: FitnessRecalculator = StoredResultsRecalculator(RoomRecalculationSource(db, fitnessTestRepository))
     override val workoutAnalysis: WorkoutAnalysisRepository = RoomWorkoutAnalysisRepository(db, zone)
+    private val analysisSource = RoomAnalysisSource(db)
     override val workoutAnalysisRecalculator: WorkoutAnalysisRecalculator =
-        StoredWorkoutAnalysisRecalculator(RoomAnalysisSource(db), zone, clock::nowMillis, analysisChanges(db))
+        StoredWorkoutAnalysisRecalculator(analysisSource, zone, clock::nowMillis, analysisChanges(db))
     override val sync: SyncStore = RoomSyncStore(db, clock, zone, stamper, uploadHold)
     override val programDocuments: ProgramDocumentStore = RoomProgramDocuments(db)
     override val fitnessTestDocuments: FitnessTestDocumentStore = RoomFitnessTestDocuments(db, uploadHold)
@@ -69,5 +71,7 @@ internal class RoomUserData(
         heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
         // The owner's current weight, for the calories (not the made-up weight of the generic profile).
         bodyWeightKg = { userId -> userId?.let { weights.latestWeight(it).first()?.takeIf { e -> !e.isPlaceholder }?.weightKg } },
+        // The live fat/carbohydrate split, with the context the workout will be analysed with.
+        fuelTracker = { userId, at -> WorkoutAnalysisContexts.fuelTracker(analysisSource, userId, at, zone) },
     )
 }

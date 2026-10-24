@@ -707,12 +707,15 @@ abstract class WorkoutObserverContractTest {
     }
 
     @Test fun `deleting the workout in progress stops its recording`() = scenario {
+        assertTrue(data.weights.add(userId!!, LocalDate.ofEpochDay(T0 / DAY_MS), 80.0) is DataResult.Success)
         push(state(BeltStatus.Starting, speed = 0.0))
         run(4)
         val id = observer.activeWorkoutId.value!!
+        assertNotNull(observer.liveCalories.value)
         assertEquals(DataResult.Success(Unit), data.workouts.delete(id))
         run(5, startElapsed = 4)
         assertNull(observer.activeWorkoutId.value)
+        assertNull("the live calories go with the dropped session", observer.liveCalories.value)
         assertTrue(all().isEmpty())
     }
 

@@ -811,6 +811,8 @@ class InMemoryUserData(
         heartRateMax = { userId -> userId?.let { fitnessTests.heartRateMax(it).first()?.bpm } },
         // The owner's current weight, for the calories (not the made-up weight of the generic profile).
         bodyWeightKg = { userId -> userId?.let { weights.latestWeight(it).first()?.takeIf { e -> !e.isPlaceholder }?.weightKg } },
+        // The live fat/carbohydrate split, with the context the workout will be analysed with.
+        fuelTracker = { userId, at -> WorkoutAnalysisContexts.fuelTracker(analysisSource, userId, at, zone) },
     )
 
     /** Adds a finished workout directly (for UI tests and screenshots), assigned to [userId]. Returns its id. */

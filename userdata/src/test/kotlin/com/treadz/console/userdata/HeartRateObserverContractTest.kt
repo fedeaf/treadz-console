@@ -2,6 +2,11 @@
 
 package com.treadz.console.userdata
 
+import com.treadz.console.analysis.energy.FuelSnapshot
+import com.treadz.console.analysis.energy.FuelTracker
+import com.treadz.console.analysis.thresholds.ThresholdPoint
+import com.treadz.console.analysis.thresholds.ThresholdQuality
+import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.control.Clock
@@ -19,6 +24,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -26,6 +32,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import org.robolectric.RobolectricTestRunner
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 /**
@@ -301,6 +308,86 @@ abstract class HeartRateObserverContractTest {
         stopBelt(1)
         assertNull(observer.activeWorkoutId.value)
         assertEquals(id, observer.lastWorkoutId.value)
+    }
+
+    // ---- Fat and carbohydrate ----
+
+    /** The user gets what a split needs: a weight, a resting heart rate and a maximal test with a measured VT1, before T0. */
+    private suspend fun Rig.eligibleProfile() {
+        assertTrue(data.weights.add(userId, LocalDate.ofEpochDay(T0 / DAY_MS), 70.0) is DataResult.Success)
+        assertTrue(data.restingHeartRates.add(userId, RestingHeartRateInput(T0 - 3 * DAY_MS, 58, RestingHeartRateSource.Strap)) is DataResult.Success)
+        val test = maxTestResult(TEST_2, T0 - 5 * DAY_MS).copy(
+            thresholds = ThresholdResult(1, vt1 = ThresholdPoint(131.0), vt2 = ThresholdPoint(160.0), quality = ThresholdQuality.High),
+        )
+        assertTrue(data.fitnessTests.save(userId, test) is DataResult.Success)
+    }
+
+    /** [seconds] seconds of a steady strap heart rate of 120 bpm whose RR agree; the live snapshot after each one. */
+    private suspend fun Rig.strapSeconds(from: Int, seconds: Int, bpm: Int? = 120): List<FuelSnapshot?> = (from until from + seconds).map { e ->
+        second(e, bpm, rr = if (bpm == null) emptyList() else listOf(500, 500))
+        observer.liveFuel.value
+    }
+
+    @Test fun `the live fat and carbohydrate split is fed the stored rows and leads to the stored analysis`() = scenario {
+        eligibleProfile()
+        assertNull(observer.liveFuel.value)
+        push(BeltStatus.Starting, 0.0, 0)
+        wait()
+        val live = strapSeconds(1, 90).map { assertNotNull(it); it!! }
+        assertNull("nothing is decided before the first window closes", live.first().fatShare)
+        assertTrue(live.last().showable)
+        assertTrue(live.last().currentlyValid)
+        stopBelt(91)
+        assertNull("the live split goes with the stop", observer.liveFuel.value)
+
+        data.workoutAnalysisRecalculator.recalculate()
+        val detail = workout()
+        val stored = data.workoutAnalysis.analysis(detail.summary.id).first()!!.analysis
+        val fuel = stored.fuel.value
+        assertNotNull("the stored analysis has the split: ${stored.fuel.reason}", fuel)
+        // The rows the observer stored, fed to a tracker of the same profile: up to the last running second they give
+        // the last live snapshot (the two stopping rows came after it), and closed, the stored section.
+        val rows = FitnessRecalculationInputs.samples(detail.samples)
+        val tracker = FuelTracker(fuel!!.anchors, 70.0, zones = stored.zoneTime.value!!.zones)
+        rows.dropLast(2).forEach(tracker::add)
+        assertEquals(live.last(), tracker.snapshot())
+        rows.takeLast(2).forEach(tracker::add)
+        assertEquals(fuel, tracker.finish().value)
+    }
+
+    @Test fun `the live split becomes showable once the valid strap heart rate covers 80 percent of the moving time`() = scenario {
+        eligibleProfile()
+        push(BeltStatus.Starting, 0.0, 0)
+        wait()
+        val live = (strapSeconds(1, 30, bpm = null) + strapSeconds(31, 150)).map { it!! }
+        val first = live.indexOfFirst { it.showable }
+        assertTrue("it becomes showable: ${live.last()}", first > 0)
+        assertTrue(live[first].validCoverage!! >= 0.8)
+        assertTrue(live.subList(0, first).all { !it.showable && (it.validCoverage ?: 0.0) < 0.8 })
+        assertNotNull("there was a share before it could be shown", live[first - 1].fatShare)
+        stopBelt(181)
+    }
+
+    @Test fun `without a measured VT1 there is no live split`() = scenario {
+        assertTrue(data.weights.add(userId, LocalDate.ofEpochDay(T0 / DAY_MS), 70.0) is DataResult.Success)
+        push(BeltStatus.Starting, 0.0, 0)
+        wait()
+        assertTrue(strapSeconds(1, 30).all { it == null })
+        stopBelt(31)
+    }
+
+    @Test fun `with the console heart rate the live split is never showable`() = scenario(withSource = false) {
+        eligibleProfile()
+        push(BeltStatus.Starting, 0.0, 0)
+        wait()
+        val live = (1..60).map { e ->
+            second(e, bpm = null, consoleHr = 120)
+            observer.liveFuel.value!!
+        }
+        assertTrue(live.none { it.showable })
+        assertFalse(live.last().currentlyValid)
+        assertNull(live.last().fatShare)
+        stopBelt(61)
     }
 }
 

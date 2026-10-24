@@ -1,6 +1,10 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.analysis.energy.FuelAnchors
 import com.treadz.console.analysis.workout.AnalysisReason
+import com.treadz.console.analysis.workout.FuelAnalysis
+import com.treadz.console.analysis.workout.FuelMinute
+import com.treadz.console.analysis.workout.FuelZone
 import com.treadz.console.analysis.workout.Section
 import com.treadz.console.analysis.workout.ThresholdEstimatesAnalysis
 import com.treadz.console.analysis.workout.ThresholdKind
@@ -86,6 +90,24 @@ class WorkoutAnalysisJsonTest {
         val withoutSection = WorkoutAnalysisJson.encode(fullAnalysis()).replace(Regex(",\\s*\"thresholdEstimates\"\\s*:\\s*\\{[^}]*\\}"), "")
         assertTrue(!withoutSection.contains("thresholdEstimates"))
         assertEquals(AnalysisReason.NoThresholdReference, WorkoutAnalysisJson.decode(withoutSection).thresholdEstimates.reason)
+    }
+
+    @Test fun `the fat and carbohydrate split round trips, every reason too, and older documents read as no measured thresholds`() {
+        val fuel = FuelAnalysis(
+            fatKcal = 120.25, carbKcal = 196.5, fatShare = 0.3796, movingSeconds = 1800, validSeconds = 1650, validCoverage = 0.9167,
+            byZone = listOf(FuelZone(1, 0, 0.0, 0.0), FuelZone(2, 1200, 98.5, 110.0), FuelZone(3, 450, 21.75, 86.5)),
+            minutes = listOf(FuelMinute(1_000L, 3.5, 6.25), FuelMinute(61_000L, 4.0, 6.0)),
+            anchors = FuelAnchors(58, restingAssumed = false, vt1Bpm = 131, vt2Bpm = 149, vt2FromTable = true, maxBpm = 185, sex = Sex.Female),
+        )
+        val a = fullAnalysis().copy(fuel = Section.of(fuel))
+        assertEquals(a, roundTrip(a))
+        for (reason in listOf(AnalysisReason.NoWeight, AnalysisReason.NoMeasuredThresholds, AnalysisReason.NoReliableStrapHeartRate)) {
+            val missing = fullAnalysis().copy(fuel = Section.missing(reason))
+            assertEquals(missing, roundTrip(missing))
+        }
+        val withoutSection = WorkoutAnalysisJson.encode(fullAnalysis()).replace(Regex(",\\s*\"fuel\"\\s*:\\s*\\{[^}]*\\}"), "")
+        assertTrue(!withoutSection.contains("fuel"))
+        assertEquals(AnalysisReason.NoMeasuredThresholds, WorkoutAnalysisJson.decode(withoutSection).fuel.reason)
     }
 
     @Test fun `a document that cannot be read is an error, not a wrong analysis`() {

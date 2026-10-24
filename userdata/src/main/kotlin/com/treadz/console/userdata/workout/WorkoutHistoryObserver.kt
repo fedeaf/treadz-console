@@ -1,6 +1,8 @@
 package com.treadz.console.userdata.workout
 
 import com.treadz.console.analysis.energy.EnergyCounter
+import com.treadz.console.analysis.energy.FuelSnapshot
+import com.treadz.console.analysis.energy.FuelTracker
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
@@ -10,6 +12,7 @@ import com.treadz.console.treadmill.TreadmillController
 import com.treadz.console.treadmill.TreadmillEvent
 import com.treadz.console.treadmill.TreadmillState
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.FitnessRecalculationInputs
 import com.treadz.console.userdata.WorkoutEndReason
 import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.WorkoutSample
@@ -79,6 +82,12 @@ import kotlin.math.roundToInt
  * session starts. Without a weight (no owner, or no weight entries) they stay at 0; assigning the workout later computes
  * them (`WorkoutHistoryRepository.assign`). [liveCalories] shows them while the session runs.
  *
+ * ## Fat and carbohydrate
+ * [liveFuel] is the estimated split of the energy so far (`FuelTracker`), for an owner whose profile allows it: the
+ * tracker resolved by [fuelTracker] when the session starts is fed with the same rows that are stored, in the same order
+ * and converted as the analysis converts them (the stale ones left out, the closing one included), so the live figures
+ * lead to the stored analysis of the workout.
+ *
  * ## Crash safety and performance
  * Samples are buffered in memory and written in one transaction at least every
  * [WorkoutObserverConfig.flushIntervalMs], together with the running totals, and again when the session ends. If the
@@ -93,6 +102,8 @@ import kotlin.math.roundToInt
  * @param heartRateMax resolves the maximum heart rate of the session's owner when the session starts, for the
  *   plausibility rules of the peak (`null`: only the absolute ceiling applies).
  * @param bodyWeightKg resolves the weight of the session's owner when the session starts, for the calories (`null`: none).
+ * @param fuelTracker resolves the fat/carbohydrate tracker of the session's owner, with the analysis context as of the
+ *   session's start, when the session starts (`null`: no live split).
  */
 class WorkoutHistoryObserver(
     private val controller: TreadmillController,
@@ -104,12 +115,22 @@ class WorkoutHistoryObserver(
     private val heartRate: HeartRateSource? = null,
     private val heartRateMax: suspend (userId: Long?) -> Int? = { null },
     private val bodyWeightKg: suspend (userId: Long?) -> Double? = { null },
+    private val fuelTracker: suspend (userId: Long?, atMillis: Long) -> FuelTracker? = { _, _ -> null },
 ) {
 
     private val _liveCalories = MutableStateFlow<Int?>(null)
 
     /** Calories of the workout being recorded, as they are stored; `null` without a session or without the owner's weight. */
     val liveCalories: StateFlow<Int?> = _liveCalories.asStateFlow()
+
+    private val _liveFuel = MutableStateFlow<FuelSnapshot?>(null)
+
+    /**
+     * The fat/carbohydrate split of the workout being recorded so far (it lags the latest sample by a few seconds);
+     * `null` without a session or when the owner's profile does not allow a split. The UI shows it only when
+     * [FuelSnapshot.showable].
+     */
+    val liveFuel: StateFlow<FuelSnapshot?> = _liveFuel.asStateFlow()
 
     private val _activeWorkoutId = MutableStateFlow<Long?>(null)
 
@@ -259,19 +280,24 @@ class WorkoutHistoryObserver(
             if (state.status != BeltStatus.Idle && !state.isStale && !blockedUntilIdle) {
                 val started = startSession(at) ?: return
                 started.add(state, at, config, heartReading(state))
-                _liveCalories.value = started.kcal
+                publishLive(started)
             }
             return
         }
         if (idle) {
             s.add(state, at, config, heartReading(state), terminal = true)
-            _liveCalories.value = s.kcal
+            publishLive(s)
             endSession(normalEndReason(s), at)
         } else {
             s.add(state, at, config, heartReading(state))
-            _liveCalories.value = s.kcal
+            publishLive(s)
             if (s.decelerationTimedOut(at, config)) endSession(normalEndReason(s), at)
         }
+    }
+
+    private fun publishLive(s: Session) {
+        _liveCalories.value = s.kcal
+        _liveFuel.value = s.fuelSnapshot()
     }
 
     /** The heart rate and its source for the sample of [state] (see the class description). */
@@ -362,8 +388,16 @@ class WorkoutHistoryObserver(
             onError(e)
             null
         }
-        val s = Session(id, at, maxHeartRate, weight)
-        _liveCalories.value = s.kcal
+        val tracker = try {
+            fuelTracker(userId, at)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e)
+            null
+        }
+        val s = Session(id, at, maxHeartRate, weight, tracker)
+        publishLive(s)
         session = s
         _activeWorkoutId.value = id
         _lastWorkoutId.value = id
@@ -408,6 +442,7 @@ class WorkoutHistoryObserver(
         _activeWorkoutId.value = null
         // The treadmill zeroes its time and distance at the stop: the live calories go with them.
         _liveCalories.value = null
+        _liveFuel.value = null
         try {
             if (!s.hasMoved) {
                 store.discard(s.workoutId)
@@ -429,10 +464,18 @@ class WorkoutHistoryObserver(
         ticker = null
         session = null
         _activeWorkoutId.value = null
+        _liveCalories.value = null
+        _liveFuel.value = null
         blockedUntilIdle = true
     }
 
-    private class Session(val workoutId: Long, val startedAt: Long, maxHeartRateBpm: Int?, weightKg: Double?) {
+    private class Session(
+        val workoutId: Long,
+        val startedAt: Long,
+        maxHeartRateBpm: Int?,
+        weightKg: Double?,
+        private val fuel: FuelTracker?,
+    ) {
         val buffer = ArrayDeque<WorkoutSample>()
         private val peakTracker = HeartRatePeakTracker(maxHeartRateBpm)
 
@@ -444,6 +487,9 @@ class WorkoutHistoryObserver(
 
         /** Calories so far (rounded); `null` without the owner's weight. */
         val kcal: Int? get() = energy?.kcal?.roundToInt()
+
+        /** The fat/carbohydrate split so far; `null` when the owner's profile does not allow one. */
+        fun fuelSnapshot(): FuelSnapshot? = fuel?.snapshot()
 
         /** RR intervals received since the last sample was written. */
         private val pendingRr = ArrayList<Int>()
@@ -537,6 +583,7 @@ class WorkoutHistoryObserver(
                 rrIntervalsMs = rr,
             )
             buffer.addLast(sample)
+            if (!sample.isStale) fuel?.add(FitnessRecalculationInputs.sample(sample))
             duration = maxOf(duration, sample.elapsedSeconds)
             distance = maxOf(distance, sample.distanceMeters)
             calories = sample.calories

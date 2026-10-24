@@ -1,9 +1,11 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.analysis.energy.FuelTracker
 import com.treadz.console.analysis.fitness.SelfRatedFitness
 import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.trends.DatedValue
 import com.treadz.console.analysis.trends.TestPoint
+import com.treadz.console.analysis.workout.FuelSection
 import com.treadz.console.analysis.workout.WorkoutAnalysis
 import com.treadz.console.analysis.workout.WorkoutAnalysisContext
 import com.treadz.console.analysis.workout.WorkoutAnalyzer
@@ -83,6 +85,15 @@ internal object WorkoutAnalysisContexts {
             alpha1SlopePerBpm = alpha1SlopeBefore(inputs.tests, workoutStartMillis),
         )
     }
+
+    /**
+     * The tracker of the live fat/carbohydrate split of a workout of [userId] that starts at [workoutStartMillis], from
+     * the context of [build] at that time: the one the workout is analysed with when it ends (only the tests that started
+     * before it count), so live and stored use the same anchors. `null` without a user (or the user is gone) or when the
+     * profile does not allow a split.
+     */
+    suspend fun fuelTracker(source: AnalysisSource, userId: Long?, workoutStartMillis: Long, zone: ZoneId): FuelTracker? =
+        userId?.let { source.inputs(it) }?.let { FuelSection.tracker(build(it, workoutStartMillis, zone)) }
 
     /** See the class documentation (α1 slope). */
     fun alpha1SlopeBefore(tests: List<FitnessTestResult>, workoutStartMillis: Long): Double? =

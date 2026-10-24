@@ -1,10 +1,15 @@
 package com.treadz.console.userdata
 
+import com.treadz.console.analysis.energy.FuelAnchors
+import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.workout.AnalysisReason
 import com.treadz.console.analysis.workout.DecouplingAnalysis
 import com.treadz.console.analysis.workout.EfficiencyAnalysis
 import com.treadz.console.analysis.workout.EnergyAnalysis
 import com.treadz.console.analysis.workout.FitnessIndexAnalysis
+import com.treadz.console.analysis.workout.FuelAnalysis
+import com.treadz.console.analysis.workout.FuelMinute
+import com.treadz.console.analysis.workout.FuelZone
 import com.treadz.console.analysis.workout.HeartRateSourceMix
 import com.treadz.console.analysis.workout.RecoveryAnalysis
 import com.treadz.console.analysis.workout.RecoveryContext
@@ -47,6 +52,7 @@ internal object WorkoutAnalysisJson {
             "recovery" to writeSection(analysis.recovery, ::writeRecovery),
             "alpha1" to writeSection(analysis.alpha1, ::writeAlpha1),
             "thresholdEstimates" to writeSection(analysis.thresholdEstimates, ::writeThresholdEstimates),
+            "fuel" to writeSection(analysis.fuel, ::writeFuel),
         ),
     )
 
@@ -79,6 +85,8 @@ internal object WorkoutAnalysisJson {
             } else {
                 Section(null, AnalysisReason.NoThresholdReference)
             },
+            // Nor do documents of algorithm versions up to 3.
+            fuel = if (root.has("fuel")) readSection(root, "fuel", ::readFuel) else Section(null, AnalysisReason.NoMeasuredThresholds),
         )
     }
 
@@ -201,6 +209,28 @@ internal object WorkoutAnalysisJson {
         },
     )
 
+    private fun writeFuel(f: FuelAnalysis) = linkedMapOf(
+        "fatKcal" to f.fatKcal,
+        "carbKcal" to f.carbKcal,
+        "fatShare" to f.fatShare,
+        "movingSeconds" to f.movingSeconds,
+        "validSeconds" to f.validSeconds,
+        "validCoverage" to f.validCoverage,
+        "byZone" to f.byZone.map { linkedMapOf("number" to it.number, "seconds" to it.seconds, "fatKcal" to it.fatKcal, "carbKcal" to it.carbKcal) },
+        "minutes" to f.minutes.map { linkedMapOf("startMillis" to it.startMillis, "fatKcal" to it.fatKcal, "carbKcal" to it.carbKcal) },
+        "anchors" to f.anchors.let { a ->
+            linkedMapOf(
+                "restingBpm" to a.restingBpm,
+                "restingAssumed" to a.restingAssumed,
+                "vt1Bpm" to a.vt1Bpm,
+                "vt2Bpm" to a.vt2Bpm,
+                "vt2FromTable" to a.vt2FromTable,
+                "maxBpm" to a.maxBpm,
+                "sex" to a.sex.name,
+            )
+        },
+    )
+
     // ---------------------------------------------------------------- reading
 
     private fun <T : Any> readSection(parent: Obj, key: String, read: (Obj) -> T): Section<T> {
@@ -314,6 +344,28 @@ internal object WorkoutAnalysisJson {
                 slopePerBpm = e.double("slopePerBpm"),
                 impliedBpm = e.double("impliedBpm"),
                 weightSeconds = e.int("weightSeconds"),
+            )
+        },
+    )
+
+    private fun readFuel(o: Obj) = FuelAnalysis(
+        fatKcal = o.double("fatKcal"),
+        carbKcal = o.double("carbKcal"),
+        fatShare = o.double("fatShare"),
+        movingSeconds = o.int("movingSeconds"),
+        validSeconds = o.int("validSeconds"),
+        validCoverage = o.double("validCoverage"),
+        byZone = o.objects("byZone").map { FuelZone(it.int("number"), it.int("seconds"), it.double("fatKcal"), it.double("carbKcal")) },
+        minutes = o.objects("minutes").map { FuelMinute(it.long("startMillis"), it.double("fatKcal"), it.double("carbKcal")) },
+        anchors = o.obj("anchors").let { a ->
+            FuelAnchors(
+                restingBpm = a.int("restingBpm"),
+                restingAssumed = a.boolean("restingAssumed"),
+                vt1Bpm = a.int("vt1Bpm"),
+                vt2Bpm = a.int("vt2Bpm"),
+                vt2FromTable = a.boolean("vt2FromTable"),
+                maxBpm = a.int("maxBpm"),
+                sex = a.enum("sex", Sex.entries),
             )
         },
     )

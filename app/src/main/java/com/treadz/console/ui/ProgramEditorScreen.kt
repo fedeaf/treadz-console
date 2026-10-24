@@ -70,8 +70,10 @@ data class ProgramEditorActions(
     val onCancelDiscard: () -> Unit = {},
     /** Switches a block (step, block inside a repeat) between "speed and incline" and "heart rate". */
     val onHeartRateTarget: (step: Int, block: Int?, enabled: Boolean) -> Unit = { _, _, _ -> },
-    /** Zone 1-5 (0-4), or `null` for a zone of the user's own. */
+    /** Standard zone 1-5 (0-4), or `null` for percentages of one's own. */
     val onZone: (step: Int, block: Int?, zone: Int?) -> Unit = { _, _, _ -> },
+    /** Zone 1-5 of the user's own zones (their thresholds or level). */
+    val onProfileZone: (step: Int, block: Int?, zone: Int) -> Unit = { _, _, _ -> },
     val onReserve: (step: Int, block: Int?, reserve: Boolean) -> Unit = { _, _, _ -> },
     val onAdjust: (step: Int, block: Int?, adjust: HeartRateAdjust) -> Unit = { _, _, _ -> },
     val onHeartRateBound: (step: Int, block: Int?, maximum: Boolean, text: String) -> Unit = { _, _, _, _ -> },
@@ -442,13 +444,28 @@ private fun HeartRateTarget(
     val wide = LocalLayout.current.wide
     Column(Modifier.fillMaxWidth().testTag("${tag}_hr"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(stringResource(R.string.editor_hr_zone), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The zones of the user's profile, with the bpm they have now: the session converts them again when it starts.
+        Text(stringResource(R.string.editor_hr_zones_profile), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val profileZones = state.heartRateProfile?.zones
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (n in 1..5) {
+                val range = profileZones?.zones?.firstOrNull { it.number == n }
+                // Numbers only (the unit is in the line under the zones): more chips fit in a row.
+                ChoiceChip(
+                    if (range != null) stringResource(R.string.editor_hr_profile_zone_chip, n, range.lowBpm?.let { "$it–${range.highBpm}" } ?: "< ${range.highBpm}") else "Z$n",
+                    hr.profileZone == n, "${tag}_pzone_$n", { actions.onProfileZone(stepIndex, blockIndex, n) },
+                )
+            }
+        }
+        Text(stringResource(R.string.editor_hr_zones_standard), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             for (i in HeartRateZones.STANDARD.indices) {
-                ChoiceChip("Z${i + 1}", hr.standardZone == i, "${tag}_zone_$i", { actions.onZone(stepIndex, blockIndex, i) })
+                ChoiceChip("Z${i + 1}", hr.profileZone == null && hr.standardZone == i, "${tag}_zone_$i", { actions.onZone(stepIndex, blockIndex, i) })
             }
-            ChoiceChip(stringResource(R.string.editor_hr_zone_custom), hr.standardZone == null, "${tag}_zone_custom", { actions.onZone(stepIndex, blockIndex, null) })
+            ChoiceChip(stringResource(R.string.editor_hr_zone_custom), hr.profileZone == null && hr.standardZone == null, "${tag}_zone_custom", { actions.onZone(stepIndex, blockIndex, null) })
         }
-        if (hr.standardZone == null) {
+        val ownPercentages = hr.profileZone == null && hr.standardZone == null
+        if (ownPercentages) {
             val range = stringResource(R.string.editor_hr_percent_unit)
             // Two fields side by side on the tablet; one under the other on a phone, where each needs the full width.
             val zoneFields: @Composable (Modifier) -> Unit = { m ->
@@ -468,12 +485,12 @@ private fun HeartRateTarget(
             if (wide) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) { zoneFields(Modifier.weight(1f)) }
             else zoneFields(Modifier)
         }
-        // The basis of the percentages: the reserve (Karvonen) needs a resting heart rate.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The basis of the percentages: the reserve (Karvonen) needs a resting heart rate. A zone of the profile has its own bpm.
+        if (hr.profileZone == null) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             ChoiceChip(stringResource(R.string.editor_hr_basis_max), !hr.reserve, "${tag}_basis_max", { actions.onReserve(stepIndex, blockIndex, false) })
             ChoiceChip(stringResource(R.string.editor_hr_basis_reserve), hr.reserve, "${tag}_basis_reserve", { actions.onReserve(stepIndex, blockIndex, true) }, enabled = state.hasResting)
         }
-        if (!state.hasResting) {
+        if (hr.profileZone == null && !state.hasResting) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.editor_hr_reserve_hint), Modifier.weight(1f).testTag("${tag}_reserve_hint"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 RowButton(stringResource(R.string.editor_hr_measure_resting), actions.onOpenResting, Modifier.testTag("${tag}_resting_link"))

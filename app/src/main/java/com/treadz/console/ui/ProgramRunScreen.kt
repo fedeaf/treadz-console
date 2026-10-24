@@ -164,7 +164,7 @@ private fun ProgramWide(
         sizes, modifier,
         main = {
             SpeedInclinePanels(ui, controls, sizes)
-            HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
+            HeartRateBlockPanel(progress, run.brakeNotice != null, actions, Modifier.fillMaxWidth())
             BlockPanel(progress, segments, actual, Modifier.weight(1f).fillMaxWidth(), chartFills = true)
         },
         sideTop = {
@@ -206,7 +206,7 @@ private fun ProgramCompact(
         sizes, modifier,
         content = {
             BlockPanel(progress, segments, actual, Modifier.fillMaxWidth(), chartFills = false, showChart = false)
-            HeartRateBlockPanel(progress, actions, Modifier.fillMaxWidth())
+            HeartRateBlockPanel(progress, run.brakeNotice != null, actions, Modifier.fillMaxWidth())
             SpeedInclinePanels(ui, controls, sizes)
             controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
             TotalsPanel(progress, sizes)
@@ -395,9 +395,11 @@ private fun androidx.compose.foundation.layout.RowScope.Total(
  * Shown while the current block is guided by heart rate: its zone in bpm, the heart rate now (coloured against the zone),
  * and what the control is doing, in a short text. After a manual change of speed or incline the control is off until the
  * next block: "Resume heart-rate control" switches it on again (through the runner, never the treadmill directly).
+ * For a few seconds after the α1 brake lowered the load ([brakeNotice], see `BrakeNotices`) the text says so instead,
+ * so the change is not a mystery; the brake only acts in these blocks, and the panel keeps its size.
  */
 @Composable
-private fun HeartRateBlockPanel(progress: ProgramProgress, actions: RunActions, modifier: Modifier) {
+private fun HeartRateBlockPanel(progress: ProgramProgress, brakeNotice: Boolean, actions: RunActions, modifier: Modifier) {
     val control = progress.heartRateControl ?: return
     val bpm = progress.heartRateBpm
     val low = control.zoneLowBpm
@@ -451,7 +453,17 @@ private fun HeartRateBlockPanel(progress: ProgramProgress, actions: RunActions, 
     }
 
     @Composable
-    fun explanation() = Text(control.state.explanation(control.adjust), Modifier.testTag("hr_control_text"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    fun explanation() = if (brakeNotice) {
+        Text(
+            stringResource(R.string.brake_notice),
+            Modifier.testTag("brake_notice").semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.extra.warning,
+        )
+    } else {
+        Text(control.state.explanation(control.adjust), Modifier.testTag("hr_control_text"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 
     Panel(modifier.testTag("hr_block_panel"), borderColor = stateColor) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -473,7 +485,7 @@ private fun HeartRateBlockPanel(progress: ProgramProgress, actions: RunActions, 
                     now(Modifier.weight(1f))
                 }
                 // On a phone the controls need the room: while all is well the state tag says enough.
-                if (!compact || control.state != HeartRateControlState.Active) explanation()
+                if (!compact || control.state != HeartRateControlState.Active || brakeNotice) explanation()
             }
             if (control.state == HeartRateControlState.OffByManualChange) {
                 BigButton(stringResource(R.string.hr_block_resume), actions.onResumeHeartRateControl, Modifier.fillMaxWidth().testTag("hr_resume_button"))

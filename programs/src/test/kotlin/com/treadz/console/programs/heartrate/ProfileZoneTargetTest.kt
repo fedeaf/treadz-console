@@ -39,6 +39,9 @@ class ProfileZoneTargetTest {
         assertEquals(HeartRateZoneBpm(165, 187, HeartRateBasis.MaxHeartRate, fromProfile = true), HeartRateZones.toBpm(HeartRateZone.ofProfile(5), withZones))
         // Zone 1 has no lower limit in the zone model: the standard lower percentage (50 % of the maximum).
         assertEquals(HeartRateZoneBpm(94, 121, HeartRateBasis.MaxHeartRate, fromProfile = true), HeartRateZones.toBpm(HeartRateZone.ofProfile(1), withZones))
+        // ...and never closer than 10 bpm to its top (a high maximum with a low zone 1).
+        val narrow = withZones.copy(maxBpm = 200, zones = zones.copy(zones = listOf(ZoneRange(1, null, 101)) + zones.zones.drop(1)))
+        assertEquals(HeartRateZoneBpm(91, 101, HeartRateBasis.MaxHeartRate, fromProfile = true), HeartRateZones.toBpm(HeartRateZone.ofProfile(1), narrow))
     }
 
     @Test

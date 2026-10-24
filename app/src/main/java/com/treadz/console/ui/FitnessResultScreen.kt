@@ -32,6 +32,7 @@ import com.treadz.console.programs.fitness.FlagSeverity
 import com.treadz.console.programs.fitness.HeartRateMaxDecision
 import com.treadz.console.programs.fitness.MaxHeartRateWalkMeasurements
 import com.treadz.console.programs.fitness.MaxTestMeasurements
+import com.treadz.console.programs.fitness.OutputsWithheldReason
 import com.treadz.console.programs.fitness.Validity
 import com.treadz.console.training.FitnessComparison
 import com.treadz.console.training.FitnessResultUiState
@@ -112,6 +113,7 @@ fun FitnessResultContent(
         Row(modifier.fillMaxWidth().testTag("fitness_result"), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Headline(result)
+                NotMaximalNote(result)
                 Figures(result)
                 ThresholdsPanel(result)
             }
@@ -126,6 +128,7 @@ fun FitnessResultContent(
     } else {
         Column(modifier.fillMaxWidth().testTag("fitness_result"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Headline(result)
+            NotMaximalNote(result)
             HeartRateMaxQuestion(heartRateMax, onUseMeasured, onKeepMine)
             Figures(result)
             ThresholdsPanel(result)
@@ -177,10 +180,40 @@ private fun Headline(result: FitnessTestResult) {
                 if (result.testType == FitnessTestType.MaxHeartRateWalk) WalkSummary(result, valid, compact = true)
             } else if (result.testType == FitnessTestType.MaxHeartRateWalk) {
                 WalkSummary(result, valid)
-            } else {
+            } else if (result.outputsWithheld == null) {
                 Text(stringResource(R.string.result_invalid_explanation), Modifier.testTag("result_invalid_text"), style = MaterialTheme.typography.bodyLarge)
             }
         }
+    }
+}
+
+/** The highest heart rate a maximal test reached (the final one, with the seconds after the effort); `null` for Ebbeling or without a usable heart rate. */
+val FitnessTestResult.peakHeartRateBpm: Double?
+    get() = when (val m = measurements) {
+        is MaxTestMeasurements -> m.peakHeartRateBpm
+        is MaxHeartRateWalkMeasurements -> m.peakHeartRateBpm
+        else -> null
+    }
+
+/**
+ * Why a valid maximal test has no VO2max and no MAS, in words: "Not a maximal effort: your peak (X bpm) did not reach 85 % of
+ * your maximum heart rate (Y bpm). This test gives no VO2max or MAS." `null` for a result that has its figures.
+ */
+@Composable
+fun FitnessTestResult.withheldText(): String? {
+    val reason = outputsWithheld ?: return null
+    val peak = peakHeartRateBpm ?: return null
+    return when (reason) {
+        OutputsWithheldReason.PeakHeartRateBelowMinimum -> stringResource(R.string.result_not_maximal, peak.roundToInt(), inputs.hrMaxBpm)
+    }
+}
+
+/** The result is valid but the effort was not maximal: the sentence that says so and what it costs (a warning, nothing to answer). */
+@Composable
+private fun NotMaximalNote(result: FitnessTestResult) {
+    val text = result.withheldText() ?: return
+    Panel(Modifier.fillMaxWidth(), borderColor = MaterialTheme.extra.warning) {
+        Text(text, Modifier.padding(horizontal = 16.dp, vertical = 12.dp).testTag("result_not_maximal"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -195,8 +228,8 @@ private fun WalkSummary(result: FitnessTestResult, valid: Boolean, compact: Bool
         invalidReason(result)?.let { Text(it, Modifier.testTag("result_invalid_reason"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error) }
         return
     }
-    val bpm = result.measuredHrMaxCandidateBpm
-    // Only a maximal effort measures the maximum; a lesser one just shows the highest heart rate it reached.
+    // Only a maximal effort measures the maximum; a lesser one (also one with its figures withheld) just shows the highest heart rate it reached.
+    val bpm = result.measuredHrMaxCandidateBpm ?: result.peakHeartRateBpm?.roundToInt()
     val maximal = result.effortAssessment == EffortAssessment.Maximal
     Text(stringResource(if (maximal) R.string.hrmax_label else R.string.result_peak_hr), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

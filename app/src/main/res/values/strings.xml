@@ -1006,16 +1006,9 @@
     <string name="generator_couch_to_5k_description">A plan of 27 sessions, three a week, that takes you from walking to running 30 minutes without stopping. It looks at how your last session went to decide the next one.</string>
     <string name="generator_tag_heart_rate">Heart rate</string>
     <string name="generator_new_session">New session</string>
-    <string name="generator_saved_sessions">Saved sessions (%1$d)</string>
-    <string name="generator_show_all">Show all (%1$d more)</string>
-    <string name="generator_show_fewer">Show fewer</string>
-    <string name="saved_repeat">Repeat</string>
-    <string name="saved_regenerate">Regenerate</string>
-    <string name="saved_duplicate">Duplicate as free</string>
     <string name="programs_personalised">Personalised</string>
-    <string name="programs_personalised_intro">Sessions made for you from your data. Saved sessions can be repeated or generated again.</string>
+    <string name="programs_personalised_intro">Sessions made for you from your data. Each one is generated when you start it; your sessions are listed inside each program.</string>
     <string name="generator_not_found">This generator is not available in this version of the app.</string>
-    <string name="generator_regenerating">Generated again with today’s data. The inputs of the saved session are filled in; change them if you like.</string>
     <string name="generator_mode">Exercise</string>
     <string name="mode_walk">Walking</string>
     <string name="mode_run">Running</string>
@@ -1041,7 +1034,7 @@
     <string name="generator_problem_walking_speed">Check the walking speed.</string>
     <string name="generator_problem_rejected">A session cannot be generated with these values.</string>
     <string name="generated_on">Generated on %1$s</string>
-    <string name="generated_repeat_note">It runs exactly as it was generated, with the same values. “Regenerate” builds a new one with today’s data.</string>
+    <string name="generated_repeat_note">It runs exactly as it was generated, with the same values.</string>
     <string name="notice_estimated_values">Estimated values: the intensity is 10 percent lower. Do a fitness test to refine it.</string>
     <string name="notice_body_data">Your height or weight is not known, so an average build was assumed.</string>
     <string name="notice_started_from_history">The runs start at %1$s, where your heart rate settled last time.</string>
@@ -1276,4 +1269,17 @@
     <string name="editor_keep_note">Starts with the value the treadmill has when the block begins.</string>
     <string name="editor_keep_hr_note">Starts from the value the treadmill has, brought within the block\'s bounds.</string>
     <string name="err_first_block_keeps">Not on the first block: the belt starts stopped, so there is nothing to keep.</string>
+    <!-- Improvements batch: events, the α1 brake notice, the 85 % rule, the recommendation of a test, the strap check, zones of the profile, sessions inside each program. -->
+    <string name="brake_notice">Lowered by α1: aerobic threshold signal</string>
+    <string name="result_not_maximal">Not a maximal effort: your peak (%1$d bpm) did not reach 85 %% of your maximum heart rate (%2$d bpm). This test gives no VO2max or MAS.</string>
+    <string name="test_reco_higher">In your last %1$d workouts %2$s looks about %3$d bpm higher: do you want to take a test?</string>
+    <string name="test_reco_lower">In your last %1$d workouts %2$s looks about %3$d bpm lower: do you want to take a test?</string>
+    <string name="test_strap_poor">Wet the strap or adjust it</string>
+    <string name="test_strap_poor_detail">About %1$s %% of the heartbeats are not reliable.</string>
+    <string name="editor_hr_zones_profile">Your zones (they follow your thresholds)</string>
+    <string name="editor_hr_zones_standard">Standard zones (% of the maximum) or your own percentages</string>
+    <string name="editor_hr_profile_zone_chip">Z%1$d · %2$s</string>
+    <string name="block_list_hr_zone_profile_bpm">Heart rate zone %1$d: %2$d–%3$d bpm</string>
+    <string name="program_sessions_title">Your sessions (%1$d)</string>
+    <string name="program_sessions_empty">You have not done this program yet.</string>
 </resources>

@@ -86,8 +86,9 @@ class PersonalisedUiTest {
 
     // ---- The programs list ----
 
-    @Test fun theListShowsTheGeneratorsTheLatestThreeSessionsFoldedAndTheCouchCard() {
+    @Test fun theListShowsTheGeneratorsAndTheCouchCardButNoSavedSessions() {
         idleBelt()
+        // Sessions saved by an older version are not listed anywhere.
         val ids = (1..4).map { saveSession("zone2", GeneratorForm(mode = ExerciseMode.Run, durationMinutes = 20 + it)) }
         GeneratedFixtures.addSession(data, ana.id, GeneratedFixtures.record(session = 7, startedAtMillis = now - 4 * GeneratedFixtures.DAY_MS))
         show(Screen.Programs)
@@ -95,12 +96,8 @@ class PersonalisedUiTest {
         scrollList("programs_list", "generator_zone2")
         rule.onNodeWithTag("generator_zone2").assertIsDisplayed()
         rule.onNodeWithTag("generator_hr_tag_zone2").assertTextContains("Heart rate", substring = true)
-        scrollList("programs_list", "toggle_sessions_zone2")
-        rule.onNodeWithTag("toggle_sessions_zone2").assertTextContains("Show all (1 more)", substring = true)
-        assertEquals(3, ids.count { exists("saved_$it") })
-        click("toggle_sessions_zone2")
-        assertEquals(4, ids.count { exists("saved_$it") })
-        rule.onNodeWithTag("toggle_sessions_zone2").assertTextContains("Show fewer", substring = true)
+        assertTrue(ids.none { exists("saved_$it") || exists("repeat_$it") || exists("regenerate_$it") })
+        assertFalse(exists("toggle_sessions_zone2"))
 
         scrollList("programs_list", "couch_next")
         rule.onNodeWithTag("couch_next").assertTextContains("Session 8 of 27 (week 3, day 2)", substring = true)
@@ -109,30 +106,11 @@ class PersonalisedUiTest {
         rule.onNodeWithTag("couch_start_button").assertTextContains("Start session 8", substring = true)
     }
 
-    @Test fun repeatingASavedSessionOpensTheStartScreenWithItsGenerationDateAndNoAdjustments() {
+    @Test fun anOwnProgramCanBeDeletedAfterConfirmingAndDuplicated() {
         idleBelt()
-        val id = saveSession("tempo")
         show(Screen.Programs)
-        scrollList("programs_list", "repeat_$id")
-        click("repeat_$id")
-
-        rule.onNodeWithTag("generated_on").assertIsDisplayed()
-        rule.onNodeWithTag("generated_inputs").assertTextContains("Running", substring = true)
-        rule.onNodeWithTag("regenerate_button").assertIsDisplayed()
-        assertFalse("a generated program has no adjustment", exists("adjustment_plus"))
-        rule.onNodeWithTag("start_program_button").assertIsEnabled()
-        assertTrue(exists("plan_block_list"))
-
-        // "Regenerate" opens the generator with the same inputs, to be generated again with today's data.
-        click("regenerate_button")
-        rule.onNodeWithTag("generator_screen").assertIsDisplayed()
-        rule.onNodeWithTag("generator_regenerating").assertIsDisplayed()
-    }
-
-    @Test fun aSavedSessionCanBeDeletedAfterConfirmingAndDuplicatedAsFree() {
-        idleBelt()
-        val id = saveSession("norwegian-4x4")
-        show(Screen.Programs)
+        val own = runBlocking { data.programs.programs(ana.id).first() }.first { it.program.origin == null }
+        val id = own.id
         scrollList("programs_list", "delete_program_$id")
         click("delete_program_$id")
         rule.onNodeWithTag("confirm_dialog").assertIsDisplayed()
@@ -140,10 +118,14 @@ class PersonalisedUiTest {
         assertTrue(runBlocking { data.programs.get(id) } != null)
 
         click("duplicate_program_$id")
-        // The copy opens in the editor: it is a free program now.
-        rule.onNodeWithTag("program_name_field").assertIsDisplayed()
         val copy = runBlocking { data.programs.programs(ana.id).first() }.single { it.program.name.endsWith("(copy)") }
         assertEquals(com.treadz.console.programs.model.ProgramKind.Free, copy.program.kind)
+        scrollList("programs_list", "program_${copy.id}")
+        rule.onNodeWithTag("program_${copy.id}").assertIsDisplayed()
+
+        click("delete_program_$id")
+        click("confirm_button")
+        assertEquals(null, runBlocking { data.programs.get(id) })
     }
 
     // ---- The generator screen ----

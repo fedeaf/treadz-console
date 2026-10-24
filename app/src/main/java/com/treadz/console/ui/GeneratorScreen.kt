@@ -55,6 +55,8 @@ data class GeneratorActions(
     val onOpenWeight: () -> Unit = {},
     val onOpenProfile: () -> Unit = {},
     val onOpenResting: () -> Unit = {},
+    /** Opens the detail of one of the sessions listed in the screen. */
+    val onOpenWorkout: (Long) -> Unit = {},
 )
 
 /** A choice among a few (mode, plan, week): a chip with a touch target big enough to use on the move. */
@@ -96,6 +98,7 @@ fun GeneratorScreen(state: GeneratorUiState, actions: GeneratorActions, modifier
                     Column(Modifier.weight(0.9f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Intro(state)
                         InputsPanel(state, actions)
+                        ProgramSessionsSection(state.sessions, actions.onOpenWorkout)
                     }
                     Column(Modifier.weight(1.1f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Preview(state, actions)
@@ -108,6 +111,7 @@ fun GeneratorScreen(state: GeneratorUiState, actions: GeneratorActions, modifier
                     Intro(state)
                     InputsPanel(state, actions)
                     Preview(state, actions)
+                    ProgramSessionsSection(state.sessions, actions.onOpenWorkout)
                 }
                 StartBar(state, actions)
             }
@@ -119,14 +123,6 @@ fun GeneratorScreen(state: GeneratorUiState, actions: GeneratorActions, modifier
 private fun Intro(state: GeneratorUiState) {
     val descriptor = state.descriptor ?: return
     Text(stringResource(generatorDescriptionRes(descriptor.id)), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    if (state.regenerating) {
-        Panel(Modifier.fillMaxWidth().testTag("generator_regenerating"), borderColor = MaterialTheme.colorScheme.secondary) {
-            Text(
-                stringResource(R.string.generator_regenerating),
-                Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

@@ -58,6 +58,8 @@ data class RunUiState(
     val couchNext: CouchToFiveKSelection? = null,
     /** What the treadmill really did during the program (see [TrainingCoordinator.programSeries]). */
     val programSeries: ProgramSeries = ProgramSeries(),
+    /** The α1 brake has just lowered the load of the program: a short notice (see [BrakeNotices]). */
+    val brakeNotice: BrakeNotice? = null,
 ) {
     val testResultShown: Boolean get() = kind == SessionKind.FitnessTest && test.phase == FitnessTestPhase.Finished
 }
@@ -79,6 +81,8 @@ class RunViewModel(
     private data class Local(val continuing: Boolean = false, val failure: ContinueFailure? = null)
 
     private val local = MutableStateFlow(Local())
+
+    private data class Live(val source: HeartRateSourceKind?, val next: CouchToFiveKSelection?, val series: ProgramSeries, val notice: BrakeNotice?)
 
     private data class Extras(val comparison: FitnessComparison?, val heartRateMax: HeartRateMaxDecision?)
 
@@ -125,9 +129,12 @@ class RunViewModel(
     val uiState: StateFlow<RunUiState> = combine(
         combine(training.visible, training.programRunner.progress, training.fitnessRunner.progress) { kind, program, test -> Triple(kind, program, test) },
         combine(local, training.saveFailed, extras) { local, saveFailed, extras -> Triple(local, saveFailed, extras) },
-        combine(heartRateSource, couchNext, training.programSeries) { source, next, series -> Triple(source, next, series) },
-    ) { (kind, program, test), (local, saveFailed, extras), (source, next, series) ->
-        RunUiState(kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax, source, next, series)
+        combine(heartRateSource, couchNext, training.programSeries, training.brakeNotice) { source, next, series, notice -> Live(source, next, series, notice) },
+    ) { (kind, program, test), (local, saveFailed, extras), live ->
+        RunUiState(
+            kind, program, test, local.continuing, local.failure, saveFailed, extras.comparison, extras.heartRateMax,
+            live.source, live.next, live.series, live.notice,
+        )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, RunUiState())
 
     // ------------------------------------------------------------------ program

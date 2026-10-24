@@ -69,6 +69,11 @@ class PerformanceViewModelTest {
         assertNull(state.trends)
     }
 
+    @Test fun withoutWorkoutsThatSuggestItThereIsNoRecommendationOfATest() {
+        richAna()
+        assertTrue(viewModel().uiState.value.recommendations.isEmpty())
+    }
+
     @Test fun aFreshInstallHasEveryCardEmpty() {
         val state = viewModel().uiState.value
         val trends = checkNotNull(state.trends)

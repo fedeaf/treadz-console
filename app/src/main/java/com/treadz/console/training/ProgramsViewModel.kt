@@ -7,9 +7,7 @@ import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.model.ProgramLimits
 import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.personalised.CouchToFiveKSelection
-import com.treadz.console.programs.personalised.ExerciseMode
 import com.treadz.console.programs.personalised.GeneratorDescriptor
-import com.treadz.console.programs.personalised.GeneratorInput
 import com.treadz.console.programs.personalised.GeneratorNotice
 import com.treadz.console.programs.personalised.ProgramGenerators
 import com.treadz.console.programs.plan.ProgramResolver
@@ -53,35 +51,8 @@ data class ProgramCardState(
     val editable: Boolean = true,
 )
 
-/** A saved personalised session of a generator, as the list shows it. */
-data class SavedSessionState(
-    val programId: String,
-    val name: String,
-    /** When it was generated (epoch ms). */
-    val createdAtMillis: Long,
-    val mode: ExerciseMode?,
-    /** Its main input: the duration (zone 2, tempo)... */
-    val durationMinutes: Int?,
-    /** ... or the number of series (30/30). */
-    val series: Int?,
-)
-
-/** A generator of personalised programs with the sessions saved from it (none for Couch to 5K). */
-data class GeneratorCardState(
-    val descriptor: GeneratorDescriptor,
-    /** Every saved session, newest first. */
-    val sessions: List<SavedSessionState> = emptyList(),
-    val expanded: Boolean = false,
-) {
-    /** The sessions on view: the latest [VISIBLE_SESSIONS] unless the list is unfolded. */
-    val visibleSessions: List<SavedSessionState> get() = if (expanded) sessions else sessions.take(VISIBLE_SESSIONS)
-    val hiddenCount: Int get() = sessions.size - visibleSessions.size
-    val canFold: Boolean get() = sessions.size > VISIBLE_SESSIONS
-
-    companion object {
-        const val VISIBLE_SESSIONS = 3
-    }
-}
+/** A generator of personalised programs. Its sessions are not saved: it generates one when it is started. */
+data class GeneratorCardState(val descriptor: GeneratorDescriptor)
 
 /** The Couch to 5K card: the session that comes next and why. */
 data class CouchCardState(
@@ -102,12 +73,11 @@ data class ProgramsUiState(
     val confirmingDeleteId: String? = null,
     val failed: Boolean = false,
 ) {
-    /** The name of a program of the user (free or saved personalised), for the delete dialog. */
-    fun nameOf(programId: String): String? =
-        mine.firstOrNull { it.id == programId }?.name ?: generators.firstNotNullOfOrNull { g -> g.sessions.firstOrNull { it.programId == programId }?.name }
+    /** The name of a program of the user, for the delete dialog. */
+    fun nameOf(programId: String): String? = mine.firstOrNull { it.id == programId }?.name
 }
 
-/** The standard programs, the generators of personalised programs with their saved sessions, and the user's own programs. */
+/** The user's own programs, the generators of personalised programs and the standard programs. */
 class ProgramsViewModel(
     private val userData: UserData,
     private val nowMillis: () -> Long = System::currentTimeMillis,
@@ -119,7 +89,6 @@ class ProgramsViewModel(
     private data class Local(
         val confirmingDeleteId: String? = null,
         val failed: Boolean = false,
-        val expanded: Set<String> = emptySet(),
     )
 
     private val local = MutableStateFlow(Local())
@@ -142,32 +111,19 @@ class ProgramsViewModel(
         if (user == null) flowOf(null to emptyList()) else userData.programs.programs(user.id).map { user to it }
     }
 
-    /** The generators whose saved sessions are listed under their card. */
-    private val groupedGenerators: List<GeneratorDescriptor> =
-        ProgramGenerators.all.map { it.descriptor }.filter { it.id != CouchToFiveK.ID }
-
     private val couchCard: Flow<CouchCardState?> = generatorContext(userData, CouchToFiveK.ID).map { context ->
         context?.let { couchCardOf(it) }
     }
 
     val uiState: StateFlow<ProgramsUiState> = combine(mine, couchCard, local) { (user, programs), couch, local ->
-        val groupedIds = groupedGenerators.map { it.id }.toSet()
-        val personalised = programs.filter { it.program.kind == ProgramKind.Personalised && it.program.origin?.generatorId in groupedIds }
         ProgramsUiState(
             loaded = true,
             user = user,
             standard = standardCards,
-            generators = ProgramGenerators.all.map { it.descriptor }.filter { it.id != CouchToFiveK.ID }.map { d ->
-                GeneratorCardState(
-                    descriptor = d,
-                    sessions = personalised.filter { it.program.origin?.generatorId == d.id }
-                        .sortedByDescending { it.createdAtMillis }
-                        .map { savedSessionOf(d, it) },
-                    expanded = d.id in local.expanded,
-                )
-            },
+            generators = ProgramGenerators.all.map { it.descriptor }.filter { it.id != CouchToFiveK.ID }.map(::GeneratorCardState),
             couch = couch,
-            mine = programs.filter { it !in personalised }.map(::cardOf),
+            // Sessions saved by an older version (they have an origin) are not listed any more: sessions are only generated and run.
+            mine = programs.filter { it.program.kind != ProgramKind.Personalised && it.program.origin == null }.map(::cardOf),
             confirmingDeleteId = local.confirmingDeleteId,
             failed = local.failed,
         )
@@ -182,18 +138,6 @@ class ProgramsViewModel(
             minDurationSeconds = null, maxDurationSeconds = null,
             distanceMeters = plan?.estimatedDistanceMeters ?: 0,
             editable = ProgramDrafts.isEditable(p.program),
-        )
-    }
-
-    private fun savedSessionOf(descriptor: GeneratorDescriptor, p: UserProgram): SavedSessionState {
-        val inputs = p.program.origin?.inputs.orEmpty()
-        return SavedSessionState(
-            programId = p.id,
-            name = p.program.name,
-            createdAtMillis = p.createdAtMillis,
-            mode = inputs["mode"]?.let { m -> ExerciseMode.entries.firstOrNull { it.name.equals(m, ignoreCase = true) } },
-            durationMinutes = inputs["durationMinutes"]?.toIntOrNull().takeIf { GeneratorInput.DurationMinutes in descriptor.inputs },
-            series = inputs["series"]?.toIntOrNull().takeIf { GeneratorInput.Series in descriptor.inputs },
         )
     }
 
@@ -217,14 +161,8 @@ class ProgramsViewModel(
         }
     }
 
-    /** Unfolds (or folds) the saved sessions of a generator. */
-    fun toggleExpanded(generatorId: String) = local.update {
-        it.copy(expanded = if (generatorId in it.expanded) it.expanded - generatorId else it.expanded + generatorId)
-    }
-
     /**
-     * Saves a copy of the program under a new name; [onDuplicated] gets the id of the copy. The copy of a personalised
-     * program is a free program without origin, which can be edited.
+     * Saves a copy of the program under a new name; [onDuplicated] gets the id of the copy.
      */
     fun duplicate(programId: String, onDuplicated: (String) -> Unit = {}) {
         val user = uiState.value.user ?: return

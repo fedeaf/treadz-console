@@ -2,6 +2,7 @@ package com.treadz.console.performance
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.analysis.trends.ThresholdRecommendation
 import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.programs.fitness.FitnessProfile
 import com.treadz.console.training.UserZones
@@ -35,6 +36,8 @@ data class PerformanceUiState(
     /** The five zones in bpm and their source. */
     val zones: ZoneSet? = null,
     val trends: PerformanceTrends? = null,
+    /** Tests the workouts suggest (VT1 and/or VT2 look different from the profile); empty for none. */
+    val recommendations: List<ThresholdRecommendation> = emptyList(),
     /** The cards whose chart is open. */
     val expanded: Set<PerformanceCard> = emptySet(),
 )
@@ -57,7 +60,13 @@ class PerformanceViewModel(
 
     private val expanded = MutableStateFlow<Set<PerformanceCard>>(emptySet())
 
-    private data class Content(val user: UserProfile?, val profile: FitnessProfile?, val zones: ZoneSet?, val trends: PerformanceTrends?)
+    private data class Content(
+        val user: UserProfile?,
+        val profile: FitnessProfile?,
+        val zones: ZoneSet?,
+        val trends: PerformanceTrends?,
+        val recommendations: List<ThresholdRecommendation> = emptyList(),
+    )
 
     private val content: Flow<Content> = userData.profiles.activeUser.flatMapLatest { user ->
         if (user == null) {
@@ -74,7 +83,10 @@ class PerformanceViewModel(
                 Inputs(user, workouts, inputs, profile, UserZones.compute(user, profile, hrMax, resting?.bpm, today()), today().toEpochDay())
             }.mapLatest { i ->
                 withContext(computeDispatcher) {
-                    Content(i.user, i.profile, i.zones, PerformanceTrendsCalculator.compute(i.workouts, i.inputs, i.todayEpochDay))
+                    Content(
+                        i.user, i.profile, i.zones, PerformanceTrendsCalculator.compute(i.workouts, i.inputs, i.todayEpochDay),
+                        TestRecommendations.compute(i.workouts, i.inputs.tests, i.profile, i.todayEpochDay),
+                    )
                 }
             }
         }
@@ -90,7 +102,7 @@ class PerformanceViewModel(
     )
 
     val uiState: StateFlow<PerformanceUiState> = combine(content, expanded) { c, open ->
-        PerformanceUiState(true, c.user, c.profile, c.zones, c.trends, open)
+        PerformanceUiState(true, c.user, c.profile, c.zones, c.trends, c.recommendations, open)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, PerformanceUiState())
 
     /** Opens the chart of [card], or closes it when it is open. */

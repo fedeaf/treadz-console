@@ -24,12 +24,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 data class ProgramEditorUiState(
     val loading: Boolean = true,
@@ -71,6 +71,8 @@ class ProgramEditorViewModel(
     private val programId: String?,
     private val userData: UserData,
     private val controller: TreadmillController,
+    /** Today's date, for the user's zones (age, recent tests). */
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
     private val state = MutableStateFlow(ProgramEditorUiState(isNew = programId == null))
@@ -83,13 +85,8 @@ class ProgramEditorViewModel(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val heartRateReferences = userData.profiles.activeUser.flatMapLatest { user ->
-        if (user == null) {
-            flowOf(null)
-        } else {
-            combine(userData.fitnessTests.heartRateMax(user.id), userData.restingHeartRates.reference(user.id)) { max, resting ->
-                max?.let { HeartRateProfile(it.bpm, resting?.bpm) }
-            }
-        }
+        // The zones are the user's own: a block that asks for zone 2 of the profile shows the bpm the session will use.
+        if (user == null) flowOf(null) else UserZones.heartRateProfileFlow(userData, user, today)
     }
 
     init {
@@ -212,13 +209,18 @@ class ProgramEditorViewModel(
     fun editHeartRate(step: Int, block: Int?, edit: (HeartRateDraft) -> HeartRateDraft) =
         editBlock(step, block) { b -> b.heartRate?.let { b.copy(heartRate = edit(it)) } ?: b }
 
-    /** Zone 1-5 (`index` 0-4), or `null` for a zone of the user's own (it starts from the zone that was set). */
+    /** Zone 1-5 of the **user's own zones** (`number` 1-5): the bpm come from their thresholds or level when the session starts. */
+    fun setProfileZone(step: Int, block: Int?, number: Int) = editHeartRate(step, block) { hr ->
+        hr.copy(profileZone = number.coerceIn(1, 5), standardZone = null)
+    }
+
+    /** Standard zone 1-5 (`index` 0-4), or `null` for percentages of one's own (they start from the zone that was set). */
     fun setZone(step: Int, block: Int?, index: Int?) = editHeartRate(step, block) { hr ->
         if (index != null) {
-            hr.copy(standardZone = index.coerceIn(0, HeartRateZones.STANDARD.lastIndex))
+            hr.copy(profileZone = null, standardZone = index.coerceIn(0, HeartRateZones.STANDARD.lastIndex))
         } else {
             val current = ProgramDrafts.zoneOf(hr)
-            hr.copy(standardZone = null, customLow = current?.lowPercent?.toString() ?: hr.customLow, customHigh = current?.highPercent?.toString() ?: hr.customHigh)
+            hr.copy(profileZone = null, standardZone = null, customLow = current?.lowPercent?.toString() ?: hr.customLow, customHigh = current?.highPercent?.toString() ?: hr.customHigh)
         }
     }
 

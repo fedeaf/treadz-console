@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.treadz.console.Decimals
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionKind
+import com.treadz.console.history.ProgramSessions
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockTarget
@@ -41,6 +42,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** Why the Start button of a program is disabled. */
@@ -106,6 +108,8 @@ data class ProgramStartUiState(
     val generatedAtMillis: Long? = null,
     /** The active user's heart-rate references: the zones of heart-rate blocks are shown in bpm with them. */
     val heartRateProfile: HeartRateProfile? = null,
+    /** The sessions of this program (the workouts that ran it), newest first. */
+    val sessions: ProgramSessions = ProgramSessions(),
 ) {
     val canStart: Boolean get() = blocker == null && plan != null && !starting
 }
@@ -119,6 +123,8 @@ class ProgramStartViewModel(
     private val userData: UserData,
     private val training: TrainingCoordinator,
     private val controller: TreadmillController,
+    /** Today's date, for the user's zones (age, recent tests). */
+    private val today: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
 
     private data class Local(
@@ -151,18 +157,18 @@ class ProgramStartViewModel(
         Context(user, connection is ConnectionState.Connected, state.status, state.speedKmh, session)
     }
 
+    /** The user's references and zones: a block that asks for a zone of the profile is shown in the bpm the session will use. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val heartRateProfile: Flow<HeartRateProfile?> = userData.profiles.activeUser.flatMapLatest { user ->
-        if (user == null) {
-            flowOf(null)
-        } else {
-            combine(userData.fitnessTests.heartRateMax(user.id), userData.restingHeartRates.reference(user.id)) { max, resting ->
-                max?.let { HeartRateProfile(it.bpm, resting?.bpm) }
-            }
-        }
+        if (user == null) flowOf(null) else UserZones.heartRateProfileFlow(userData, user, today)
     }
 
-    val uiState: StateFlow<ProgramStartUiState> = combine(local, environment, context, heartRateProfile) { local, env, ctx, hr -> build(local, env, ctx, hr) }
+    /** The sessions of this program: the workouts that ran it. */
+    private val sessions: Flow<ProgramSessions> = ProgramSessions.ofProgram(userData, programId)
+
+    val uiState: StateFlow<ProgramStartUiState> = combine(local, environment, context, heartRateProfile, sessions) { local, env, ctx, hr, sessions ->
+        build(local, env, ctx, hr, sessions)
+    }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ProgramStartUiState(programId = programId))
 
     init {
@@ -184,7 +190,7 @@ class ProgramStartViewModel(
         }
     }
 
-    private fun build(local: Local, env: ResolutionEnvironment, ctx: Context, heartRateProfile: HeartRateProfile?): ProgramStartUiState {
+    private fun build(local: Local, env: ResolutionEnvironment, ctx: Context, heartRateProfile: HeartRateProfile?, sessions: ProgramSessions): ProgramStartUiState {
         val program = local.program
         if (program == null) return ProgramStartUiState(loading = local.loading, notFound = !local.loading, programId = programId)
         val uses = local.standard?.uses ?: ProgramResolver.requiredParameters(program)
@@ -232,6 +238,7 @@ class ProgramStartViewModel(
             origin = program.origin,
             generatedAtMillis = local.createdAtMillis,
             heartRateProfile = heartRateProfile,
+            sessions = sessions,
         )
     }
 

@@ -56,6 +56,7 @@ fun FitnessTestsScreen(state: FitnessTestsUiState, actions: FitnessTestsActions,
         if (wide) {
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TestRecommendationNotes(state.recommendations)
                     Intro()
                     TestCards(state, actions)
                 }
@@ -67,6 +68,7 @@ fun FitnessTestsScreen(state: FitnessTestsUiState, actions: FitnessTestsActions,
         } else {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Fitness(state, actions)
+                TestRecommendationNotes(state.recommendations)
                 Intro()
                 TestCards(state, actions)
                 History(state, actions)
@@ -202,6 +204,10 @@ private fun ResultRow(record: FitnessTestRecord, actions: FitnessTestsActions) {
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            // A maximal test whose peak did not reach 85 % of the maximum heart rate says so, and that it gives no VO2max or MAS.
+            result.withheldText()?.let { text ->
+                Text(text, Modifier.testTag("test_not_maximal_${record.id}"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.extra.warning)
             }
             // The walking heart-rate test also shows the maximum heart rate it measured.
             result.measuredHrMaxCandidateBpm?.takeIf { result.testType == FitnessTestType.MaxHeartRateWalk }?.let { bpm ->

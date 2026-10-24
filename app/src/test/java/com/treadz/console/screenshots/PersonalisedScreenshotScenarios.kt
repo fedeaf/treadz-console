@@ -57,7 +57,6 @@ import com.treadz.console.ui.TreadZFrame
 import com.treadz.console.ui.TreadZRoot
 import com.treadz.console.userdata.ProgramSaveResult
 import com.treadz.console.userdata.UserProfile
-import com.treadz.console.userdata.WorkoutLink
 import com.treadz.console.userdata.memory.DemoData
 import com.treadz.console.userdata.memory.InMemoryUserData
 import kotlinx.coroutines.flow.first
@@ -151,15 +150,6 @@ abstract class PersonalisedScreenshotScenarios(private val prefix: String) {
         val descriptor = checkNotNull(com.treadz.console.programs.personalised.ProgramGenerators.byId(generatorId)).descriptor
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         return generatorProgramName(context, descriptor, form ?: GeneratorForm.defaults(descriptor))
-    }
-
-    /** A saved personalised session "generated" [daysAgo] days ago. */
-    private fun saveSession(user: UserProfile, generatorId: String, daysAgo: Int, form: GeneratorForm? = null): String {
-        clockMillis = noon - daysAgo * day
-        val generated = GeneratedFixtures.generate(data, user, generatorId, form, app.date, clockMillis, name = programName(generatorId, form))
-        val id = (runBlocking { data.programs.save(user.id, generated.program) } as ProgramSaveResult.Saved).program.id
-        clockMillis = noon
-        return id
     }
 
     private fun couchRecord(user: UserProfile, session: Int, daysAgo: Double, completed: Boolean = true, endHeartRate: Double = 138.0, reductions: Int = 0) =
@@ -267,23 +257,6 @@ abstract class PersonalisedScreenshotScenarios(private val prefix: String) {
         capture("p01_personalised", startAt = listOf(Screen.Programs)) { scrollList("programs_list", "generator_zone2") }
     }
 
-    @Test fun p02_saved_sessions_folded() {
-        val ana = demo()
-        (1..5).forEach { saveSession(ana, "zone2", daysAgo = 6 - it, form = GeneratorForm(mode = if (it % 2 == 0) ExerciseMode.Walk else ExerciseMode.Run, durationMinutes = 20 + it * 10)) }
-        saveSession(ana, "intervals-30-30", 3, GeneratorForm(series = 18))
-        capture("p02_saved_folded", startAt = listOf(Screen.Programs)) { scrollList("programs_list", "toggle_sessions_zone2") }
-    }
-
-    @Test fun p03_saved_sessions_unfolded() {
-        val ana = demo()
-        (1..5).forEach { saveSession(ana, "zone2", daysAgo = 6 - it, form = GeneratorForm(mode = if (it % 2 == 0) ExerciseMode.Walk else ExerciseMode.Run, durationMinutes = 20 + it * 10)) }
-        capture("p03_saved_unfolded", startAt = listOf(Screen.Programs)) {
-            scrollList("programs_list", "toggle_sessions_zone2")
-            click("toggle_sessions_zone2")
-            scrollList("programs_list", "toggle_sessions_zone2")
-        }
-    }
-
     @Test fun p04_couch_card_first_session() {
         demo()
         capture("p04_couch_first", startAt = listOf(Screen.Programs)) { scrollList("programs_list", "couch_start_button") }
@@ -314,21 +287,11 @@ abstract class PersonalisedScreenshotScenarios(private val prefix: String) {
         capture("p09_couch_completed", startAt = listOf(Screen.Programs)) { scrollList("programs_list", "couch_start_button") }
     }
 
-    @Test fun p10_delete_a_saved_session() {
-        val ana = demo()
-        val id = saveSession(ana, "tempo", 2)
-        capture("p10_delete_saved", startAt = listOf(Screen.Programs)) {
-            scrollList("programs_list", "delete_program_$id")
-            click("delete_program_$id")
-        }
-        captureDialog("p10_delete_dialog")
-    }
-
     // ---- The generator screen ----
 
-    private fun generator(name: String, generatorId: String, mode: ExerciseMode? = null, from: String? = null, interact: () -> Unit = {}) {
+    private fun generator(name: String, generatorId: String, mode: ExerciseMode? = null, interact: () -> Unit = {}) {
         idleBelt()
-        capture(name, startAt = listOf(Screen.Programs, Screen.Generator(generatorId, from))) {
+        capture(name, startAt = listOf(Screen.Programs, Screen.Generator(generatorId))) {
             mode?.let { click("generator_mode_${it.name}") }
             interact()
         }
@@ -390,19 +353,6 @@ abstract class PersonalisedScreenshotScenarios(private val prefix: String) {
             rule.onNodeWithTag("generator_walking").performTextReplacement("9")
             scrollTo("generator_walking")
         }
-    }
-
-    @Test fun g18_regenerate_a_saved_session() {
-        val ana = demo()
-        val id = saveSession(ana, "tempo", 5, GeneratorForm(mode = ExerciseMode.Walk, durationMinutes = 55, walkingSpeed = "5.5"))
-        generator("g18_regenerate", "tempo", from = id)
-    }
-
-    @Test fun g19_start_screen_of_a_saved_session() {
-        val ana = demo()
-        val id = saveSession(ana, "norwegian-4x4", 5)
-        idleBelt()
-        capture("g19_repeat_saved", startAt = listOf(Screen.Programs, Screen.ProgramStart(id)))
     }
 
     // ---- Running a generated session ----

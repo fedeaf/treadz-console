@@ -208,7 +208,8 @@ private fun Summary(detail: WorkoutDetail, state: WorkoutDetailUiState, actions:
         if (summary.isInProgress) {
             Tag(stringResource(R.string.history_in_progress), MaterialTheme.extra.ok, Modifier.testTag("in_progress_tag"))
         } else {
-            summary.endReason?.let { Tag(it.label(), MaterialTheme.colorScheme.onSurfaceVariant) }
+            // The normal end ("Stopped") is not worth a tag: only what went differently is.
+            summary.endReason?.takeIf { it != com.treadz.console.userdata.WorkoutEndReason.Stopped }?.let { Tag(it.label(), MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         val generatorId = summary.generatorId
         if (generatorId != null) {

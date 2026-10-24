@@ -4,11 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionKind
+import com.treadz.console.history.ProgramSessions
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.programs.model.InvalidProgramException
-import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.personalised.ExerciseMode
 import com.treadz.console.programs.personalised.GeneratedProgram
 import com.treadz.console.programs.personalised.GeneratorDescriptor
@@ -58,8 +58,8 @@ data class GeneratorUiState(
     val heartRateAvailable: Boolean = false,
     /** The week Couch to 5K suggests starting at (from the fitness level). */
     val suggestedStartWeek: Int? = null,
-    /** The inputs come from a stored program: "Regenerate" with today's data. */
-    val regenerating: Boolean = false,
+    /** The sessions this generator has produced (the workouts), newest first. */
+    val sessions: ProgramSessions = ProgramSessions(),
     val blocker: StartBlocker? = null,
     val starting: Boolean = false,
     val failure: StartOutcome? = null,
@@ -71,13 +71,12 @@ data class GeneratorUiState(
 
 /**
  * The generator screen: the inputs of a personalised program, the session generated from them and the user's data (every
- * change generates again: it is pure and fast), and the start through the [TrainingCoordinator]. Except for Couch to 5K
- * (whose sessions are only workouts), the generated program is saved as a program of the user once it has started.
+ * change generates again: it is pure and fast), and the start through the [TrainingCoordinator]. The generated session is
+ * not saved as a program: it is generated and run, and the workout keeps the plan, the generator and the session record.
+ * The sessions already done with this generator are listed in the screen (they are its workouts).
  */
 class GeneratorViewModel(
     private val generatorId: String,
-    /** A stored personalised program whose inputs fill the form ("Regenerate"), or `null`. */
-    private val fromProgramId: String?,
     private val userData: UserData,
     private val training: TrainingCoordinator,
     private val controller: TreadmillController,
@@ -95,7 +94,6 @@ class GeneratorViewModel(
 
     private data class Local(
         val form: GeneratorForm? = null,
-        val regenerating: Boolean = false,
         val starting: Boolean = false,
         val failure: StartOutcome? = null,
     )
@@ -127,9 +125,11 @@ class GeneratorViewModel(
 
     private val data: Flow<GeneratorContext?> = if (descriptor != null) generatorContext(userData, generatorId) else flowOf(null)
 
-    val uiState: StateFlow<GeneratorUiState> = combine(local, environment, belt, data, heartRateNow) { local, env, belt, context, hr ->
+    private val sessions: Flow<ProgramSessions> = ProgramSessions.ofGenerator(userData, generatorId)
+
+    val uiState: StateFlow<GeneratorUiState> = combine(combine(local, environment, belt, data, heartRateNow) { local, env, belt, context, hr ->
         build(local, env, belt, context, hr)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, GeneratorUiState(descriptor = descriptor, unknownGenerator = descriptor == null, loading = descriptor != null))
+    }, sessions) { state, sessions -> state.copy(sessions = sessions) }.stateIn(viewModelScope, SharingStarted.Eagerly, GeneratorUiState(descriptor = descriptor, unknownGenerator = descriptor == null, loading = descriptor != null))
 
     init {
         if (descriptor != null) {
@@ -137,28 +137,11 @@ class GeneratorViewModel(
         }
     }
 
-    /** The form starts with the stored program's inputs (regenerate), else what the user started with last time, else the defaults. */
+    /** The form starts with what the user started with last time, else the defaults. */
     private suspend fun loadForm(descriptor: GeneratorDescriptor) {
         val userId = userData.profiles.activeUserId()
-        val stored = fromProgramId?.let { userData.programs.get(it) }?.program?.origin?.takeIf { it.generatorId == descriptor.id }
-        val form = when {
-            stored != null -> GeneratorForm.fromStored(descriptor, storedFromOrigin(stored.inputs))
-            userId != null -> GeneratorForm.fromStored(descriptor, settings.generatorInputs(userId, descriptor.id))
-            else -> GeneratorForm.defaults(descriptor)
-        }
-        local.update { it.copy(form = form, regenerating = stored != null) }
-    }
-
-    /** The inputs a generator wrote in the origin of its program, in the form's own terms. */
-    private fun storedFromOrigin(inputs: Map<String, String>): Map<String, String> = buildMap {
-        inputs["mode"]?.let { put("mode", it.replaceFirstChar { c -> c.uppercase() }) }
-        inputs["durationMinutes"]?.let { put("duration", it) }
-        // The tempo generator also writes its own number of series: only the generators that ask for it have it as an input.
-        inputs["series"]?.let { put("series", it) }
-        inputs["walkingSpeedKmh"]?.toDoubleOrNull()
-            ?.takeIf { kotlin.math.abs(it - IntensityTranslator.DEFAULT_WALKING_SPEED_KMH) > 0.049 }
-            ?.let { put("walk", com.treadz.console.Decimals.format(it)) }
-        inputs["jogSpeedAdjustmentPercent"]?.let { put("jog", it) }
+        val form = if (userId != null) GeneratorForm.fromStored(descriptor, settings.generatorInputs(userId, descriptor.id)) else GeneratorForm.defaults(descriptor)
+        local.update { it.copy(form = form) }
     }
 
     private fun build(local: Local, env: ResolutionEnvironment, belt: Belt, context: GeneratorContext?, hrNow: Boolean): GeneratorUiState {
@@ -195,10 +178,10 @@ class GeneratorViewModel(
             generated = generated,
             plan = plan,
             problem = finalProblem,
-            heartRateProfile = context?.let { GeneratorRequests.profileOf(it, today()).heartRate },
+            // With the zones of the user: the blocks that ask for a zone of the profile show the bpm the session will use.
+            heartRateProfile = context?.let { UserZones.heartRateProfile(it.user, it.fitnessProfile, it.heartRateMax, it.restingBpm, today()) ?: GeneratorRequests.profileOf(it, today()).heartRate },
             heartRateAvailable = hrNow,
             suggestedStartWeek = generated?.couchToFiveK?.suggestedStartWeek,
-            regenerating = local.regenerating,
             blocker = blocker,
             starting = local.starting,
             failure = local.failure,
@@ -267,8 +250,7 @@ class GeneratorViewModel(
             val outcome = training.startProgram(user.id, plan, plan.parameters)
             local.update { it.copy(starting = false, failure = outcome.takeIf { o -> o != StartOutcome.Started }) }
             if (outcome == StartOutcome.Started) {
-                // The session is saved only once it runs; Couch to 5K's sessions are only workouts (their records).
-                if (d.id != CouchToFiveK.ID) userData.programs.save(user.id, generated.program)
+                // The session is not saved as a program: the workout keeps the plan, the generator and the session record.
                 settings.setGeneratorInputs(user.id, d.id, state.form.toStored(d))
                 onStarted()
             }

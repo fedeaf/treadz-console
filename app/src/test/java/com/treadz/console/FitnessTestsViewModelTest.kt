@@ -40,6 +40,11 @@ class FitnessTestsViewModelTest {
 
     // ---- The list ----
 
+    @Test fun withoutWorkoutsThatSuggestItThereIsNoRecommendationOfATest() {
+        ana
+        assertTrue(FitnessTestsViewModel(data, app::today).uiState.value.recommendations.isEmpty())
+    }
+
     @Test fun showsTheActiveUsersTestsNewestFirstWithTheirFitnessFigures() {
         ana
         val state = FitnessTestsViewModel(data).uiState.value

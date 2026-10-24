@@ -6,9 +6,12 @@ import com.treadz.console.controls.ControllerCommands
 import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionControls
+import com.treadz.console.analysis.energy.FuelSnapshot
 import com.treadz.console.devices.LiveHeartRate
 import com.treadz.console.devices.StrapController
 import com.treadz.console.devices.StrapUiState
+import com.treadz.console.fuel.FuelFigures
+import com.treadz.console.fuel.FuelPresenter
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.settings.RememberedTreadmill
 import com.treadz.console.settings.SettingsStore
@@ -78,6 +81,8 @@ class MainViewModel(
     private val clock: Clock = Clock.System,
     /** Calories of the workout being recorded, computed by the app (the treadmill's own count is not shown). */
     liveCalories: Flow<Int?> = flowOf(null),
+    /** The engine's live fat/carbohydrate split; shown (see [MainUiState.liveFuel]) only when it can be. */
+    liveFuel: Flow<FuelSnapshot?> = flowOf(null),
 ) : ViewModel() {
 
     /** Part of the state that only lives in the UI. */
@@ -136,6 +141,8 @@ class MainViewModel(
     private data class Extras(
         val local: Local,
         val calories: Int?,
+        val fuel: FuelFigures?,
+        val finishedFuel: FuelFigures?,
         val user: UserProfile?,
         val unassigned: Int,
         val syncError: SyncError?,
@@ -147,16 +154,25 @@ class MainViewModel(
         val strap: StrapUiState,
     )
 
-    private val localAndCalories = combine(local, liveCalories) { l, c -> l to c }
+    private data class LocalAndLive(val local: Local, val calories: Int?, val fuel: FuelFigures?, val finishedFuel: FuelFigures?)
+
+    private val finishedFuel: Flow<FuelFigures?> = FuelPresenter.finishedFlow(training?.finishedWorkout ?: flowOf(null)) { userData.workoutAnalysis.analysis(it) }
+
+    private val localAndLive = combine(
+        local,
+        liveCalories,
+        combine(liveCalories, liveFuel) { calories, fuel -> FuelPresenter.live(calories, fuel) },
+        finishedFuel,
+    ) { l, c, f, finished -> LocalAndLive(l, c, f, finished) }
 
     private val extras = combine(
-        localAndCalories,
+        localAndLive,
         people,
         controlsAndSession,
         controller.bluetoothEnabled,
         controller.connectionProblem,
-    ) { (local, calories), people, controls, bluetooth, reconnectProblem ->
-        Extras(local, calories, people.user, people.unassigned, people.syncError, controls.first, controls.second, people.finishedWorkout, bluetooth, reconnectProblem, people.strap)
+    ) { live, people, controls, bluetooth, reconnectProblem ->
+        Extras(live.local, live.calories, live.fuel, live.finishedFuel, people.user, people.unassigned, people.syncError, controls.first, controls.second, people.finishedWorkout, bluetooth, reconnectProblem, people.strap)
     }
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -171,6 +187,8 @@ class MainViewModel(
             connection = connection,
             treadmill = treadmill,
             liveCalories = extras.calories,
+            liveFuel = extras.fuel,
+            finishedFuel = extras.finishedFuel,
             scanning = local.scanning,
             scanFinished = local.scanFinished,
             devices = local.devices,

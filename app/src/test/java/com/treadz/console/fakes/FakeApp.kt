@@ -2,6 +2,9 @@ package com.treadz.console.fakes
 
 import android.content.Intent
 import com.treadz.console.AppDependencies
+import com.treadz.console.analysis.energy.FuelSnapshot
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.treadz.console.mainViewModel
 import com.treadz.console.MainViewModel
 import com.treadz.console.nav.NavigationViewModel
@@ -69,6 +72,12 @@ class FakeApp(
     override val peakOffers: PeakOfferController by lazy { PeakOfferController(userData, settings, ::nowMillis) }
 
     override fun restingSession(scope: CoroutineScope): RestingHeartRateSession = restingHeartRateSession(heartRate, scope)
+
+    /** The live calories and fat/carbohydrate split the workout observer would publish (tests set them). */
+    val liveCaloriesFlow = MutableStateFlow<Int?>(null)
+    val liveFuelFlow = MutableStateFlow<FuelSnapshot?>(null)
+    override val liveCalories: Flow<Int?> get() = liveCaloriesFlow
+    override val liveFuel: Flow<FuelSnapshot?> get() = liveFuelFlow
 
     override fun nowMillis(): Long = date.atTime(12, 0).atZone(zoneId).toInstant().toEpochMilli()
 

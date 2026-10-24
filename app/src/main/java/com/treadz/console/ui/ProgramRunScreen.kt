@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.treadz.console.MainUiState
 import com.treadz.console.R
+import com.treadz.console.fuel.FuelFigures
 import com.treadz.console.programs.engine.HeartRateControlState
 import com.treadz.console.programs.engine.ProgramProgress
 import com.treadz.console.programs.engine.RunState
@@ -168,7 +169,7 @@ private fun ProgramWide(
             BlockPanel(progress, segments, actual, Modifier.weight(1f).fillMaxWidth(), chartFills = true)
         },
         sideTop = {
-            TotalsPanel(progress, sizes)
+            TotalsPanel(progress, ui.liveFuel, sizes)
             ControlHintText(controlHint(ui), reserveLines = false)
         },
         sideBottom = {
@@ -209,7 +210,7 @@ private fun ProgramCompact(
             HeartRateBlockPanel(progress, run.brakeNotice != null, actions, Modifier.fillMaxWidth())
             SpeedInclinePanels(ui, controls, sizes)
             controlHint(ui)?.let { ControlHintText(it, reserveLines = false) }
-            TotalsPanel(progress, sizes)
+            TotalsPanel(progress, ui.liveFuel, sizes)
             Panel(Modifier.fillMaxWidth().testTag("block_chart_panel")) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     RunChart(progress, segments, actual, Modifier.height(200.dp).fillMaxWidth())
@@ -347,9 +348,12 @@ private fun BlockHeader(progress: ProgramProgress, block: ResolvedBlock, blockCo
     }
 }
 
-/** Elapsed, remaining, distance and heart rate of the program: two lines of two. */
+/**
+ * Elapsed, remaining, distance and heart rate of the program: two lines of two, and a line of its own for the estimated
+ * fat/carbohydrate split while there is one ([fuel]).
+ */
 @Composable
-private fun TotalsPanel(progress: ProgramProgress, sizes: LiveSizes) {
+private fun TotalsPanel(progress: ProgramProgress, fuel: FuelFigures?, sizes: LiveSizes) {
     Panel(Modifier.fillMaxWidth().testTag("run_totals")) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth()) {
@@ -364,6 +368,11 @@ private fun TotalsPanel(progress: ProgramProgress, sizes: LiveSizes) {
                     badge = progress.heartRateSource.takeIf { progress.heartRateBpm != null },
                 )
             }
+            if (fuel != null) {
+                Row(Modifier.fillMaxWidth()) {
+                    Total(stringResource(R.string.fuel_metric), fuel.percentsText(), "run_fuel", sizes, note = fuel.kcalText(), dimmed = fuel.dimmed)
+                }
+            }
         }
     }
 }
@@ -376,16 +385,24 @@ private fun androidx.compose.foundation.layout.RowScope.Total(
     sizes: LiveSizes,
     unit: String? = null,
     badge: com.treadz.console.programs.fitness.HeartRateSourceKind? = null,
+    /** A line under the label (the kcal of the fat/carbohydrate split). */
+    note: String? = null,
+    /** The figure is shown in the secondary colour (a live estimate that is not current). */
+    dimmed: Boolean = false,
 ) {
     Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(value, Modifier.testTag(tag), fontSize = sizes.totalValue, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(
+                value, Modifier.testTag(tag), fontSize = sizes.totalValue, fontWeight = FontWeight.Bold, maxLines = 1,
+                color = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+            )
             if (unit != null) Text(unit, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
         }
+        if (note != null) Text(note, Modifier.testTag("${tag}_kcal"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
@@ -579,6 +596,8 @@ private fun ProgramFinished(
                     SummaryFigure(stringResource(R.string.stat_distance), stringResource(R.string.value_km, Format.distanceKm(progress.totalElapsedMeters)), "summary_distance")
                     SummaryFigure(stringResource(R.string.summary_blocks), stringResource(R.string.summary_blocks_value, (progress.currentBlockIndex + 1).coerceAtMost(blockCount), blockCount), "summary_blocks")
                 }
+                // The estimated split of the energy, once the data layer has analysed the workout (a few seconds after the end).
+                ui.finishedFuel?.let { FuelEndLine(it, style = MaterialTheme.typography.bodyLarge) }
                 run.couchNext?.let { next ->
                     Column(Modifier.fillMaxWidth().testTag("couch_next_panel"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(

@@ -2,6 +2,9 @@ package com.treadz.console.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.treadz.console.analysis.workout.WorkoutAnalysis
+import com.treadz.console.fuel.FuelDetail
+import com.treadz.console.fuel.FuelPresenter
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.FitnessTestRecord
 import com.treadz.console.userdata.UserData
@@ -49,7 +52,20 @@ data class WorkoutDetailUiState(
      * for the missing ones; `null` while the analysis is not computed or when there is nothing to analyse (shown as nothing).
      */
     val analysis: WorkoutAnalysisView? = null,
+    /** The stored analysis [analysis] and [fuel] are presented from; `null` while it is not computed. */
+    val storedAnalysis: WorkoutAnalysis? = null,
 ) {
+    /**
+     * The «Energy sources» card: the estimated fat/carbohydrate split with the workout's stored calories; `null` (the card
+     * is not drawn) while the analysis is not computed, when it has no split, when the workout has no calories and while it
+     * is in progress.
+     */
+    val fuel: FuelDetail? by lazy {
+        detail?.takeIf { !it.summary.isInProgress }?.let {
+            FuelPresenter.detail(it.summary.stats.calories, storedAnalysis, it.samples.firstOrNull()?.timestampMillis, it.samples.lastOrNull()?.timestampMillis)
+        }
+    }
+
     /** A workout that has not ended cannot be exported yet. */
     val canExport: Boolean get() = detail != null && !detail.summary.isInProgress && !exporting
 }
@@ -69,7 +85,7 @@ class WorkoutDetailViewModel(
         viewModelScope.launch {
             userData.workoutAnalysis.analysis(workoutId).collect { stored ->
                 val view = WorkoutAnalysisPresenter.present(stored?.analysis)
-                state.update { it.copy(analysis = view) }
+                state.update { it.copy(analysis = view, storedAnalysis = stored?.analysis) }
             }
         }
         viewModelScope.launch {

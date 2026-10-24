@@ -130,6 +130,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
     val stale = t.isStale || ui.connection is ConnectionState.Reconnecting
     val hr = ui.strap.heartRate
     val noHr = hr.bpm == null
+    val fuel = ui.liveFuel
     if (!sizes.wide) {
         // One line on the phone: the speed and the incline keep the room.
         MetricStrip(
@@ -141,20 +142,25 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
             ),
             dimmed = stale,
             modifier = modifier,
+            // The estimated fat/carbohydrate split is one more line of the same panel while there is one.
+            footer = fuel?.let { { FuelStripLine(it, dimmed = stale || it.dimmed) } },
         )
         return
     }
     @Composable
-    fun RowScope.metric(labelRes: Int, value: String, unitRes: Int?, note: String? = null, labelTrailing: (@Composable () -> Unit)? = null) = MetricCard(
+    fun RowScope.metric(
+        labelRes: Int, value: String, unitRes: Int?, note: String? = null, labelTrailing: (@Composable () -> Unit)? = null,
+        weight: Float = 1f, dimmed: Boolean = false,
+    ) = MetricCard(
         label = stringResource(labelRes),
         value = value,
         unit = unitRes?.let { stringResource(it) },
-        modifier = Modifier.weight(1f).fillMaxSize(),
+        modifier = Modifier.weight(weight).fillMaxSize(),
         note = note,
         maxValueSize = sizes.secondaryMax,
         unitSize = 24.sp,
         unitInline = true,
-        dimmed = stale,
+        dimmed = stale || dimmed,
         labelTrailing = labelTrailing,
     )
     Column(modifier, verticalArrangement = Arrangement.spacedBy(sizes.gap)) {
@@ -164,6 +170,7 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
             metric(R.string.metric_calories, ui.liveCalories?.let { Format.calories(it) } ?: Format.NO_VALUE, R.string.unit_calories)
+            if (fuel != null) metric(R.string.fuel_metric, fuel.percentsText(), null, note = fuel.kcalText(), weight = FUEL_CARD_WEIGHT, dimmed = fuel.dimmed)
             metric(
                 R.string.metric_heart_rate,
                 Format.heartRate(hr.bpm),
@@ -174,6 +181,9 @@ private fun SecondaryMetrics(ui: MainUiState, sizes: LiveSizes, modifier: Modifi
         }
     }
 }
+
+/** On the tablet the card of the fat/carbohydrate split is wider than the others: its figure is «38 % · 62 %». */
+private const val FUEL_CARD_WEIGHT = 1.5f
 
 /** Belt state as a single line of big text (phone, next to the pause button). */
 @Composable
@@ -204,6 +214,7 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
     val stale = t.isStale || ui.connection is ConnectionState.Reconnecting
     val hr = ui.strap.heartRate
     val noHr = hr.bpm == null
+    val fuel = ui.liveFuel
     @Composable
     fun card(
         labelRes: Int,
@@ -249,6 +260,7 @@ private fun MetricsGrid(ui: MainUiState, sizes: LiveSizes, modifier: Modifier = 
         }
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(sizes.gap)) {
             card(R.string.metric_calories, ui.liveCalories?.let { Format.calories(it) } ?: Format.NO_VALUE, R.string.unit_calories, Modifier.weight(1f).fillMaxSize())
+            if (fuel != null) card(R.string.fuel_metric, fuel.percentsText(), null, Modifier.weight(FUEL_CARD_WEIGHT).fillMaxSize(), note = fuel.kcalText(), dimmed = fuel.dimmed)
             card(
                 R.string.metric_heart_rate,
                 Format.heartRate(hr.bpm),

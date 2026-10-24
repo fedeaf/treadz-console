@@ -86,6 +86,8 @@ data class FinishedWorkout(
     val distanceMeters: Int,
     /** The fitness test result run in it, discarded with it. */
     val fitnessTestId: String? = null,
+    /** Calories as they are stored (0 without a weight): what the fat/carbohydrate split of the end screens adds up to. */
+    val calories: Int = 0,
 )
 
 /** Tells the workout history which plan / test the next treadmill session is for (see `WorkoutHistoryObserver`). */
@@ -374,7 +376,7 @@ class TrainingCoordinator(
             release(workout.id, testId)
             return
         }
-        _finishedWorkout.value = FinishedWorkout(summary.id, summary.stats.durationSeconds, summary.stats.distanceMeters, testId)
+        _finishedWorkout.value = FinishedWorkout(summary.id, summary.stats.durationSeconds, summary.stats.distanceMeters, testId, summary.stats.calories)
         // Discarded while this was running (see discardWhenEnded).
         if (discardWhenEnded == workout.id) discardOffered(workout.id)
     }

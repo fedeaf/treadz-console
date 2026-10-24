@@ -597,43 +597,49 @@ fun failureMessage(failure: ControlFailure): String {
 // ---------------------------------------------------------------------------------------------------------------
 // Secondary figures (phone)
 
-/** The four secondary figures of the phone in one line, so the speed and the incline keep the room. */
+/**
+ * The four secondary figures of the phone in one line, so the speed and the incline keep the room. [footer] is one more
+ * line inside the same panel (the estimated fat/carbohydrate split).
+ */
 @Composable
-fun MetricStrip(items: List<StripItem>, dimmed: Boolean, modifier: Modifier = Modifier) {
+fun MetricStrip(items: List<StripItem>, dimmed: Boolean, modifier: Modifier = Modifier, footer: (@Composable () -> Unit)? = null) {
     Panel(modifier) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            for ((label, value, unit, badge) in items) {
-                Column(
-                    Modifier.weight(1f).semantics(mergeDescendants = true) {},
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    val valueColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
-                    Text(
-                        androidx.compose.ui.text.buildAnnotatedString {
-                            append(value)
-                            if (unit != null) {
-                                pushStyle(androidx.compose.ui.text.SpanStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant))
-                                append(" $unit")
-                                pop()
-                            }
-                        },
-                        modifier = Modifier.testTag("metric_value_$label"),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = valueColor,
-                        maxLines = 1,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                for ((label, value, unit, badge) in items) {
+                    Column(
+                        Modifier.weight(1f).semantics(mergeDescendants = true) {},
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        val valueColor = if (dimmed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                         Text(
-                            label,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                append(value)
+                                if (unit != null) {
+                                    pushStyle(androidx.compose.ui.text.SpanStyle(fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                    append(" $unit")
+                                    pop()
+                                }
+                            },
+                            modifier = Modifier.testTag("metric_value_$label"),
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = valueColor,
                             maxLines = 1,
                         )
-                        if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            if (badge != null) HeartRateSourceIcon(badge, size = 14.dp)
+                        }
                     }
                 }
             }
+            footer?.invoke()
         }
     }
 }

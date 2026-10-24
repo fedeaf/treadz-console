@@ -1,12 +1,12 @@
 package com.treadz.console.programs.engine
 
+import com.treadz.console.analysis.heartrate.StrapWindowConfig
 import com.treadz.console.programs.block
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRateProfile
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
-import com.treadz.console.programs.heartrate.StrapWindowConfig
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase
 import com.treadz.console.programs.model.BlockTarget

@@ -1,6 +1,6 @@
 package com.treadz.console.userdata.workout
 
-import com.treadz.console.analysis.fitness.EnergyCounter
+import com.treadz.console.analysis.energy.EnergyCounter
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity

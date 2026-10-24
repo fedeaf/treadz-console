@@ -1,4 +1,4 @@
-package com.treadz.console.programs.heartrate
+package com.treadz.console.analysis.heartrate
 
 import com.treadz.console.analysis.samples.SampleHeartRateSource
 import com.treadz.console.analysis.samples.WorkoutSample

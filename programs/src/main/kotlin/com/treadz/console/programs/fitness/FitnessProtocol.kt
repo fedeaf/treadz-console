@@ -1,6 +1,7 @@
 package com.treadz.console.programs.fitness
 
 import com.treadz.console.analysis.fitness.FitnessFormulas
+import com.treadz.console.analysis.heartrate.StrapWindowJudge
 import com.treadz.console.analysis.rr.RrCleaning
 import com.treadz.console.analysis.samples.RrInterval
 import com.treadz.console.analysis.samples.RrSeries
@@ -8,7 +9,6 @@ import com.treadz.console.analysis.samples.SampleHeartRateSource
 import com.treadz.console.analysis.samples.WorkoutSample
 import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRateReading
-import com.treadz.console.programs.heartrate.StrapWindowJudge
 import com.treadz.console.treadmill.TreadmillState
 import kotlin.math.max
 import kotlin.math.min

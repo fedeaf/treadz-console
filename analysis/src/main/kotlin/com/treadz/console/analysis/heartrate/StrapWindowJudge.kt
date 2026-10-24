@@ -1,4 +1,4 @@
-package com.treadz.console.programs.heartrate
+package com.treadz.console.analysis.heartrate
 
 import com.treadz.console.analysis.rr.RrCleaning
 import com.treadz.console.analysis.samples.RrInterval

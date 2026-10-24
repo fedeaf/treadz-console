@@ -1,11 +1,11 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.analysis.heartrate.StrapWindowConfig
 import com.treadz.console.analysis.samples.SampleHeartRateSource
 import com.treadz.console.analysis.samples.WorkoutSample
 import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateSource
 import com.treadz.console.programs.heartrate.HeartRateValidity
-import com.treadz.console.programs.heartrate.StrapWindowConfig
 import com.treadz.console.treadmill.CommandResult
 import com.treadz.console.treadmill.control.Clock
 import com.treadz.console.treadmill.control.ControllerConfig

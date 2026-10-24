@@ -1,7 +1,7 @@
 package com.treadz.console.programs.fitness
 
-import com.treadz.console.programs.heartrate.StrapWindowConfig
-import com.treadz.console.programs.heartrate.StrapWindowJudge
+import com.treadz.console.analysis.heartrate.StrapWindowConfig
+import com.treadz.console.analysis.heartrate.StrapWindowJudge
 
 /**
  * Timings, thresholds and speeds of the fitness tests. The defaults are the protocol; tests of the code may change

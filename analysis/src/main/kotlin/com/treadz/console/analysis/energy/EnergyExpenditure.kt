@@ -1,5 +1,6 @@
-package com.treadz.console.analysis.fitness
+package com.treadz.console.analysis.energy
 
+import com.treadz.console.analysis.fitness.Acsm
 import kotlin.math.pow
 
 /**

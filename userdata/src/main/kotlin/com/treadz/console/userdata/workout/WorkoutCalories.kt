@@ -1,6 +1,6 @@
 package com.treadz.console.userdata.workout
 
-import com.treadz.console.analysis.fitness.EnergyCounter
+import com.treadz.console.analysis.energy.EnergyCounter
 import com.treadz.console.userdata.WorkoutSample
 import kotlin.math.roundToInt
 

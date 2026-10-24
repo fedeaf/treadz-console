@@ -1,8 +1,8 @@
 package com.treadz.console.userdata.workout
 
+import com.treadz.console.analysis.heartrate.StrapWindowJudge
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
-import com.treadz.console.programs.heartrate.StrapWindowJudge
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.userdata.HeartRatePeak
 import com.treadz.console.userdata.WorkoutSample

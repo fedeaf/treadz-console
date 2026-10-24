@@ -1,4 +1,4 @@
-package com.treadz.console.analysis.fitness
+package com.treadz.console.analysis.energy
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

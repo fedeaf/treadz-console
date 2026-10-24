@@ -6,6 +6,7 @@ import com.treadz.console.analysis.fitness.StageLoad
 import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.analysis.fitness.WalkingTestVo2max
 import com.treadz.console.analysis.fitness.WalkingTestVo2maxEstimate
+import com.treadz.console.analysis.heartrate.StrapWindowJudge
 import com.treadz.console.analysis.samples.RrInterval
 import com.treadz.console.analysis.samples.RrSeries
 import com.treadz.console.analysis.samples.WorkoutSample
@@ -17,7 +18,6 @@ import com.treadz.console.analysis.thresholds.ThresholdReason
 import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
 import com.treadz.console.programs.heartrate.PlausibilityConfig
-import com.treadz.console.programs.heartrate.StrapWindowJudge
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 

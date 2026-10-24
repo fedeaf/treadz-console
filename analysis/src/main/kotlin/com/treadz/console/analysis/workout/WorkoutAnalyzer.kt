@@ -1,8 +1,8 @@
 package com.treadz.console.analysis.workout
 
+import com.treadz.console.analysis.energy.EnergyCounter
+import com.treadz.console.analysis.energy.EnergyExpenditure
 import com.treadz.console.analysis.fitness.Acsm
-import com.treadz.console.analysis.fitness.EnergyCounter
-import com.treadz.console.analysis.fitness.EnergyExpenditure
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.heartrate.HeartRateBands
 import com.treadz.console.analysis.rr.RrCleaning

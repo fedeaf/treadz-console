@@ -1,6 +1,9 @@
 package com.treadz.console.programs.engine
 
 import com.treadz.console.analysis.heartrate.HeartRateBands
+import com.treadz.console.analysis.heartrate.StrapWindowConfig
+import com.treadz.console.analysis.heartrate.StrapWindowJudge
+import com.treadz.console.analysis.heartrate.StrapWindowJudgement
 import com.treadz.console.analysis.thresholds.Alpha1Evaluation
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
@@ -9,9 +12,6 @@ import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.programs.heartrate.HeartRateZoneBpm
 import com.treadz.console.programs.heartrate.PlausibilityConfig
-import com.treadz.console.programs.heartrate.StrapWindowConfig
-import com.treadz.console.programs.heartrate.StrapWindowJudge
-import com.treadz.console.programs.heartrate.StrapWindowJudgement
 import com.treadz.console.programs.model.HeartRateAdjust
 import kotlin.math.abs
 import kotlin.math.max

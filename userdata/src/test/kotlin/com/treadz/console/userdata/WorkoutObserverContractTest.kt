@@ -2,7 +2,7 @@
 
 package com.treadz.console.userdata
 
-import com.treadz.console.analysis.fitness.EnergyExpenditure
+import com.treadz.console.analysis.energy.EnergyExpenditure
 import com.treadz.console.treadmill.BeltStatus
 import com.treadz.console.treadmill.ConnectionState
 import com.treadz.console.treadmill.TreadmillEvent

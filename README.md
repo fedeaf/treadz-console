@@ -56,6 +56,9 @@ GitHub repository.
 - **Real-time DFA-α1 brake** (with a chest strap): in easy blocks it lowers the load one small step when your heart-rate
   variability signals the aerobic threshold, and tells you why.
 - Every workout keeps a log of what changed its load (your changes, the heart-rate control, the brake, safety limits).
+- **Fat and carbohydrate estimate** (with a chest strap and a measured first threshold): how much of the calories came
+  from fat and how much from carbohydrates, live, at the end of the workout and in the history. It is an estimate from
+  your heart rate relative to your own thresholds, not a measurement.
 - Heart-rate zones computed with the Karvonen formula when your resting heart rate is known.
 - **Resting heart rate** measurement (no treadmill needed), with heart-rate variability (RMSSD) and a history; the
   reference is the median of the last 30 days.
@@ -146,6 +149,7 @@ A signed release build reads its key from a properties file outside the reposito
 |---|---|
 | `:treadmill` | Pure Kotlin: controller contract, FTMS codec, safety layer, treadmill simulator and session recorder. |
 | `:treadmill-android` | Bluetooth LE transport, foreground service and notification, MediaStore storage. |
+| `:analysis` | Pure Kotlin: analysis of recorded data (energy and fat/carbohydrate split, fitness formulas, RR processing and DFA-α1, thresholds, zones, workout analysis and trends). |
 | `:hrm` | Pure Kotlin: heart-rate strap support (codec, connection logic, automatic source, resting heart rate). |
 | `:hrm-android` | Bluetooth LE transport for the heart-rate strap. |
 | `:programs` | Pure Kotlin: programs (model, resolver, runner, heart-rate control), standard catalogue, personalised generators, Couch to 5K and fitness tests. |

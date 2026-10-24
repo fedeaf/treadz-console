@@ -19,7 +19,8 @@ import java.time.format.DateTimeParseException
  * camel case enumerations, absent values left out, unknown fields ignored. The heart-rate summary's
  * `alpha1Reductions` (reductions by the real-time α1 brake; absent when the brake could not act in the block),
  * `alpha1Mean` and `alpha1Windows` (mean DFA-α1 of the valid windows evaluated in the block, and how many) were added
- * without a version change: records written before them read with these fields absent.
+ * without a version change: records written before them read with these fields absent. So was `strapDeferrals` (regular
+ * decisions deferred because the strap's readings were not confirmed by its RR; left out when 0).
  *
  * ```
  * {
@@ -108,6 +109,7 @@ object GeneratedSessionJson {
             "alpha1Reductions" to s.alpha1Reductions,
             "alpha1Mean" to s.alpha1Mean,
             "alpha1Windows" to s.alpha1Windows,
+            "strapDeferrals" to s.strapDeferrals.takeIf { it > 0 },
         ),
     )
 
@@ -178,6 +180,7 @@ object GeneratedSessionJson {
         alpha1Reductions = s.optInt("alpha1Reductions"),
         alpha1Mean = s.optDouble("alpha1Mean"),
         alpha1Windows = s.optInt("alpha1Windows"),
+        strapDeferrals = s.optInt("strapDeferrals") ?: 0,
     )
 
     private fun iso(millis: Long): String = Instant.ofEpochMilli(millis).toString()

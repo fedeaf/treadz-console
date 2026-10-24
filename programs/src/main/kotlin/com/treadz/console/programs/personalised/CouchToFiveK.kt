@@ -3,6 +3,7 @@ package com.treadz.console.programs.personalised
 import com.treadz.console.analysis.fitness.Vo2MaxCategory
 import com.treadz.console.analysis.fitness.Vo2MaxNorms
 import com.treadz.console.programs.engine.HeartRateControlMode
+import com.treadz.console.programs.heartrate.HeartRateZoneBpm
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
 import com.treadz.console.programs.model.BlockPhase
@@ -14,6 +15,7 @@ import com.treadz.console.programs.model.ProgramStep
 import com.treadz.console.programs.model.Repeat
 import com.treadz.console.programs.personalised.Generation.Companion.fmt
 import com.treadz.console.programs.personalised.Generation.Companion.wire
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -89,7 +91,7 @@ data class CouchToFiveKSelection(
  *
  * **Heart rate**: runs of 6 min or more are guided in zone 3 of the zone model (see [ProgramGenerators]; it was 70-80 %
  * of the heart-rate reserve up to version 1; continuous), starting at the jog speed or where the heart rate settled in the last
- * such run, between a slow jog (walking speed + [MIN_JOG_ABOVE_WALK_KMH]; they stay runs) and the jog speed + 1 km/h
+ * such run (of a session with the same zone, see [Generation.settled]; the zone names zone 3 of the user's own zones since version 3), between a slow jog (walking speed + [MIN_JOG_ABOVE_WALK_KMH]; they stay runs) and the jog speed + 1 km/h
  * (or 75 % of the MAS). Shorter runs keep the jog speed (never faster) with the heart-rate ceiling: their zone is 60-85 % HRmax, so
  * the speed only comes down when the heart rate goes above 85 % (or above the ceiling, 85 % + 8 bpm), at most to the
  * walking speed. Both give the heart rate at the end of every run in the session record.
@@ -110,7 +112,7 @@ object CouchToFiveK : ProgramGenerator {
 
     override val descriptor = GeneratorDescriptor(
         id = ID,
-        version = 2,
+        version = 3,
         inputs = setOf(GeneratorInput.StartWeek, GeneratorInput.WalkingSpeed, GeneratorInput.JogSpeedAdjustment),
         modes = setOf(ExerciseMode.Run),
         startWeeks = 1..9,
@@ -264,13 +266,19 @@ object CouchToFiveK : ProgramGenerator {
     }
 
     /** Where the heart rate settled in the latest continuous run (≤ 90 days old). */
-    private fun settledRunSpeed(history: List<GeneratedSessionRecord>, nowMillis: Long): Double? {
+    /**
+     * The speed at which the heart rate settled in the last continuous run of the history, from a session whose zone is
+     * [zone] (each limit within [ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM], like [Generation.settled]).
+     */
+    private fun settledRunSpeed(history: List<GeneratedSessionRecord>, nowMillis: Long, zone: HeartRateZoneBpm): Double? {
         val cutoff = nowMillis - ProgramGenerators.HISTORY_MAX_AGE_DAYS * DAY_MS
         for (r in history.filter { it.generatorId == ID && it.startedAtMillis >= cutoff }.sortedByDescending { it.startedAtMillis }) {
             val v = r.blocks.lastOrNull { b ->
                 val hr = b.heartRate
                 b.phase == BlockPhase.Work && hr != null && hr.mode == HeartRateControlMode.Continuous &&
-                    hr.adjust == HeartRateAdjust.Speed && hr.settledValue != null
+                    hr.adjust == HeartRateAdjust.Speed && hr.settledValue != null &&
+                    abs(hr.zoneLowBpm - zone.lowBpm) <= ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM &&
+                    abs(hr.zoneHighBpm - zone.highBpm) <= ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM
             }?.heartRate?.settledValue
             if (v != null) return v
         }
@@ -291,7 +299,8 @@ object CouchToFiveK : ProgramGenerator {
         val base = max(IntensityTranslator.MIN_RUNNING_SPEED_KMH, JOG_MAS_FRACTION * g.factor * g.refs.masKmh)
         val jog = Generation.clampSpeed(max(base * (1 + request.jogSpeedAdjustmentPercent / 100.0), walk + MIN_JOG_ABOVE_WALK_KMH))
         val zone3 by lazy { g.modelZone(3) }
-        val settled = settledRunSpeed(request.history, request.nowMillis)?.let { Generation.clampSpeed(it) }
+        // Only a continuous run reads the zone model, so the zone (and what it adds to the origin) is not asked for before.
+        val settled by lazy { settledRunSpeed(request.history, request.nowMillis, g.toBpm(zone3))?.let { Generation.clampSpeed(it) } }
 
         if (sel.recentSessionWarning) {
             g.notices += GeneratorNotice(GeneratorNoticeCode.RecentSession, value = sel.daysSinceLast?.let { Math.round(it * 24 * 10) / 10.0 })
@@ -341,9 +350,10 @@ object CouchToFiveK : ProgramGenerator {
                 is Rep -> Repeat(p.count, p.segs.map { block(it) })
             }
         }
-        if (settledUsed && settled != null) {
-            g.notices += GeneratorNotice(GeneratorNoticeCode.StartedFromHistory, value = settled)
-            g.inputs["settledRunSpeedKmh"] = fmt(settled)
+        val settledSpeed = if (settledUsed) settled else null
+        if (settledSpeed != null) {
+            g.notices += GeneratorNotice(GeneratorNoticeCode.StartedFromHistory, value = settledSpeed)
+            g.inputs["settledRunSpeedKmh"] = fmt(settledSpeed)
         }
         val steps = listOf(Block(BlockPhase.WarmUp, BlockEnd.Duration(300), walkTarget)) + main +
             Block(BlockPhase.CoolDown, BlockEnd.Duration(300), walkTarget)

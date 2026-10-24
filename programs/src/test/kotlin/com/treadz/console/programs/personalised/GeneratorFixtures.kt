@@ -74,12 +74,14 @@ fun hrSummary(
     settled: Double? = null,
     end: Double? = null,
     safetyReductions: Int = 0,
+    /** Zone 2 of [measuredProfile] without a resting heart rate (45-55 % of the reserve, as % of the maximum): 113-126. */
+    zoneLowBpm: Int = 113,
     zoneHighBpm: Int = 126,
     alpha1Reductions: Int? = null,
     alpha1Mean: Double? = null,
     alpha1Windows: Int? = null,
 ) = HeartRateBlockSummary(
-    blockIndex = blockIndex, adjust = adjust, mode = mode, zoneLowBpm = 108, zoneHighBpm = zoneHighBpm,
+    blockIndex = blockIndex, adjust = adjust, mode = mode, zoneLowBpm = zoneLowBpm, zoneHighBpm = zoneHighBpm,
     startValue = 6.0, initialValue = 6.0, endValue = 6.0, settledValue = settled, secondsInZone = 300,
     meanHeartRateBpm = 118.0, endHeartRateBpm = end, adjustments = 2, safetyReductions = safetyReductions,
     manualOverride = false, secondsWithoutHeartRate = 0, source = null,

@@ -27,6 +27,9 @@ class Alpha1BrakeControlTest {
     /** A change of the adjusted quantity at block time [ms]. */
     private data class Change(val ms: Long, val from: Double, val to: Double, val reason: HeartRateAdjustReason)
 
+    /** The regular control without its 60-s wait after a change in the same direction: these tests need regular reductions 20 s apart to check how the brake combines with them. */
+    private val everyDecision = HeartRateControlConfig(sameDirectionHoldMs = 0)
+
     private class Sim(
         val adjust: HeartRateAdjust = HeartRateAdjust.Incline,
         mode: HeartRateControlMode = HeartRateControlMode.Continuous,
@@ -249,7 +252,7 @@ class Alpha1BrakeControlTest {
         edge.run(175_000, hr = { 114 })
         assertEquals(1, edge.brakeChanges().size)
         // Above the zone counts too (the regular control has been lowering the load meanwhile).
-        val above = Sim(start = 10.0, bpm = 130)
+        val above = Sim(start = 10.0, bpm = 130, config = everyDecision)
         above.run(185_000, hr = { 130 })
         assertEquals(listOf(180_000L), above.brakeChanges().map { it.ms }, "the regular control lowered the load at 160 s: ${above.changes}")
     }
@@ -300,7 +303,7 @@ class Alpha1BrakeControlTest {
 
     @Test
     fun `the regular decision due at the same moment is postponed a full interval`() {
-        val s = Sim(start = 6.0)
+        val s = Sim(start = 6.0, config = everyDecision)
         // Above the zone (and under the ceiling) from 100 s: regular reductions at 120, 140 and 160 s. The sixth evaluation
         // (170 s) finds a change 10 s old, so the brake waits for 180 s, where it goes before the regular decision.
         s.run(300_000, hr = { ms -> if (ms < 100_000) 120 else 130 })
@@ -316,7 +319,7 @@ class Alpha1BrakeControlTest {
     fun `a change of the control in the last 20 s delays the brake`() {
         // Evaluations at 125, 135 ... 175 s: the sixth would fire at 175 s, but a regular reduction (heart rate above the
         // zone) happened at 160 s.
-        val s = Sim(start = 6.0, evaluationOffsetMs = 5_000)
+        val s = Sim(start = 6.0, evaluationOffsetMs = 5_000, config = everyDecision)
         s.run(300_000, hr = { ms -> if (ms < 130_000) 120 else 130 })
         assertEquals(Change(140_000L, 6.0, 5.0, HeartRateAdjustReason.AboveZone), s.changes.first())
         assertEquals(180_000L, s.brakeChanges().first().ms, "${s.changes}")

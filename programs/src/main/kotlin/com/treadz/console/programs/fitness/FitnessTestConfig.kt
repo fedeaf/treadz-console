@@ -1,5 +1,8 @@
 package com.treadz.console.programs.fitness
 
+import com.treadz.console.programs.heartrate.StrapWindowConfig
+import com.treadz.console.programs.heartrate.StrapWindowJudge
+
 /**
  * Timings, thresholds and speeds of the fitness tests. The defaults are the protocol; tests of the code may change
  * them, the app should not. Times are test time (the injected clock, from the moment the belt is confirmed running).
@@ -112,6 +115,13 @@ data class FitnessTestConfig(
     val strapCheckMinBeats: Int = 30,
     /** The strap is poor when the artifacts exceed this share of the RR received so far in the warm-up, %. */
     val strapCheckMaxArtifactPercent: Double = 5.0,
+
+    // ---------------------------------------------------------------- peak heart rate (both maximal tests)
+    /**
+     * A 5-s window of the peak search counts only if the strap's readings in it are not doubtful against the strap's RR
+     * (see [StrapWindowJudge]); a window that cannot be judged (the console's heart rate, no RR) counts as before.
+     */
+    val strapWindow: StrapWindowConfig = StrapWindowConfig(),
 
     // ---------------------------------------------------------------- maximal heart-rate walking test (modified Balke)
     // It reuses the stage length, the 3-min / 5-min incremental thresholds, the peak window and mean, the effort margin,

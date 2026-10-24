@@ -81,6 +81,10 @@ import kotlin.math.roundToInt
  *    heart-rate block, which may lower the load one small step (see [Alpha1BrakeConfig] and [HeartRateBlockControl]).
  *    The reduction is an ordinary heart-rate adjustment: same event, same command path (origin
  *    `HeartRateControl`), verified by the controller like any other. It needs no support from the caller.
+ *  - **Strap readings checked against their RR**: with a strap connected to the app, a regular decision whose 10-s window
+ *    of readings is doubtful (many artifacts in the RR, or the strap's heart rate and the RR disagree; see
+ *    `StrapWindowJudge`) changes nothing, and the status says so ([HeartRateControlStatus.decisionDeferredByStrap]).
+ *    The ceiling and maximum-heart-rate rules keep the raw plausible readings.
  *
  * Thread safety: all state lives behind one lock and is changed only in short non-suspending sections; controller
  * calls are made outside it. User actions run in [scope] (they are not cancelled with the caller) and are serialised
@@ -862,10 +866,12 @@ class ProgramRunner(
         val t = clock.nowMillis()
         val current = adjustedTarget(c)
         drainHeartRate(c)
+        // Before the summary: a correction deferred by doubtful strap readings is counted in it.
+        val carried = if (block.repetition != null) c.nextRepetitionValue(t, current) else null
         val summary = c.summary(t, current)
         hrSummaries += summary
         emit(ProgramEvent.HeartRateBlockFinished(t, programSeconds(), summary))
-        if (block.repetition != null) hrCarry[block.stepIndex to block.blockInStep] = c.nextRepetitionValue(t, current) to current
+        if (carried != null) hrCarry[block.stepIndex to block.blockInStep] = carried to current
     }
 
     private fun drainHeartRate(c: HeartRateBlockControl) {

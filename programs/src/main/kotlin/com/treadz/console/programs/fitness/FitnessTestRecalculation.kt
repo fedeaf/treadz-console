@@ -17,6 +17,7 @@ import com.treadz.console.analysis.thresholds.ThresholdReason
 import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRatePlausibilityFilter
 import com.treadz.console.programs.heartrate.PlausibilityConfig
+import com.treadz.console.programs.heartrate.StrapWindowJudge
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
@@ -144,7 +145,9 @@ object FitnessTestRecalculation {
     /**
      * [result] with the peak heart rate the live test gives since algorithm version 2: the highest 5-s mean from 2 min
      * before the end of the effort to the end of the test, now including the seconds after the exhaustion, from the
-     * heart rate of [samples] (the walking test's impossible readings discarded as in the live test). Only for a result
+     * heart rate of [samples] (the walking test's impossible readings discarded as in the live test, and, as in the live test
+     * since the strap check of the peak, without the windows the strap's RR do not confirm: [peakFromSamples]; this changes
+     * no algorithm version, so a stored result is only affected if it is recalculated for another reason). Only for a result
      * that ended by exhaustion with a usable heart rate (it has a peak). The peak never goes down (the live test saw
      * every reading, the samples fewer); when it rises, the candidate maximum heart rate and the effort assessment
      * follow it (as at the end of a live test). [result] itself when nothing changes.
@@ -157,20 +160,7 @@ object FitnessTestRecalculation {
             is MaxHeartRateWalkMeasurements -> m.peakHeartRateBpm
             is EbbelingMeasurements -> null
         } ?: return result
-        // As the live tests: the walking test discards impossible readings all along, the running test after the effort.
-        val filter = peakFilter()
-        val filterAll = m is MaxHeartRateWalkMeasurements
-        val effortEnd = result.effortEndedAtMillis - result.startedAtMillis
-        val log = HeartRateLog()
-        for (sample in samples) {
-            if (sample.timeMillis > result.endedAtMillis) break
-            val t = sample.timeMillis - result.startedAtMillis
-            val bpm = sample.heartRateBpm?.takeIf { it > 0 }
-            val accepted = filter.accept(t, bpm)
-            log.add(t, if (filterAll || t > effortEnd) accepted else bpm)
-        }
-        val peak = log.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, result.endedAtMillis - result.startedAtMillis, config.peakMeanSeconds * 1000L)
-            ?.let(FitnessFormulas::round1)
+        val peak = peakFromSamples(result, samples, config)
         if (peak == null || peak <= old) return result
         val candidate = peak.roundToInt()
         val hrMax = result.inputs.hrMaxBpm
@@ -194,6 +184,31 @@ object FitnessTestRecalculation {
             }
             is EbbelingMeasurements -> result
         }
+    }
+
+    /**
+     * The peak heart rate of [result] from [samples], as the live test computes it (the highest 5-s mean from 2 min before
+     * the end of the effort to the end of the test), without the windows the strap's RR do not confirm
+     * ([FitnessTestConfig.strapWindow]; switch it off in [config] to see the peak without the rule).
+     * The walking test discards impossible readings all along, the running test after the effort. `null` without a usable
+     * window.
+     */
+    internal fun peakFromSamples(result: FitnessTestResult, samples: List<WorkoutSample>, config: FitnessTestConfig = FitnessTestConfig()): Double? {
+        val filter = peakFilter()
+        val filterAll = result.measurements is MaxHeartRateWalkMeasurements
+        val effortEnd = result.effortEndedAtMillis - result.startedAtMillis
+        val log = HeartRateLog()
+        val inTest = samples.filter { it.timeMillis <= result.endedAtMillis }
+        for (sample in inTest) {
+            val t = sample.timeMillis - result.startedAtMillis
+            val bpm = sample.heartRateBpm?.takeIf { it > 0 }
+            val accepted = filter.accept(t, bpm)
+            log.add(t, if (filterAll || t > effortEnd) accepted else bpm)
+        }
+        val judge = StrapWindowJudge.fromSamples(inTest, config.strapWindow)
+        return log.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, result.endedAtMillis - result.startedAtMillis, config.peakMeanSeconds * 1000L) { from, end ->
+            !judge.judge(result.startedAtMillis + from, result.startedAtMillis + end).isDoubtful
+        }?.let(FitnessFormulas::round1)
     }
 
     // ------------------------------------------------------------------ shared with the live protocols

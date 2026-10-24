@@ -92,7 +92,7 @@ class GeneratorsTest {
         val t = hr(steps[1])
         // VO2max 42 at 40 is "fair": low level, zone 2 = 45-55 % of the reserve; no resting heart rate: 63-70 % of the
         // maximum.
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 63, 70), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 63, 70, profileZone = 2), t.zone)
         assertEquals("vo2maxClassification", g.program.origin!!.inputs["zoneSource"])
         assertEquals("low", g.program.origin!!.inputs["zoneLevel"])
         assertEquals(HeartRateAdjust.Speed, t.adjust)
@@ -222,7 +222,7 @@ class GeneratorsTest {
         assertEquals(BlockEnd.Duration(600), work.end)
         val t = hr(work)
         // Low level: zone 4 = 75-90 % of the reserve, 83-93 % of the maximum without a resting heart rate.
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 83, 93), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 83, 93, profileZone = 4), t.zone)
         assertEquals(BlockTarget.Absolute(10.1, 1.0), t.start)
         assertEquals(8.4, t.minimum)
         assertEquals(11.0, t.maximum)
@@ -313,7 +313,7 @@ class GeneratorsTest {
         val rested = request(profile = measuredProfile(restingBpm = 55), durationMinutes = 45)
         val z2 = ProgramGenerators.generate("zone2", rested)
         val t = hr(z2.program.steps[1])
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 45, 55), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 45, 55, profileZone = 2), t.zone)
         // 111-124 bpm, middle 117.5 = 50 % of the reserve -> 22.75 ml/kg/min -> 19.25 / 38.5 * 12 = 6.0 km/h.
         assertEquals(BlockTarget.Absolute(6.0, 1.0), t.start)
         assertTrue(z2.notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${z2.notices}")
@@ -321,7 +321,7 @@ class GeneratorsTest {
         assertTrue(z2.program.description!!.contains("45-55 % of the heart-rate reserve"), z2.program.description)
 
         val tempo = ProgramGenerators.generate("tempo", rested)
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 75, 90), hr((tempo.program.steps[1] as Repeat).blocks[0]).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 75, 90, profileZone = 4), hr((tempo.program.steps[1] as Repeat).blocks[0]).zone)
     }
 
     @Test
@@ -362,16 +362,16 @@ class GeneratorsTest {
     fun `the level of the zones follows the tested VO2max, else the self-rated fitness`() {
         // VO2max 46.4 at 40 is "excellent": high level, zone 2 = 55-65 % of the reserve.
         val fit = measuredProfile(restingBpm = 55).copy(fitnessProfile = measuredFitness(vo2max = 46.4))
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 55, 65), hr(ProgramGenerators.generate("zone2", request(fit)).program.steps[1]).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 55, 65, profileZone = 2), hr(ProgramGenerators.generate("zone2", request(fit)).program.steps[1]).zone)
         // No test: the self-rated level (intermediate: medium, 50-60 %).
         val untested = estimatedProfile().copy(heartRate = HeartRateProfile(180, 55))
         val g = ProgramGenerators.generate("zone2", request(untested))
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 50, 60), hr(g.program.steps[1]).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 50, 60, profileZone = 2), hr(g.program.steps[1]).zone)
         assertEquals("selfRatedFitness", g.program.origin!!.inputs["zoneSource"])
         assertEquals("medium", g.program.origin!!.inputs["zoneLevel"])
         // Nothing known: low.
         val unknown = untested.copy(selfRatedFitness = null)
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 45, 55), hr(ProgramGenerators.generate("zone2", request(unknown)).program.steps[1]).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 45, 55, profileZone = 2), hr(ProgramGenerators.generate("zone2", request(unknown)).program.steps[1]).zone)
     }
 
     @Test
@@ -379,7 +379,7 @@ class GeneratorsTest {
         val g = ProgramGenerators.generate("zone2", request(withThresholds(), durationMinutes = 45))
         val t = hr(g.program.steps[1])
         // Zone 2 = 122-132 bpm: (122 - 55) / 126 = 53.2 % -> 53; (132 - 55) / 126 = 61.1 % -> 61.
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 53, 61), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 53, 61, profileZone = 2), t.zone)
         val inputs = g.program.origin!!.inputs
         assertEquals("measuredThresholds", inputs["zoneSource"])
         assertEquals("132", inputs["vt1Bpm"])
@@ -389,12 +389,12 @@ class GeneratorsTest {
         assertEquals(132, bpm.highBpm)
         // Tempo in zone 4 = 151-166 bpm; Couch to 5K long runs in zone 3 = 132-151 bpm.
         val tempo = hr((ProgramGenerators.generate("tempo", request(withThresholds())).program.steps[1] as Repeat).blocks[0])
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 76, 88), tempo.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 76, 88, profileZone = 4), tempo.zone)
         val c25k = CouchToFiveK.generate(request(withThresholds(), history = listOf(c25kRecord(14, NOW - 2 * DAY - HOUR))))
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 61, 76), ((c25k.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 61, 76, profileZone = 3), ((c25k.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
         // Without a resting heart rate, as % of the maximum: 122 / 181 = 67 %, 132 / 181 = 73 %; no notice (exact bpm).
         val noRest = ProgramGenerators.generate("zone2", request(withThresholds(restingBpm = null)))
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 67, 73), hr(noRest.program.steps[1]).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 67, 73, profileZone = 2), hr(noRest.program.steps[1]).zone)
         assertTrue(noRest.notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${noRest.notices}")
     }
 
@@ -414,12 +414,14 @@ class GeneratorsTest {
         // Without a resting heart rate it is assumed at a third of the maximum (60.3 bpm).
         val noRest = ProgramGenerators.generate("zone2", request(withThresholds(restingBpm = null)))
         val zone = hr(noRest.program.steps[1]).zone
-        val mid = HeartRateZones.toBpm(zone, HeartRateProfile(181, null)).let { (it.lowBpm + it.highBpm) / 2.0 }
+        // The block names zone 2 of the user's zones (122-132, exact), which the run and the start both use.
+        assertEquals(2, zone.profileZone)
+        val mid = (122 + 132) / 2.0
         val rest = 181.0 / 3
         val vo2NoRest = 3.5 + 26.5 * (mid - rest) / (132 - rest)
         assertEquals(Math.round((vo2NoRest - 3.5) / 0.209 * 0.06 * 10) / 10.0, (hr(noRest.program.steps[1]).start as BlockTarget.Absolute).speedKmh)
         // A settled value from the history keeps priority.
-        val history = sessionRecord("zone2", mapOf("mode" to "run"), NOW - DAY, listOf(blockRecord(1, "1", BlockPhase.Work, heartRate = hrSummary(1, settled = 7.6))))
+        val history = sessionRecord("zone2", mapOf("mode" to "run"), NOW - DAY, listOf(blockRecord(1, "1", BlockPhase.Work, heartRate = hrSummary(1, settled = 7.6, zoneLowBpm = 122, zoneHighBpm = 132))))
         assertEquals(BlockTarget.Absolute(7.6, 1.0), hr(ProgramGenerators.generate("zone2", request(withThresholds(), history = listOf(history))).program.steps[1]).start)
         // The 4x4 keeps its zone (85-95 % of the maximum) and starts from VT1 too.
         val x4 = hr((ProgramGenerators.generate("norwegian-4x4", request(withThresholds())).program.steps[1] as Repeat).blocks[0])

@@ -5,6 +5,9 @@ import com.treadz.console.fakes.PerformanceFixtures
 import com.treadz.console.fakes.MainDispatcherRule
 import com.treadz.console.fakes.TrainingRig
 import com.treadz.console.programs.engine.RunState
+import com.treadz.console.programs.heartrate.HeartRateZones
+import com.treadz.console.programs.model.Block
+import com.treadz.console.programs.model.BlockTarget
 import com.treadz.console.programs.model.ProgramKind
 import com.treadz.console.programs.personalised.CouchToFiveK
 import com.treadz.console.programs.personalised.CouchToFiveKDecision
@@ -167,8 +170,14 @@ class GeneratorViewModelTest {
 
     @Test fun aBlockStartsWhereTheHeartRateSettledLastTime() {
         ana
+        // The settled value is reused only from a session of the same zone: the zone 2 the block runs with.
+        val fresh = viewModel("zone2").state
+        val zone = checkNotNull(fresh.generated).program.steps.filterIsInstance<Block>()
+            .firstNotNullOf { (it.target as? BlockTarget.HeartRate)?.zone }
+        val bpm = HeartRateZones.toBpm(zone, checkNotNull(fresh.heartRateProfile))
         val record = GeneratedFixtures.record(
             generatorId = "zone2", startedAtMillis = now - 3 * GeneratedFixtures.DAY_MS, inputs = mapOf("mode" to "run"), settledValue = 9.2,
+            zoneLowBpm = bpm.lowBpm, zoneHighBpm = bpm.highBpm,
         )
         GeneratedFixtures.addSession(data, ana.id, record)
         val generated = checkNotNull(viewModel("zone2").state.generated)

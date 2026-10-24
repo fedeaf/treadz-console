@@ -92,7 +92,8 @@ class HeartRateBlockControlTest {
 
     @Test
     fun `above the zone the step is proportional and decisions come every 20 s`() {
-        val s = Sim()
+        // Without the wait after a change in the same direction (tested on its own below).
+        val s = Sim(config = HeartRateControlConfig(sameDirectionHoldMs = 0))
         s.run(70_000) { 150 } // 6 bpm above: 6 x 0.05 = 0.3 km/h
         assertEquals(listOf(20_000L to 9.7, 40_000L to 9.4, 60_000L to 9.1), s.changes)
         val adj = s.signalsOf<HeartRateSignal.Adjusted>()
@@ -118,7 +119,7 @@ class HeartRateBlockControlTest {
 
     @Test
     fun `no upward correction in the first 90 s of the block`() {
-        val s = Sim(start = 8.0)
+        val s = Sim(start = 8.0, config = HeartRateControlConfig(sameDirectionHoldMs = 0))
         s.run(130_000) { 110 } // far below the zone and flat
         assertEquals(100_000L, s.changes.first().first, "first decision after 90 s is at 100 s")
         assertEquals(8.5, s.changes.first().second)

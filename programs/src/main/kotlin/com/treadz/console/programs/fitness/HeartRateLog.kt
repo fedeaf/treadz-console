@@ -59,13 +59,18 @@ internal class HeartRateLog {
         return hi - lo
     }
 
-    /** Highest sliding [windowMs] mean among windows ending in (from, to]; `null` without valid samples. */
-    fun maxSlidingMean(from: Long, to: Long, windowMs: Long): Double? {
+    /**
+     * Highest sliding [windowMs] mean among windows ending in (from, to]; `null` without valid samples. A window for which
+     * [counts] (given the window's start, exclusive, and end, inclusive) says no is left out.
+     */
+    fun maxSlidingMean(from: Long, to: Long, windowMs: Long, counts: ((Long, Long) -> Boolean)? = null): Double? {
         var best: Double? = null
         for (i in times.indices) {
             val t = times[i]
             if (t <= from || t > to || values[i] == null) continue
-            val m = mean(max(from, t - windowMs), t) ?: continue
+            val windowFrom = max(from, t - windowMs)
+            if (counts != null && !counts(windowFrom, t)) continue
+            val m = mean(windowFrom, t) ?: continue
             if (best == null || m > best) best = m
         }
         return best

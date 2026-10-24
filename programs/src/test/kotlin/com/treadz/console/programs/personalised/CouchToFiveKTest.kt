@@ -92,7 +92,7 @@ class CouchToFiveKTest {
         val t = run.target as BlockTarget.HeartRate
         // VO2max 42 at 40 is "fair": low level, zone 3 = 55-75 % of the reserve; no resting heart rate: 70-83 % of the
         // maximum.
-        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 70, 83), t.zone)
+        assertEquals(HeartRateZone(HeartRateBasis.MaxHeartRate, 70, 83, profileZone = 3), t.zone)
         assertEquals(HeartRateAdjust.Speed, t.adjust)
         assertEquals(BlockTarget.Absolute(7.5, 1.0), t.start)
         // The slowest jog (walking 5.0 + 0.5): a run never turns into a walk.
@@ -101,7 +101,7 @@ class CouchToFiveKTest {
         assertTrue(g.notices.any { it.code == GeneratorNoticeCode.RestingHeartRateMissing }, "${g.notices}")
 
         val rested = CouchToFiveK.generate(request(profile = measuredProfile(restingBpm = 55), history = listOf(c25kRecord(14, NOW - 2 * DAY - HOUR))))
-        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 55, 75), ((rested.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
+        assertEquals(HeartRateZone(HeartRateBasis.HeartRateReserve, 55, 75, profileZone = 3), ((rested.program.steps[1] as Block).target as BlockTarget.HeartRate).zone)
         // Sessions without continuous runs do not need the resting heart rate.
         assertTrue(CouchToFiveK.generate(request()).notices.none { it.code == GeneratorNoticeCode.RestingHeartRateMissing })
     }
@@ -127,7 +127,7 @@ class CouchToFiveKTest {
     fun `continuous runs start where the heart rate settled in the last one`() {
         val record = sessionRecord(CouchToFiveK.ID, mapOf("session" to "18", "mode" to "run"), NOW - 3 * DAY, listOf(
             blockRecord(0, "0", BlockPhase.WarmUp, speed = 5.0),
-            blockRecord(1, "1", BlockPhase.Work, endHr = 140.0, heartRate = hrSummary(1, settled = 7.1, end = 140.0)),
+            blockRecord(1, "1", BlockPhase.Work, endHr = 140.0, heartRate = hrSummary(1, settled = 7.1, end = 140.0, zoneLowBpm = 126, zoneHighBpm = 149)),
             blockRecord(2, "2", BlockPhase.CoolDown, speed = 5.0),
         ))
         val g = CouchToFiveK.generate(request(history = listOf(record)))

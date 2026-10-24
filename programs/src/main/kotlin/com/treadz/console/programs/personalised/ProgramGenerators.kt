@@ -6,6 +6,8 @@ import com.treadz.console.analysis.zones.TrainingZones
 import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.analysis.zones.ZoneSource
 import com.treadz.console.programs.fitness.ProfileZones
+import com.treadz.console.programs.heartrate.HeartRateProfile
+import com.treadz.console.programs.heartrate.HeartRateZoneBpm
 import com.treadz.console.programs.heartrate.HeartRateZones
 import com.treadz.console.programs.model.Block
 import com.treadz.console.programs.model.BlockEnd
@@ -135,7 +137,10 @@ interface ProgramGenerator {
  * maximum without a resting heart rate); otherwise the %-of-reserve table of the fitness level (the VO2max
  * classification of a test, else the self-rated level, else low), as % of the reserve (Karvonen, HRR) when the resting
  * heart rate is known: % of the reserve matches % of the VO2 reserve (ACSM). The Norwegian 4x4 and the short Couch to
- * 5K runs keep % of the maximum, as their protocols define them. See [Generation.modelZone] and [reserveZone].
+ * 5K runs keep % of the maximum, as their protocols define them. The blocks guided by the zone model name the zone
+ * of the user's own zones as well ([HeartRateZone.profileZone]): the run converts it to the exact bpm of the zones in force
+ * then, and the whole percentages stay as the fallback for an app that does not know the field or has no zones. See
+ * [Generation.modelZone] and [reserveZone].
  *
  * **Start of a heart-rate block with a measured VT1** (and its ACSM VO2): VO2 = 3.5 + (VO2_VT1 − 3.5) ·
  * (HR_target − HR_rest) / (VT1 − HR_rest), with HR_target the middle of the block's zone and HR_rest the resting heart
@@ -147,11 +152,21 @@ interface ProgramGenerator {
  * while walking and the speed while running). Warm-ups are at the easy value (running: half the MAS, at least the
  * walking speed); cool-downs at the walking speed. Work speeds while running are at least 6 km/h. When a reference used
  * is estimated every intensity is multiplied by 0.9. A heart-rate block whose history has a `settledValue` (same
- * generator, same mode, same block position, same adjusted quantity, at most [HISTORY_MAX_AGE_DAYS] old) starts there.
+ * generator, same mode, same block position, same adjusted quantity, at most [HISTORY_MAX_AGE_DAYS] old, and a zone
+ * within [SETTLED_ZONE_TOLERANCE_BPM] bpm of the new block's at each limit) starts there.
  */
 object ProgramGenerators {
 
     const val HISTORY_MAX_AGE_DAYS = 90
+
+    /**
+     * A settled value of the history is reused only when the zone that session aimed at is the zone of the block being
+     * generated: each limit within this many bpm of the new one, in bpm for the current profile. It absorbs the rounding of
+     * zones stored as whole percentages and a small change of the resting heart rate or of VT1, and rejects a different
+     * zone (the 132-144 of an older zone 2 against today's 122-131: the load that settles the heart rate there is 8-14 bpm
+     * too high for this one).
+     */
+    const val SETTLED_ZONE_TOLERANCE_BPM = 2
 
     /**
      * Resting heart rate assumed, as a fraction of the maximum, to turn a % of the reserve into a % of the maximum when
@@ -287,6 +302,15 @@ internal class Generation(
         ProfileZones.compute(p.fitnessProfile, p.heartRate, p.selfRatedFitness, p.ageYears, p.sex)
     }
 
+    /**
+     * The heart-rate profile with the zone model, to turn a program zone into bpm exactly as the run will (a zone that
+     * names a zone of the user's own zones is that zone, not its rounded percentages).
+     */
+    private val heartRateWithZones: HeartRateProfile by lazy { request.profile.heartRate.copy(zones = zones) }
+
+    /** [zone] in bpm as the run will resolve it. */
+    fun toBpm(zone: HeartRateZone): HeartRateZoneBpm = HeartRateZones.toBpm(zone, heartRateWithZones)
+
     /** VT1 of the profile with its oxygen demand, when the zones come from measured thresholds. */
     private val vt1: Pair<Int, Double>? by lazy {
         val t = request.profile.fitnessProfile?.thresholds?.vt1
@@ -295,9 +319,12 @@ internal class Generation(
     }
 
     /**
-     * Zone [number] (2-4) of the zone model as a program zone. With measured thresholds: its bpm bounds as the nearest
-     * whole % of the reserve (with a resting heart rate) or of the maximum; otherwise the level table in % of the reserve
-     * ([reserveZone], which notes a missing resting heart rate).
+     * Zone [number] (2-4) of the zone model as a program zone. It names that zone of the user's own zones
+     * ([HeartRateZone.profileZone]), so the run uses its exact bpm (the top of zone 2 is VT1 itself, not VT1 rounded
+     * through a whole percentage of the reserve), and carries the percentages as the fallback for an app that does not know
+     * the field or has no zones: with measured thresholds the bpm bounds as the nearest whole % of the reserve (with a
+     * resting heart rate) or of the maximum; otherwise the level table in % of the reserve ([reserveZone], which notes a
+     * missing resting heart rate; the table gives whole percentages already, so both ways give the same bpm).
      */
     fun modelZone(number: Int): HeartRateZone {
         val z = zones
@@ -305,7 +332,7 @@ internal class Generation(
         inputs["zoneLevel"] = z.level.wire()
         if (z.source != ZoneSource.MeasuredThresholds) {
             val b = checkNotNull(TrainingZones.RESERVE_BOUNDARIES[z.level])
-            return reserveZone(b[number - 2], b[number - 1])
+            return reserveZone(b[number - 2], b[number - 1]).copy(profileZone = number)
         }
         inputs["vt1Bpm"] = z.vt1Bpm.toString()
         inputs["vt2Bpm"] = z.vt2Bpm.toString()
@@ -315,7 +342,7 @@ internal class Generation(
         val rest = refs.restingHeartRateBpm
         val low = HeartRateBands.percentOf(checkNotNull(range.lowBpm), max, rest).coerceIn(0, 99)
         val high = HeartRateBands.percentOf(range.highBpm, max, rest).coerceIn(low + 1, 100)
-        val zone = HeartRateZone(if (rest != null) HeartRateBasis.HeartRateReserve else HeartRateBasis.MaxHeartRate, low, high)
+        val zone = HeartRateZone(if (rest != null) HeartRateBasis.HeartRateReserve else HeartRateBasis.MaxHeartRate, low, high, profileZone = number)
         inputs["heartRateZoneBasis"] = zone.basis.wire()
         return zone
     }
@@ -329,7 +356,7 @@ internal class Generation(
         val max = request.profile.heartRate.maxBpm
         val rest = refs.restingHeartRateBpm?.toDouble() ?: (max * ASSUMED_RESTING)
         if (vt1Bpm <= rest) return null
-        val bpm = HeartRateZones.toBpm(zone, request.profile.heartRate)
+        val bpm = toBpm(zone)
         val target = (bpm.lowBpm + bpm.highBpm) / 2.0
         val vo2 = Acsm.REST_VO2 + (vt1Vo2 - Acsm.REST_VO2) * (target - rest) / (vt1Bpm - rest)
         inputs["startFromVt1.$key"] = fmt(vo2)
@@ -347,7 +374,7 @@ internal class Generation(
 
     /** The middle of [zone], in bpm for this user, as a fraction of the maximum heart rate (for start values). */
     fun midFractionOfMax(zone: HeartRateZone): Double {
-        val bpm = HeartRateZones.toBpm(zone, request.profile.heartRate)
+        val bpm = toBpm(zone)
         return (bpm.lowBpm + bpm.highBpm) / 2.0 / refs.maxHeartRateBpm
     }
 
@@ -355,15 +382,21 @@ internal class Generation(
 
     /**
      * The latest settled value of the block [key] in this generator's history (same mode, same adjusted quantity; for
-     * the incline, the same walking speed), at most [ProgramGenerators.HISTORY_MAX_AGE_DAYS] old.
+     * the incline, the same walking speed), at most [ProgramGenerators.HISTORY_MAX_AGE_DAYS] old, from a session whose
+     * zone is the one of the new block: its limits (`zoneLowBpm` and `zoneHighBpm` of the block's heart-rate summary) each within
+     * [ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM] of [zone], in bpm for the current profile. A block of another zone is
+     * skipped (an older one may still match); with none, the caller starts as it would without history.
      */
-    fun settled(key: String, adjust: HeartRateAdjust, fixedSpeedKmh: Double?): Double? {
+    fun settled(key: String, adjust: HeartRateAdjust, fixedSpeedKmh: Double?, zone: HeartRateZone): Double? {
         val cutoff = request.nowMillis - ProgramGenerators.HISTORY_MAX_AGE_DAYS * DAY_MS
+        val wanted = toBpm(zone)
         for (r in history.asReversed()) {
             if (r.startedAtMillis < cutoff || r.origin.inputs["mode"] != mode.wire()) continue
             val v = r.blocks.lastOrNull { b ->
                 val hr = b.heartRate
                 b.key == key && hr != null && hr.adjust == adjust && hr.settledValue != null &&
+                    abs(hr.zoneLowBpm - wanted.lowBpm) <= ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM &&
+                    abs(hr.zoneHighBpm - wanted.highBpm) <= ProgramGenerators.SETTLED_ZONE_TOLERANCE_BPM &&
                     (fixedSpeedKmh == null || abs(b.finalSpeedKmh - fixedSpeedKmh) <= 0.05)
             }?.heartRate?.settledValue
             if (v != null) return v
@@ -379,7 +412,7 @@ internal class Generation(
      * start (and widens the bounds if needed).
      */
     fun runningHeartRateBlock(phase: BlockPhase, seconds: Int, key: String, zone: HeartRateZone, start: Double, minimum: Double, maximum: Double): Block {
-        val fromHistory = settled(key, HeartRateAdjust.Speed, null)?.let { clampSpeed(it) }
+        val fromHistory = settled(key, HeartRateAdjust.Speed, null, zone)?.let { clampSpeed(it) }
         val s = fromHistory ?: clampSpeed(start)
         fromHistory?.let { noteHistory(key, it) }
         val lo = clampSpeed(min(minimum, s))
@@ -389,7 +422,7 @@ internal class Generation(
 
     fun walkingHeartRateBlock(phase: BlockPhase, seconds: Int, key: String, zone: HeartRateZone, walk: TreadmillTarget): Block {
         val speed = clampSpeed(walk.speedKmh)
-        val fromHistory = settled(key, HeartRateAdjust.Incline, speed)?.let { clampIncline(it) }
+        val fromHistory = settled(key, HeartRateAdjust.Incline, speed, zone)?.let { clampIncline(it) }
         val start = fromHistory ?: clampIncline(walk.inclinePercent)
         fromHistory?.let { noteHistory(key, it) }
         val hi = clampIncline(max(IntensityTranslator.MAX_WALKING_INCLINE_PERCENT, start))
@@ -440,12 +473,14 @@ internal class Generation(
 
 /**
  * Zone 2 easy run or walk: 5 min + main block heart-rate guided in zone 2 of the zone model (continuous) + 5 min.
- * Version 2: zone 2 from the zone model (it was 60-70 % of the reserve) and the start from a measured VT1.
+ * Version 2: zone 2 from the zone model (it was 60-70 % of the reserve) and the start from a measured VT1. Version 3: the
+ * zone names zone 2 of the user's own zones (exact bpm: the top is VT1 itself) and a settled value of the history is used
+ * only when its zone matches.
  */
 internal object Zone2Generator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "zone2",
-        version = 2,
+        version = 3,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.DurationMinutes, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         durationMinutes = 20..90,
@@ -502,7 +537,7 @@ internal object Zone2Generator : ProgramGenerator {
 internal object TempoGenerator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "tempo",
-        version = 2,
+        version = 3,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.DurationMinutes, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         durationMinutes = 37..60,
@@ -570,12 +605,12 @@ internal object TempoGenerator : ProgramGenerator {
 /**
  * Norwegian 4x4: 10 min warm-up + 4 × (4 min at 85-95 % HRmax + 3 min active recovery) + 5 min. The work blocks are
  * heart-rate guided between repetitions, starting at the intensity of 90 % HRmax (from a measured VT1 when there is one;
- * version 2).
+ * version 2). Version 3: a settled value of the history is used only when its zone matches.
  */
 internal object Norwegian4x4Generator : ProgramGenerator {
     override val descriptor = GeneratorDescriptor(
         id = "norwegian-4x4",
-        version = 2,
+        version = 3,
         inputs = setOf(GeneratorInput.Mode, GeneratorInput.WalkingSpeed),
         modes = setOf(ExerciseMode.Walk, ExerciseMode.Run),
         heartRateGuided = true,

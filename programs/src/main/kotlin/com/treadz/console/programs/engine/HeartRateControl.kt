@@ -9,6 +9,9 @@ import com.treadz.console.programs.heartrate.HeartRateReading
 import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.programs.heartrate.HeartRateZoneBpm
 import com.treadz.console.programs.heartrate.PlausibilityConfig
+import com.treadz.console.programs.heartrate.StrapWindowConfig
+import com.treadz.console.programs.heartrate.StrapWindowJudge
+import com.treadz.console.programs.heartrate.StrapWindowJudgement
 import com.treadz.console.programs.model.HeartRateAdjust
 import kotlin.math.abs
 import kotlin.math.max
@@ -38,8 +41,11 @@ enum class HeartRateControlState {
     /** Controlling: the heart rate is in the zone, or the last decision corrected it. */
     Active,
 
-    /** Outside the zone but waiting: the first 90 s of the block (or after a safety reduction) allow no increase, or
-     *  the 30-s trend forecast says the heart rate is already entering the zone. */
+    /** Outside the zone but waiting: the first 90 s of the block (or after a safety reduction) allow no increase, the
+     *  30-s trend forecast says the heart rate is already entering the zone, the heart rate is still rising by more than
+     *  [HeartRateControlConfig.risingTrendBpmPerMin], the last regular change in the same direction is less than
+     *  [HeartRateControlConfig.sameDirectionHoldMs] old, or the strap readings are doubtful (see
+     *  [HeartRateControlStatus.decisionDeferredByStrap]). */
     Waiting,
 
     /** No valid heart rate: everything is held (after 60 s the block's start value is restored if it is lower). The
@@ -97,6 +103,28 @@ data class HeartRateControlConfig(
     val forecastMs: Long = 30_000,
     /** The trend needs readings spanning at least this long. */
     val minTrendSpanMs: Long = 15_000,
+    /**
+     * No regular increase of the load (heart rate below the zone) while the heart-rate trend (the least-squares slope
+     * over [trendWindowMs]) is above this many bpm per minute, even when the linear forecast does not reach the zone: after
+     * a big jump of load the heart rate follows an exponential curve of 1-3 min, which a 30-s straight line projected 30 s
+     * undershoots (the audit of 2026-10-24: a raise at 101 s of the block, with the heart rate at 116 and climbing by
+     * about 4 bpm/min, took it past the zone). Anywhere in the block; reductions and [noUpwardMs] are not affected.
+     */
+    val risingTrendBpmPerMin: Double = 3.0,
+    /**
+     * After a regular change (heart rate above or below the zone), no other regular change in the same direction for
+     * this long: the heart rate needs 60-90 s to answer and the load moves in whole steps of 1 %, so a decision 20 s
+     * later would repeat the change on the same, not yet answered, heart rate (the audit of 2026-10-24: two reductions
+     * 20 s apart on a heart rate 0.4 bpm above the zone). A change in the opposite direction is not held; safety
+     * reductions and the α1 brake are not affected.
+     */
+    val sameDirectionHoldMs: Long = 60_000,
+    /**
+     * The check of the strap readings against their RR: with a strap connected to the app, a regular decision (or the
+     * correction between repetitions) whose 10-s window is doubtful changes nothing. The safety rules (ceiling and
+     * maximum) keep using the raw plausible readings, as they only lower the load.
+     */
+    val strapWindow: StrapWindowConfig = StrapWindowConfig(),
     /** Step proportional to the error (bpm outside the zone); downward gains are larger: faster down than up. */
     val speedGainUpKmhPerBpm: Double = 0.03,
     val speedGainDownKmhPerBpm: Double = 0.05,
@@ -200,6 +228,13 @@ data class HeartRateControlStatus(
     val source: HeartRateSourceKind?,
     /** Seconds to the next regular decision (continuous mode, while controlling). */
     val secondsToNextDecision: Int?,
+    /**
+     * The last regular decision found the heart rate outside the zone but changed nothing because the strap readings of its
+     * 10-s window were doubtful (many artifacts in the RR, or the strap's heart rate and the RR disagree; see
+     * [StrapWindowJudge]). The next decision comes at the normal interval and clears this if the window is sound. Only with
+     * a strap connected to the app and RR; always `false` otherwise.
+     */
+    val decisionDeferredByStrap: Boolean = false,
 )
 
 /**
@@ -249,6 +284,11 @@ data class HeartRateBlockSummary(
     val alpha1Mean: Double? = null,
     /** Number of valid windows behind [alpha1Mean] (evaluations every 10 s, so they overlap); `null` without any. */
     val alpha1Windows: Int? = null,
+    /**
+     * Regular decisions (or end-of-repetition corrections) that changed nothing because the strap readings of their window
+     * were doubtful ([HeartRateControlStatus.decisionDeferredByStrap]). Stored in the session record only when above 0.
+     */
+    val strapDeferrals: Int = 0,
 )
 
 /** Something the control did, for the runner to turn into program events. */
@@ -271,6 +311,9 @@ internal class HeartRateTracker(profile: HeartRateProfile, private val config: H
     private val samples = ArrayDeque<Pair<Long, Int>>()
     private var validStreakStart: Long? = null
 
+    /** The strap readings and their RR, to judge the 10-s windows ([judgeWindow]). */
+    private val strapJudge = StrapWindowJudge(config.strapWindow)
+
     var lastValidAt: Long? = null
         private set
     var lastSource: HeartRateSourceKind? = null
@@ -278,8 +321,16 @@ internal class HeartRateTracker(profile: HeartRateProfile, private val config: H
 
     /** Feeds a reading; returns the plausible bpm or `null`. */
     fun onReading(t: Long, reading: HeartRateReading): Int? {
-        if (reading.source != lastSource && reading.source != null && lastSource != null) filter.reset()
+        if (reading.source != lastSource && reading.source != null && lastSource != null) {
+            filter.reset()
+            strapJudge.reset()
+        }
         if (reading.source != null) lastSource = reading.source
+        // The RR of a strap connected to the app go in even when the bpm is not plausible: the cleaning judges the beats.
+        if (reading.source == HeartRateSourceKind.DirectStrap && reading.validity != HeartRateValidity.Invalid) {
+            strapJudge.addRr(t, reading.rrIntervalsMs)
+            strapJudge.trimBefore(t - KEEP_MS)
+        }
         val raw = if (reading.validity == HeartRateValidity.Invalid) null else reading.bpm
         val bpm = filter.accept(t, raw)
         if (bpm == null) {
@@ -290,8 +341,16 @@ internal class HeartRateTracker(profile: HeartRateProfile, private val config: H
         lastValidAt = t
         samples.addLast(t to bpm)
         while (samples.isNotEmpty() && samples.first().first < t - KEEP_MS) samples.removeFirst()
+        if (reading.source == HeartRateSourceKind.DirectStrap) strapJudge.addReading(t, bpm)
         return bpm
     }
+
+    /**
+     * Judges the readings of the last [windowMs] against their RR ([StrapWindowJudge]); [StrapWindowJudgement.NOT_JUDGED]
+     * unless the last readings come from a strap connected to the app (the console's heart rate has no RR).
+     */
+    fun judgeWindow(t: Long, windowMs: Long): StrapWindowJudgement =
+        if (lastSource == HeartRateSourceKind.DirectStrap) strapJudge.judge(t - windowMs, t) else StrapWindowJudgement.NOT_JUDGED
 
     fun hasValid(t: Long): Boolean = lastValidAt?.let { t - it <= config.missingAfterMs } == true
 
@@ -349,6 +408,14 @@ internal object Alpha1BrakePolicy {
  * 90 s of the block nor in the 90 s after a safety reduction.
  *
  * **Between repetitions**: no regular decisions inside the repetition; [nextRepetitionValue] corrects the next one.
+ *
+ * **Regular decisions wait** (they change nothing and the next one comes at the normal interval) when
+ *  - the last regular change in the same direction is less than [HeartRateControlConfig.sameDirectionHoldMs] old (the
+ *    opposite direction is not held);
+ *  - the strap readings of the 10-s window are doubtful ([StrapWindowJudge]: they are not confirmed by the RR of the same
+ *    window; only with a strap connected to the app) and the same for the correction between repetitions;
+ *  - and, for an increase, the heart-rate trend is above [HeartRateControlConfig.risingTrendBpmPerMin].
+ *  None of this touches the safety rules, which keep the raw plausible readings, nor the α1 brake.
  *
  * **Safety, both modes** (while the control is on): more than 10 s above the ceiling (zone top + 8) → −1 km/h or −3 %
  * and an alert; reaching the maximum heart rate → the block's minimum (recovery value). Two safety reductions are at
@@ -410,6 +477,14 @@ internal class HeartRateBlockControl(
     private var maxAlerted = false
     private var lastSafetyAt: Long? = null
     private var lastState: HeartRateControlState? = null
+
+    /** When and in which direction ([regularDown]: the load went down) the last regular change was made. */
+    private var lastRegularAt: Long? = null
+    private var lastRegularDown = false
+
+    /** The last regular decision was deferred because the strap readings of its window were doubtful. */
+    private var strapDeferred = false
+    private var strapDeferrals = 0
 
     // -- α1 brake
     /** Windows must start at or after this time (block start, last resume or re-enable). */
@@ -476,6 +551,7 @@ internal class HeartRateBlockControl(
         off = true
         manual = true
         waiting = false
+        strapDeferred = false
         alpha1Recent.clear()
         signalState()
     }
@@ -486,6 +562,7 @@ internal class HeartRateBlockControl(
         off = false
         controlValue = current
         nextDecisionAt = t
+        lastRegularAt = null
         aboveCeilingSince = null
         atMaxSince = null
         alpha1FloorMs = t
@@ -512,6 +589,7 @@ internal class HeartRateBlockControl(
         alpha1FloorMs = t
         alpha1Recent.clear()
         if (holding) holdSince = t
+        strapDeferred = false
     }
 
     /**
@@ -592,6 +670,7 @@ internal class HeartRateBlockControl(
             holding = true
             holdSince = tracker.lastValidAt ?: t
             fallbackDone = false
+            strapDeferred = false
         }
         if (!tracker.hasValid(t) && !holding) return null
         if (holding) {
@@ -620,9 +699,25 @@ internal class HeartRateBlockControl(
         val mean = tracker.mean(t, config.meanWindowMs) ?: return null
         if (mean >= zone.lowBpm && mean <= zone.highBpm) {
             waiting = false
+            strapDeferred = false
             return null
         }
         val isAbove = mean > zone.highBpm
+        // The heart rate needs time to answer the last change: no other one in the same direction yet.
+        val held = lastRegularAt?.let { lastRegularDown == isAbove && t - it < config.sameDirectionHoldMs } == true
+        if (held) {
+            waiting = true
+            strapDeferred = false
+            return null
+        }
+        // Readings the RR do not confirm decide nothing (the safety rules above keep the raw readings: they only lower the load).
+        if (tracker.judgeWindow(t, config.meanWindowMs).isDoubtful) {
+            waiting = true
+            strapDeferred = true
+            strapDeferrals++
+            return null
+        }
+        strapDeferred = false
         val slope = tracker.slope(t, config.trendWindowMs, config.minTrendSpanMs)
         if (slope != null) {
             val forecast = mean + slope * config.forecastMs
@@ -635,11 +730,18 @@ internal class HeartRateBlockControl(
             waiting = true
             return null
         }
+        // Still climbing: the heart rate will keep coming up by itself (see risingTrendBpmPerMin).
+        if (!isAbove && slope != null && slope * MS_PER_MINUTE > config.risingTrendBpmPerMin) {
+            waiting = true
+            return null
+        }
         waiting = false
         val error = if (isAbove) mean - zone.highBpm else zone.lowBpm - mean
         val step = step(error, down = isAbove)
         val target = if (isAbove) max(minimum, current - step) else min(maximum, current + step)
         if (abs(target - current) < EPS) return null
+        lastRegularAt = t
+        lastRegularDown = isAbove
         return change(current, snap(target), if (isAbove) HeartRateAdjustReason.AboveZone else HeartRateAdjustReason.BelowZone, t, safety = false)
     }
 
@@ -725,6 +827,11 @@ internal class HeartRateBlockControl(
         if (mode == HeartRateControlMode.Continuous) return snap(current)
         val end = tracker.mean(t, config.meanWindowMs)
         if (end == null || !tracker.hasValid(t)) return snap(min(current, startValue))
+        // Out of the zone on readings the RR do not confirm: keep the value, as inside the zone.
+        if ((end > zone.highBpm || end < zone.lowBpm) && tracker.judgeWindow(t, config.meanWindowMs).isDoubtful) {
+            strapDeferrals++
+            return snap(current)
+        }
         return when {
             end > zone.highBpm -> snap(max(minimum, current - step(end - zone.highBpm, down = true)))
             end < zone.lowBpm -> snap(min(maximum, current + step(zone.lowBpm - end, down = false)))
@@ -786,6 +893,7 @@ internal class HeartRateBlockControl(
         } else {
             null
         },
+        decisionDeferredByStrap = strapDeferred && !off && !holding,
     )
 
     fun summary(t: Long, endValue: Double): HeartRateBlockSummary {
@@ -817,6 +925,7 @@ internal class HeartRateBlockControl(
             alpha1Reductions = if (alpha1BrakeActive && alpha1Count > 0) alpha1Reductions else null,
             alpha1Mean = if (alpha1Count > 0) (alpha1Sum / alpha1Count * 100).roundToInt() / 100.0 else null,
             alpha1Windows = alpha1Count.takeIf { it > 0 },
+            strapDeferrals = strapDeferrals,
         )
     }
 
@@ -824,6 +933,7 @@ internal class HeartRateBlockControl(
 
     companion object {
         private const val EPS = 1e-6
+        private const val MS_PER_MINUTE = 60_000.0
 
         /** The mode of a block: short blocks inside a repeat are controlled between repetitions. */
         fun modeOf(inRepeat: Boolean, durationSeconds: Int, config: HeartRateControlConfig): HeartRateControlMode =

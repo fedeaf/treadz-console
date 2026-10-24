@@ -8,6 +8,7 @@ import com.treadz.console.analysis.samples.SampleHeartRateSource
 import com.treadz.console.analysis.samples.WorkoutSample
 import com.treadz.console.analysis.thresholds.ThresholdResult
 import com.treadz.console.programs.heartrate.HeartRateReading
+import com.treadz.console.programs.heartrate.StrapWindowJudge
 import com.treadz.console.treadmill.TreadmillState
 import kotlin.math.max
 import kotlin.math.min
@@ -92,6 +93,12 @@ internal abstract class FitnessProtocol(
 
     val hr = HeartRateLog()
 
+    /**
+     * The strap readings (test time) and their RR since the effort began, to leave out of the peak the windows the RR do not
+     * confirm ([peakHeartRate]). The RR go on during the cool-down: the peak counts the seconds after the effort.
+     */
+    private val strapJudge = StrapWindowJudge(config.strapWindow)
+
     /** Valid readings per source, to record where the test's heart rate came from. */
     private val sourceCounts = mutableMapOf<HeartRateSourceKind, Int>()
     private val minutes = mutableListOf<MinuteRecord>()
@@ -134,6 +141,7 @@ internal abstract class FitnessProtocol(
         hr.add(t, bpm)
         val source = if (bpm != null) obs.source ?: heartRateKind else null
         if (source != null) sourceCounts[source] = (sourceCounts[source] ?: 0) + 1
+        if (bpm != null && source == HeartRateSourceKind.DirectStrap && (isEffortPhase || phase == FitnessTestPhase.CoolDown)) strapJudge.addReading(t, bpm)
         if (isEffortPhase && (effortSamples.isEmpty() || at(t) > effortSamples.last().timeMillis)) {
             effortSamples += WorkoutSample(
                 at(t), obs.speedKmh, obs.inclinePercent, bpm,
@@ -153,6 +161,7 @@ internal abstract class FitnessProtocol(
      */
     fun addRrIntervals(t: Long, rrMs: List<Int>) {
         if (isEffortPhase) RrSeries.append(rrIntervals, at(t), rrMs)
+        if (isEffortPhase || phase == FitnessTestPhase.CoolDown) strapJudge.addRr(t, rrMs)
         if (checksStrap && phase == FitnessTestPhase.WarmUp) updateStrapCheck(t)
     }
 
@@ -394,10 +403,14 @@ internal abstract class FitnessProtocol(
 
     /**
      * The peak heart rate of a maximal test: the highest [FitnessTestConfig.peakMeanSeconds]-s mean from
-     * [FitnessTestConfig.peakWindowSeconds] before the end of the effort ([effortEnd]) to [to], rounded.
+     * [FitnessTestConfig.peakWindowSeconds] before the end of the effort ([effortEnd]) to [to], rounded. A window whose
+     * strap readings the RR do not confirm ([StrapWindowJudge]: too many artifacts, or a heart rate that disagrees with the
+     * RR) does not count; a window that cannot be judged (the console's heart rate, no RR) counts.
      */
     protected fun peakHeartRate(effortEnd: Long, to: Long): Double? =
-        hr.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, to, config.peakMeanSeconds * 1000L)?.let(FitnessFormulas::round1)
+        hr.maxSlidingMean(effortEnd - config.peakWindowSeconds * 1000L, to, config.peakMeanSeconds * 1000L) { from, end ->
+            !strapJudge.judge(from, end).isDoubtful
+        }?.let(FitnessFormulas::round1)
 
     /**
      * Thresholds of a valid result, computed when the effort ends (after [computeOutputs] and [closeMeasurements]).

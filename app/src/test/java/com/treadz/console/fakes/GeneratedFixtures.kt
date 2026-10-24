@@ -60,11 +60,13 @@ object GeneratedFixtures {
         inputs: Map<String, String> = emptyMap(),
         settledValue: Double? = null,
         key: String = "1",
+        zoneLowBpm: Int = 120,
+        zoneHighBpm: Int = 140,
     ): GeneratedSessionRecord {
         val origin = ProgramOrigin(generatorId, 1, buildMap { putAll(inputs); session?.let { put("session", it.toString()) } })
         val summary = settledValue?.let {
             HeartRateBlockSummary(
-                blockIndex = 1, adjust = HeartRateAdjust.Speed, mode = HeartRateControlMode.Continuous, zoneLowBpm = 120, zoneHighBpm = 140,
+                blockIndex = 1, adjust = HeartRateAdjust.Speed, mode = HeartRateControlMode.Continuous, zoneLowBpm = zoneLowBpm, zoneHighBpm = zoneHighBpm,
                 startValue = 8.0, initialValue = 8.0, endValue = it, settledValue = it, secondsInZone = 900, meanHeartRateBpm = 132.0,
                 endHeartRateBpm = endHeartRate, adjustments = 4, safetyReductions = 0, manualOverride = false, secondsWithoutHeartRate = 0,
                 source = HeartRateSourceKind.DirectStrap,

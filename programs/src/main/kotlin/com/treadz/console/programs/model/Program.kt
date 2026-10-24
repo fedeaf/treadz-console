@@ -156,8 +156,24 @@ sealed interface BlockTarget {
     }
 }
 
-/** Target zone, as a percentage of [basis]. */
-data class HeartRateZone(val basis: HeartRateBasis, val lowPercent: Int, val highPercent: Int)
+/**
+ * Target zone, as a percentage of [basis].
+ *
+ * @property profileZone When set (1-5), the target is that zone of the **user's own zones** (from their thresholds or
+ *   level), converted to bpm when the session runs with the zones in force then (see `HeartRateProfile.zones`). The
+ *   percentages are then the standard zone of the same number, used when the user's zones are not known; an app that
+ *   does not know the field reads them as a plain zone.
+ */
+data class HeartRateZone(val basis: HeartRateBasis, val lowPercent: Int, val highPercent: Int, val profileZone: Int? = null) {
+    companion object {
+        /** Zone [number] (1-5) of the user's zones, with the standard percentages of the same zone as fallback. */
+        fun ofProfile(number: Int): HeartRateZone {
+            require(number in 1..5) { "profile zone must be 1-5 (was $number)" }
+            val low = 40 + number * 10
+            return HeartRateZone(HeartRateBasis.MaxHeartRate, low, low + 10, profileZone = number)
+        }
+    }
+}
 
 enum class HeartRateBasis { MaxHeartRate, HeartRateReserve }
 

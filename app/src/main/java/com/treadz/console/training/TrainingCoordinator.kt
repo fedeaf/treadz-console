@@ -410,15 +410,16 @@ class TrainingCoordinator(
      * The user's heart-rate references for heart-rate-guided blocks: the effective maximum (`HeartRateMaxPolicy`: manual,
      * else measured, else estimated), the resting reference of the history and the VT1 of the user's zones (measured,
      * else the typical one of their level: the top of zone 2, the same the generators use), which tells the real-time
-     * α1 brake which blocks are easy enough. `null` when the maximum is unknown.
+     * α1 brake which blocks are easy enough, and the zones themselves, for targets that name a zone of the profile.
+     * `null` when the maximum is unknown.
      */
     private suspend fun heartRateProfile(userId: Long): HeartRateProfile? {
         val maxDecision = userData.fitnessTests.heartRateMax(userId).first() ?: return null
         val resting = userData.restingHeartRates.reference(userId).first()?.bpm
-        val vt1 = userData.profiles.profile(userId).first()?.let { user ->
-            UserZones.compute(user, userData.fitnessTests.liveFitnessProfile(userId).first(), maxDecision, resting, today()).vt1Bpm
+        val zones = userData.profiles.profile(userId).first()?.let { user ->
+            UserZones.compute(user, userData.fitnessTests.liveFitnessProfile(userId).first(), maxDecision, resting, today())
         }
-        return HeartRateProfile(maxDecision.bpm, resting, vt1)
+        return HeartRateProfile(maxDecision.bpm, resting, zones?.vt1Bpm, zones)
     }
 
     /** "Resume heart-rate control" after a manual change switched it off: the runner decides whether it applies. */

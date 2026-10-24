@@ -169,6 +169,9 @@ In an absolute target (also the `start` of a heart-rate target), an absent `spee
 the block starts with the value the treadmill has at that moment (never in the first block). A program that uses it
 has `schemaVersion` 2, and the plan copy of a workout done with it has `planSchemaVersion` 2, with `keepsSpeed` /
 `keepsIncline` next to the expected value.
+A heart-rate `zone` may carry `profileZone` (1-5): the target is that zone of the user's own zones (from the thresholds or
+the level), converted to bpm with the zones in force when the session runs; its `basis` and percentages are the standard
+zone of the same number, used when the zones are not known (and by apps that do not know the field).
 
 `fitness-tests/<id>.json`: `uuid` (the test id), `user_uuid`, and the result under `result`: validity and flags, the
 inputs (age, sex, weight, maximum heart rate), the outputs (VO2max, maximal aerobic speed, measured maximum heart rate,

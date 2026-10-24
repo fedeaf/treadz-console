@@ -1,6 +1,7 @@
 package com.treadz.console.programs.heartrate
 
 import com.treadz.console.analysis.heartrate.HeartRateBands
+import com.treadz.console.analysis.zones.ZoneSet
 import com.treadz.console.programs.model.HeartRateBasis
 import com.treadz.console.programs.model.HeartRateZone
 
@@ -15,8 +16,10 @@ import com.treadz.console.programs.model.HeartRateZone
  *   profile thresholds) or, without a measured one, the typical one of the user's level (the top of zone 2). The
  *   real-time α1 brake uses it to know which blocks are easy enough (zone ceiling at or below VT1); without it, the
  *   brake falls back to a fixed share of the reserve (see `Alpha1BrakeConfig`).
+ * @property zones The user's five zones in bpm (thresholds or level), for targets that name a zone of the profile
+ *   ([HeartRateZone.profileZone]); without them those targets use their standard percentages.
  */
-data class HeartRateProfile(val maxBpm: Int, val restingBpm: Int? = null, val vt1Bpm: Int? = null) {
+data class HeartRateProfile(val maxBpm: Int, val restingBpm: Int? = null, val vt1Bpm: Int? = null, val zones: ZoneSet? = null) {
     /** A maximum outside 100-240 bpm cannot drive heart-rate control (the blocks then run at their start values). */
     val isUsable: Boolean get() = maxBpm in 100..240
 
@@ -27,16 +30,30 @@ data class HeartRateProfile(val maxBpm: Int, val restingBpm: Int? = null, val vt
     val usableVt1Bpm: Int? get() = vt1Bpm?.takeIf { it in 60 until maxBpm }
 }
 
-/** A zone in beats per minute. [basis] is what was really used (reserve falls back to maximum without a resting rate). */
-data class HeartRateZoneBpm(val lowBpm: Int, val highBpm: Int, val basis: HeartRateBasis)
+/**
+ * A zone in beats per minute. [basis] is what was really used (reserve falls back to maximum without a resting rate);
+ * [fromProfile] is true when it is a zone of the user's own zones ([HeartRateZone.profileZone]).
+ */
+data class HeartRateZoneBpm(val lowBpm: Int, val highBpm: Int, val basis: HeartRateBasis, val fromProfile: Boolean = false)
 
 object HeartRateZones {
 
     /** The five standard zones, in % of the maximum heart rate: 50-60, 60-70, 70-80, 80-90, 90-100. */
     val STANDARD: List<HeartRateZone> = listOf(50, 60, 70, 80, 90).map { HeartRateZone(HeartRateBasis.MaxHeartRate, it, it + 10) }
 
-    /** The zone in bpm for [profile]: % of the maximum, or of the reserve (Karvonen) when asked and possible. */
+    /**
+     * The zone in bpm for [profile]: % of the maximum, or of the reserve (Karvonen) when asked and possible. A zone of the
+     * profile ([HeartRateZone.profileZone]) is the user's zone of that number when [HeartRateProfile.zones] is known
+     * (zone 1 has no lower limit there: its standard lower percentage is used, kept below its top), else the standard
+     * percentages.
+     */
     fun toBpm(zone: HeartRateZone, profile: HeartRateProfile): HeartRateZoneBpm {
+        val own = zone.profileZone?.let { n -> profile.zones?.zones?.firstOrNull { it.number == n } }
+        if (own != null) {
+            val fallbackLow = HeartRateBands.toBpm(profile.maxBpm, null, false, zone.lowPercent, zone.highPercent).lowBpm
+            val low = (own.lowBpm ?: fallbackLow).coerceAtMost(own.highBpm - 1)
+            return HeartRateZoneBpm(low, own.highBpm, HeartRateBasis.MaxHeartRate, fromProfile = true)
+        }
         val range = HeartRateBands.toBpm(
             maxBpm = profile.maxBpm,
             restingBpm = profile.usableRestingBpm,

@@ -120,7 +120,8 @@ object ProgramJson {
     }
 
     internal fun zoneTree(z: HeartRateZone): Map<String, Any?> =
-        linkedMapOf("basis" to z.basis, "lowPercent" to z.lowPercent, "highPercent" to z.highPercent)
+        linkedMapOf<String, Any?>("basis" to z.basis, "lowPercent" to z.lowPercent, "highPercent" to z.highPercent)
+            .also { tree -> z.profileZone?.let { tree["profileZone"] = it } }
 
     /** Field names of the heart-rate bounds: they say what is bounded and in which scale. */
     internal fun boundKeys(adjust: HeartRateAdjust, relative: Boolean): Pair<String, String> = when {
@@ -208,5 +209,8 @@ object ProgramJson {
         basis = o.enum("basis", HeartRateBasis.entries.toTypedArray()),
         lowPercent = o.int("lowPercent"),
         highPercent = o.int("highPercent"),
+        profileZone = o.optInt("profileZone")?.also {
+            if (it !in 1..5) throw ProgramFormatException("${o.path}.profileZone", "must be 1-5 (was $it)")
+        },
     )
 }

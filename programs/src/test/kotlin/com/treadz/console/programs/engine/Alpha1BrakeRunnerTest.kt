@@ -20,6 +20,9 @@ import com.treadz.console.treadmill.control.CommandOrigin
 import com.treadz.console.treadmill.control.ControllerConfig
 import com.treadz.console.treadmill.control.FtmsTreadmillController
 import com.treadz.console.treadmill.control.TraceRecord
+import com.treadz.console.treadmill.events.LoadEvent
+import com.treadz.console.treadmill.events.LoadEventType
+import com.treadz.console.treadmill.events.LoadQuantity
 import com.treadz.console.treadmill.simulator.PhysiologicalHeartRateModel
 import com.treadz.console.treadmill.simulator.SimulatedBodyInput
 import com.treadz.console.treadmill.simulator.SimulatedHeartRateModel
@@ -191,11 +194,11 @@ class Alpha1BrakeRunnerTest {
         rig.run(plan(zone2))
 
         val brake = rig.brakeEvents()
-        // Incline 4 % to 0 % in four steps, each at least 90 s after the previous one, the first after the first complete window.
+        // Incline 4 % to 0 % in four steps, each at least 180 s after the previous one, the first after six complete windows.
         assertEquals(listOf(4.0 to 3.0, 3.0 to 2.0, 2.0 to 1.0, 1.0 to 0.0), brake.map { it.fromValue to it.toValue }, "$brake")
         assertTrue(brake.all { it.adjust == HeartRateAdjust.Incline && it.blockIndex == 1 })
-        assertTrue(brake[0].programSeconds - 120 in 130..170, "first reduction ${brake[0].programSeconds - 120} s into the block")
-        assertTrue(brake.zipWithNext().all { (a, b) -> b.programSeconds - a.programSeconds >= 90 }, "$brake")
+        assertTrue(brake[0].programSeconds - 120 in 160..200, "first reduction ${brake[0].programSeconds - 120} s into the block")
+        assertTrue(brake.zipWithNext().all { (a, b) -> b.programSeconds - a.programSeconds >= 180 }, "$brake")
 
         // Each one went out as a verified command of the heart-rate control, and nothing else did.
         val byControl = rig.commands.filter { it.origin == CommandOrigin.HeartRateControl }
@@ -213,6 +216,15 @@ class Alpha1BrakeRunnerTest {
         assertTrue(mean < 0.6, "mean α1 $mean")
         assertTrue(checkNotNull(summary.alpha1Windows) in 60..80, "${summary.alpha1Windows}")
         assertEquals(HeartRateSourceKind.DirectStrap, summary.source)
+
+        // Each reduction is also a load event (and nothing else is), in the final event too.
+        val loadEvents = rig.runner.loadEvents.value
+        assertEquals(
+            brake.map { LoadEvent(it.programSeconds, LoadEventType.Alpha1Reduction, LoadQuantity.Incline, it.toValue) },
+            loadEvents.filter { it.type == LoadEventType.Alpha1Reduction },
+        )
+        assertTrue(loadEvents.all { it.type == LoadEventType.Alpha1Reduction || it.type == LoadEventType.HeartRateIncrease || it.type == LoadEventType.HeartRateDecrease }, "$loadEvents")
+        assertEquals(loadEvents, rig.eventsOf<ProgramEvent.Finished>().single().loadEvents)
 
         val finished = rig.eventsOf<ProgramEvent.Finished>().single()
         val record = GeneratedSessionRecords.build(ProgramOrigin("zone2", 1, emptyMap()), finished, rig.events)

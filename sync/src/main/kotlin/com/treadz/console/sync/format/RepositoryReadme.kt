@@ -71,8 +71,10 @@ fields below were added as optional ones (readers must ignore unknown fields).
 - `vo2max.discrepancy` (only present, `true`, when it applies): two of the tests used differ by more than 1.5 times
   `sqrt(SEE1^2 + SEE2^2)` (their standard errors as weighted), so one of the measurements is probably wrong; those sources
   carry `discrepant: true`. It is data only. A source also carries `weightFactor` when it is not 1: 0.25 for a submaximal
-  test (Ebbeling) while a valid maximal test of the last 90 days exists. `rules` lists `submaximalFactorWithMaximal`,
-  `maximalRecencyDays` and `discrepancyFactor`. A source with `lowerBound: true` (the test only says "at least") is not
+  test (Ebbeling) while a valid maximal test of the last 90 days exists, and 0.5 for the maximal walking test (its VO2max
+  is the ACSM equation on a ramp, an extrapolation) while a valid maximal running test (maximal effort, not a lower bound)
+  is part of the profile (rules version 2). `rules` lists `submaximalFactorWithMaximal`, `maximalRecencyDays`,
+  `discrepancyFactor` and `walkingFactorWithRunning`. A source with `lowerBound: true` (the test only says "at least") is not
   part of the mean: it has `weight` 0, unless it is above the combination of the other tests (or there are no others),
   in which case the profile takes its value and it is the only source with weight. Only sources that are not lower
   bounds can be `discrepant`.
@@ -211,6 +213,11 @@ file untouched. **Version 2** (added in October 2026) adds:
   (no RR intervals from a strap connected to the app), `notEnoughValidWindows`, `noAlpha1Decline` or `vt1OutOfRange`
   (VT1 was not crossed in the test); `quality` and `metrics` may then still be present. A missing block means the result
   has not been analysed (it was written by an app that did not know the analysis).
+- **`outputsWithheld`** (optional, added with thresholds `algorithmVersion` 3): `peakHeartRateBelowMinimum` when the
+  peak heart rate of a maximal test (walking or running) is below 85 % of the maximum heart rate of its inputs. The
+  effort was not maximal: the result has no `outputs` (no VO2max and no maximal aerobic speed, not even as lower bounds),
+  its `effort` is not maximal and its peak is not a maximum heart rate candidate; it stays valid and keeps its thresholds.
+  A test without a usable heart rate is not judged by this rule. Older apps ignore the field.
 
 Derived values are recalculated, not trusted: when the app finds a valid maximal result without `thresholds`, with an older
 `algorithmVersion`, or marked `noWorkoutSamples` while its workout (the workout whose `fitness_test_id` is the result's id)
@@ -221,7 +228,8 @@ seconds after the exhaustion included, so `peakHeartRateBpm`, `hrMaxCandidateBpm
 it may change; the peak never goes down). Stale samples are ignored. The resting heart rate used for
 `percentHeartRateReserve` is the reference of `resting-heart-rate.csv` as it was at the start time of the test (only the
 measurements up to then; without any, the earliest one), so every device that recalculates the same result from the same
-data writes the same document. A result with the current `algorithmVersion` is never recalculated again.
+data writes the same document. A result with the current `algorithmVersion` is never recalculated again. Version 3 finds
+the same thresholds as version 2; it was raised so that every stored result is judged once by the 85 % rule above.
 
 ## Deletions (tombstones)
 

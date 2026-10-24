@@ -1,6 +1,7 @@
 package com.treadz.console.userdata
 
 import com.treadz.console.analysis.fitness.Sex as AnalysisSex
+import com.treadz.console.analysis.thresholds.ThresholdMetrics
 import com.treadz.console.analysis.thresholds.ThresholdPoint
 import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.thresholds.ThresholdResult
@@ -174,5 +175,29 @@ class WorkoutAnalysisContextTest {
         assertEquals("a resting measurement after the workout", f, fingerprint(inputs(weights = base.weights, resting = base.resting + RestingPoint(T0 + 3 * day, 40))))
         assertEquals("another name, height or goal", f, fingerprint(inputs(profile = ana.copy(name = "Anita", heightCm = 170, goal = Goal.LoseWeight), weights = base.weights, resting = base.resting)))
         assertEquals("a weight that is not the nearest one", f, fingerprint(inputs(weights = listOf(weight(1, "2026-08-01", 90.0)) + base.weights, resting = base.resting)))
+    }
+
+    // ---------------------------------------------------------------- α1 slope (thresholds implied by the workouts)
+
+    private fun withSlope(r: FitnessTestResult, slope: Double, quality: ThresholdQuality = ThresholdQuality.Medium) = r.copy(
+        thresholds = ThresholdResult(
+            3, vt1 = ThresholdPoint(130.0), vt2 = ThresholdPoint(150.0), quality = quality,
+            metrics = ThresholdMetrics(31, 48, 50, 0.82, 1.2, slope, 3.53),
+        ),
+    )
+
+    @Test fun `the alpha1 slope is the one of the latest counting test before the workout, and it is in the fingerprint`() {
+        val day = 86_400_000L
+        val older = withSlope(maxTestResult(TEST_2, T0 - 20 * day, peak = 185), -0.020)
+        val newer = withSlope(maxTestResult(TEST_3, T0 - 5 * day, peak = 185), -0.014)
+        assertEquals(-0.014, context(inputs(tests = listOf(older, newer))).alpha1SlopePerBpm!!, 0.0)
+        assertEquals("a low-quality detection does not count", -0.020,
+            context(inputs(tests = listOf(older, withSlope(newer, -0.014, ThresholdQuality.Low)))).alpha1SlopePerBpm!!, 0.0)
+        assertNull("a test after the workout does not count", context(inputs(tests = listOf(older)), T0 - 30 * day).alpha1SlopePerBpm)
+        assertNull("no test with thresholds", context(inputs()).alpha1SlopePerBpm)
+        assertNotEquals(
+            fingerprint(inputs(tests = listOf(older))),
+            fingerprint(inputs(tests = listOf(withSlope(older, -0.030)))),
+        )
     }
 }

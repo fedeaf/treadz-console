@@ -3,6 +3,7 @@ package com.treadz.console.programs.fitness
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.programs.heartrate.HeartRateValidity
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.events.LoadEvent
 
 /** Who is tested. [hrMaxBpm] is the profile's effective maximum heart rate (measured, or estimated). */
 data class FitnessSubject(
@@ -106,6 +107,14 @@ enum class SteadyStateStatus {
     Failed,
 }
 
+/**
+ * The strap check of the warm-up of the two maximal tests: the share of artifacts of the RR received so far in the
+ * warm-up (corrected like the threshold engine does). [poor] is the warning the UI shows ("wet the strap or adjust it"):
+ * more than [FitnessTestConfig.strapCheckMaxArtifactPercent] (5 %). It is recomputed with every batch of RR, so it
+ * clears by itself when the share falls to 5 % or less, and it never blocks the ramp.
+ */
+data class StrapCheck(val artifactPercent: Double, val poor: Boolean)
+
 /** What the UI shows during a test. */
 data class FitnessTestProgress(
     val testType: FitnessTestType? = null,
@@ -157,6 +166,11 @@ data class FitnessTestProgress(
     /** "End test" (early end with cool-down) applies now. */
     val canEndTest: Boolean = false,
     /**
+     * Maximal tests, during the warm-up only: the strap check, from the first minute with RR of a strap connected to the
+     * app. `null` before it can be made, after the ramp starts, in Ebbeling and without RR (the console's heart rate).
+     */
+    val strapCheck: StrapCheck? = null,
+    /**
      * "+1" applies now ([FitnessTestRunner.extendPhase]): the warm-up of the maximal tests and the cool-down of every
      * test. Never while the test measures (Ebbeling's stages, the ramp).
      */
@@ -199,7 +213,8 @@ sealed interface FitnessTestEvent {
     /** The measuring part ended: [result] is already known (the cool-down follows, unless the belt stopped). */
     data class EffortEnded(override val atMillis: Long, val reason: FitnessEndReason, val result: FitnessTestResult) : FitnessTestEvent
 
-    data class Finished(override val atMillis: Long, val result: FitnessTestResult) : FitnessTestEvent
+    /** The test is over. [loadEvents]: the load events of the whole test (the same list as [FitnessTestRunner.loadEvents]). */
+    data class Finished(override val atMillis: Long, val result: FitnessTestResult, val loadEvents: List<LoadEvent> = emptyList()) : FitnessTestEvent
 }
 
 /** Why a user action of the test runner was refused. */

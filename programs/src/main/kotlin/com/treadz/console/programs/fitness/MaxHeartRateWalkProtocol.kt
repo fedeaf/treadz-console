@@ -74,6 +74,7 @@ internal class MaxHeartRateWalkProtocol(
 
     override val startSpeedKmh: Double get() = rampSpeed
     val startInclinePercent: Double get() = rampIncline
+    override val checksStrap: Boolean get() = true
     override val coolDownSeconds: Int get() = config.walkTestCoolDownSeconds
     override val coolDownMaxSpeedKmh: Double get() = config.walkTestCoolDownSpeedKmh
 

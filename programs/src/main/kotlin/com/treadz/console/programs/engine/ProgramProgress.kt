@@ -7,6 +7,7 @@ import com.treadz.console.programs.model.HeartRateAdjust
 import com.treadz.console.programs.plan.ResolvedBlock
 import com.treadz.console.programs.plan.ResolvedPlan
 import com.treadz.console.treadmill.CommandResult
+import com.treadz.console.treadmill.events.LoadEvent
 
 /** Phase of a program run. */
 enum class RunState {
@@ -230,6 +231,8 @@ sealed interface ProgramEvent {
         val stopResult: CommandResult?,
         /** One summary per heart-rate block that ran (also when the program did not complete). */
         val heartRateSummaries: List<HeartRateBlockSummary> = emptyList(),
+        /** The load events of the whole run, the same list as [ProgramRunner.loadEvents] at this moment. */
+        val loadEvents: List<LoadEvent> = emptyList(),
     ) : ProgramEvent
 
     /** The heart-rate control changed the adjusted quantity of the block ([adjust]) from [fromValue] to [toValue]. */

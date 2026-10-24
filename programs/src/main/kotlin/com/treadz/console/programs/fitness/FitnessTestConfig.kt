@@ -83,6 +83,12 @@ data class FitnessTestConfig(
     /** Maximal effort: peak heart rate within this many bpm of the user's maximum. */
     val effortHrMarginBpm: Int = 10,
     /**
+     * A maximal test whose final peak heart rate is below this fraction of the maximum in use is not a maximal effort,
+     * whatever its plateau or duration: it gives no VO2max and no MAS, not even as lower bounds
+     * ([OutputsWithheldReason.PeakHeartRateBelowMinimum]). Does not apply without a usable heart rate.
+     */
+    val minPeakFractionOfHrMax: Double = 0.85,
+    /**
      * Heart-rate plateau: the heart rate at the end of the last completed stage rose by less than [plateauMaxRiseBpm]
      * compared with the end of the stage [plateauStages] stages earlier, although the speed rose by the full
      * increments in between. Together with a confirmed exhaustion it counts as a maximal effort even when the peak
@@ -98,6 +104,14 @@ data class FitnessTestConfig(
     val minMaxTestHeartRateRiseBpm: Double = 10.0,
     val maxTestCoolDownSeconds: Int = 300,
     val maxTestCoolDownSpeedKmh: Double = 5.0,
+
+    // ---------------------------------------------------------------- strap check (both maximal tests, warm-up)
+    /** The check starts this long into the warm-up (it needs a minute of beats)... */
+    val strapCheckFromSeconds: Int = 60,
+    /** ...and needs at least this many beats of RR. */
+    val strapCheckMinBeats: Int = 30,
+    /** The strap is poor when the artifacts exceed this share of the RR received so far in the warm-up, %. */
+    val strapCheckMaxArtifactPercent: Double = 5.0,
 
     // ---------------------------------------------------------------- maximal heart-rate walking test (modified Balke)
     // It reuses the stage length, the 3-min / 5-min incremental thresholds, the peak window and mean, the effort margin,

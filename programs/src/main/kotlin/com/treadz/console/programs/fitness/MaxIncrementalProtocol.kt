@@ -78,6 +78,7 @@ internal class MaxIncrementalProtocol(
 ) {
     override val startSpeedKmh: Double =
         clampSpeed(min(requestedStartSpeedKmh.coerceIn(config.maxTestMinStartSpeedKmh, config.maxTestMaxStartSpeedKmh), capKmh))
+    override val checksStrap: Boolean get() = true
     override val coolDownSeconds: Int get() = config.maxTestCoolDownSeconds
     override val coolDownMaxSpeedKmh: Double get() = config.maxTestCoolDownSpeedKmh
 

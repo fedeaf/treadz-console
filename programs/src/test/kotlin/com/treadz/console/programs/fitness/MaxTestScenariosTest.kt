@@ -33,13 +33,20 @@ class MaxTestScenariosTest {
         model: SimulatedHeartRateModel? = runner(),
         startSpeed: Double = 8.0,
         limits: SafetyLimits = SafetyLimits(),
+        testSubject: FitnessSubject = subject,
     ): FitnessRig {
         val rig = FitnessRig(this, model)
         rig.controller.setLimits(limits)
         rig.connect()
-        assertEquals(FitnessActionResult.Success, rig.runner.startMaxTest(MaxTestParameters(subject, startSpeed)))
+        assertEquals(FitnessActionResult.Success, rig.runner.startMaxTest(MaxTestParameters(testSubject, startSpeed)))
         return rig
     }
+
+    /**
+     * Subjects whose maximum is close enough to the simulated peaks that these are 85 % of it or more (a peak under 85 % of
+     * the maximum in use gives no outputs at all, see FitnessPeakRuleTest): the scenarios below are about other rules.
+     */
+    private fun withMax(bpm: Int) = subject.copy(hrMaxBpm = bpm)
 
     private val FitnessRig.measurements: MaxTestMeasurements get() = result.measurements as MaxTestMeasurements
 
@@ -176,7 +183,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `a heart-rate plateau with confirmed exhaustion is a maximal effort even far below the estimated maximum, but not adopted as HRmax`() = runTest {
-        val rig = started(plateauModel(cap = 130)) // the cap is reached at 12 km/h
+        val rig = started(plateauModel(cap = 130), testSubject = withMax(150)) // the cap is reached at 12 km/h
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(11 * 60_000L + 20_000) // 11 completed stages (8 ... 13), 20 s into the 13.5 km/h stage
         assertEquals(FitnessActionResult.Success, rig.runner.exhausted())
@@ -186,7 +193,7 @@ class MaxTestScenariosTest {
         val m = rig.measurements
         assertEquals(Validity.Valid, r.validity, "${r.flags}")
         assertEquals(130.0, m.peakHeartRateBpm)
-        assertTrue(185 - 130 > 10, "far below the profile maximum")
+        assertTrue(150 - 130 > 10, "far below the maximum in use, though over 85 % of it")
         assertTrue(m.heartRatePlateau)
         assertEquals(0.0, m.plateauRiseBpm!!, 0.01, "130 at 13.0 km/h, 130 at 12.0 km/h")
         assertEquals(EffortAssessment.Maximal, o.effort)
@@ -207,7 +214,7 @@ class MaxTestScenariosTest {
     @Test
     fun `the plateau rule - rise over the last two completed stages below 3 bpm`() = runTest {
         // cap 127: ... 11.5 km/h = 125, 12.0 = 127 (cap), 12.5 = 127. Exhausted 20 s into the 13.0 stage: completed up to 12.5.
-        val flat = started(plateauModel(cap = 127))
+        val flat = started(plateauModel(cap = 127), testSubject = withMax(145))
         flat.awaitPhase(FitnessTestPhase.Incremental)
         delay(10 * 60_000L + 20_000)
         flat.runner.exhausted()
@@ -217,7 +224,7 @@ class MaxTestScenariosTest {
         assertEquals(EffortAssessment.Maximal, flat.result.outputs!!.effort)
 
         // cap 130: 11.5 km/h = 125, 12.0 = 130, 12.5 = 130: rise 5 bpm, still climbing -> no plateau.
-        val rising = started(plateauModel(cap = 130))
+        val rising = started(plateauModel(cap = 130), testSubject = withMax(145))
         rising.awaitPhase(FitnessTestPhase.Incremental)
         delay(10 * 60_000L + 20_000)
         rising.runner.exhausted()
@@ -231,7 +238,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `no plateau - the heart rate keeps rising with the speed and the peak is low - not maximal`() = runTest {
-        val rig = started(plateauModel(cap = 200))
+        val rig = started(plateauModel(cap = 200), testSubject = withMax(165))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(11 * 60_000L + 20_000)
         rig.runner.exhausted()
@@ -248,7 +255,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `a flat heart rate at the speed cap is not a plateau - the speed is not rising`() = runTest {
-        val rig = started(plateauModel(cap = 200), limits = SafetyLimits(maxSpeedKmh = 11.0))
+        val rig = started(plateauModel(cap = 200), limits = SafetyLimits(maxSpeedKmh = 11.0), testSubject = withMax(135))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(10 * 60_000L)
         assertTrue(rig.progress.capReached)
@@ -263,8 +270,8 @@ class MaxTestScenariosTest {
 
     @Test
     fun `a plateau needs an effort of at least 5 min`() = runTest {
-        // 20 bpm per km/h from 70 bpm at 6 km/h, saturating at 80: stages 70, 80, 80, 80; exhaustion at 4 min 20 s.
-        val rig = started(plateauModel(cap = 80, bpmPerKmh = 20.0), startSpeed = 6.0)
+        // 40 bpm per km/h from 70 bpm at 6 km/h, saturating at 90: stages 70, 90, 90, 90; exhaustion at 4 min 20 s.
+        val rig = started(plateauModel(cap = 90, bpmPerKmh = 40.0), startSpeed = 6.0, testSubject = withMax(105))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(260_000)
         rig.runner.exhausted()
@@ -306,7 +313,7 @@ class MaxTestScenariosTest {
         assertNull(rig.result.outputs)
         assertEquals(300, rig.result.coolDownSeconds, "the recovery walk still happens")
 
-        val rig2 = started()
+        val rig2 = started(testSubject = withMax(125))
         rig2.awaitPhase(FitnessTestPhase.Incremental)
         delay(240_000)
         rig2.runner.exhausted()
@@ -445,7 +452,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `STOP after 3 min of the incremental phase counts as exhaustion - valid, no recovery walk`() = runTest {
-        val rig = started()
+        val rig = started(testSubject = withMax(125))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(240_000)
         val speedsBefore = rig.speedCommands
@@ -476,7 +483,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `the belt stopped from the console after 3 min counts as exhaustion too`() = runTest {
-        val rig = started()
+        val rig = started(testSubject = withMax(125))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(250_000)
         rig.sim.physicalStop()
@@ -495,7 +502,7 @@ class MaxTestScenariosTest {
 
     @Test
     fun `STOP at exhaustion with a heart-rate plateau is a maximal effort`() = runTest {
-        val rig = started(plateauModel(cap = 130))
+        val rig = started(plateauModel(cap = 130), testSubject = withMax(150))
         rig.awaitPhase(FitnessTestPhase.Incremental)
         delay(11 * 60_000L + 20_000)
         assertEquals(FitnessActionResult.Success, rig.runner.stop())

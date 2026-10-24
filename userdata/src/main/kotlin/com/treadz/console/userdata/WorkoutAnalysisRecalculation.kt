@@ -1,6 +1,7 @@
 package com.treadz.console.userdata
 
 import com.treadz.console.analysis.fitness.SelfRatedFitness
+import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.trends.DatedValue
 import com.treadz.console.analysis.trends.TestPoint
 import com.treadz.console.analysis.workout.WorkoutAnalysis
@@ -49,7 +50,10 @@ internal class AnalysisUserInputs(
  *    measurements up to then, else the earliest measurement), else the profile's own value;
  *  - **zones**: `ProfileZones.compute(thatLiveProfile, HeartRateProfile(max, resting), the profile's fitness level as the
  *    self-rated one, the age on that day, sex)`;
- *  - **VO2max**: that live profile's VO2max value.
+ *  - **VO2max**: that live profile's VO2max value;
+ *  - **α1 slope**: the `slopePerBpm` of the thresholds of the latest valid test that started before the workout and has
+ *    a VT1 of a quality that counts in the profile (`high` or `medium`), for the thresholds implied by the workout's stable
+ *    stretches; VT2 is the one of the zones.
  *
  * *Accepted limitation*: the values that live in the profile itself have no history (the manual maximum heart rate, the
  * fitness level, the birth date and sex), so their **current** value is used for every date. The same goes for the
@@ -76,8 +80,17 @@ internal object WorkoutAnalysisContexts {
             maxHeartRateBpm = maxBpm,
             zones = zones,
             vo2maxMlKgMin = live.vo2max?.valueMlKgMin,
+            alpha1SlopePerBpm = alpha1SlopeBefore(inputs.tests, workoutStartMillis),
         )
     }
+
+    /** See the class documentation (α1 slope). */
+    fun alpha1SlopeBefore(tests: List<FitnessTestResult>, workoutStartMillis: Long): Double? =
+        tests.filter { r ->
+            val t = r.thresholds
+            r.validity == Validity.Valid && r.startedAtMillis < workoutStartMillis && t?.vt1 != null && t.metrics != null &&
+                (t.quality == ThresholdQuality.High || t.quality == ThresholdQuality.Medium)
+        }.maxWithOrNull(compareBy({ it.startedAtMillis }, { it.id }))?.thresholds?.metrics?.slopePerBpm
 
     /** The latest weight on or before [day], else the earliest after it, else `null`. [weights] are in [WeightEntry] order. */
     fun weightOn(weights: List<WeightEntry>, day: LocalDate): Double? =
@@ -99,14 +112,14 @@ internal data class SampleSignature(val count: Int, val firstMillis: Long?, val 
 /**
  * The fingerprint of the inputs of an analysis: a hash of the **resulting context** (see [WorkoutAnalysisContexts]: sex,
  * weight, resting and maximum heart rate, VO2max and the zones with their source), the workout's start and the
- * [SampleSignature] of its samples. Because it covers the context a past workout is analysed with, a new test, weight,
+ * [SampleSignature] of its samples (format 2 adds the α1 slope and VT2). Because it covers the context a past workout is analysed with, a new test, weight,
  * resting measurement or profile change recomputes exactly the workouts whose context it alters (and any other change,
  * such as renaming the user or a test taken after the workout, none). The algorithm version is stored next to it.
  */
 internal object WorkoutAnalysisFingerprint {
 
     /** Bump to recompute every analysis because the fingerprint itself changed. */
-    private const val FORMAT = 1
+    private const val FORMAT = 2
 
     fun of(startedAtMillis: Long, samples: SampleSignature, context: WorkoutAnalysisContext): String {
         val text = buildString {
@@ -118,6 +131,8 @@ internal object WorkoutAnalysisFingerprint {
             append("|rest=").append(context.restingHeartRateBpm)
             append("|max=").append(context.maxHeartRateBpm)
             append("|vo2=").append(context.vo2maxMlKgMin)
+            append("|a1slope=").append(context.alpha1SlopePerBpm)
+            append("|vt2=").append(context.vt2Bpm)
             append("|zones=")
             context.zones?.let { z ->
                 append(z.zones.joinToString(",") { "${it.number}:${it.lowBpm}:${it.highBpm}" })

@@ -1,6 +1,10 @@
 package com.treadz.console.userdata
 
 import com.treadz.console.analysis.workout.AnalysisReason
+import com.treadz.console.analysis.workout.Section
+import com.treadz.console.analysis.workout.ThresholdEstimatesAnalysis
+import com.treadz.console.analysis.workout.ThresholdKind
+import com.treadz.console.analysis.workout.WorkoutThresholdEstimate
 import com.treadz.console.analysis.workout.WorkoutAnalysisContext
 import com.treadz.console.analysis.workout.WorkoutAnalyzer
 import com.treadz.console.analysis.fitness.Sex
@@ -69,6 +73,19 @@ class WorkoutAnalysisJsonTest {
         val noHr = WorkoutAnalyzer.analyse(neutralSamples(samplesWithoutHeartRate()), context)
         assertEquals(AnalysisReason.NoHeartRate, noHr.trimp.reason)
         assertEquals(noHr, roundTrip(noHr))
+    }
+
+    @Test fun `the thresholds implied by the stable stretches round trip, and older documents read as no reference`() {
+        val estimate = WorkoutThresholdEstimate(
+            ThresholdKind.Vt1, 1_000L, 400_000L, 6.2, 5.0, 12, 1.07, 122.4, -0.0142, 144.9, 381,
+        )
+        val a = fullAnalysis().copy(
+            thresholdEstimates = Section.of(ThresholdEstimatesAnalysis(2, listOf(estimate, estimate.copy(kind = ThresholdKind.Vt2, impliedBpm = 160.1)))),
+        )
+        assertEquals(a, roundTrip(a))
+        val withoutSection = WorkoutAnalysisJson.encode(fullAnalysis()).replace(Regex(",\\s*\"thresholdEstimates\"\\s*:\\s*\\{[^}]*\\}"), "")
+        assertTrue(!withoutSection.contains("thresholdEstimates"))
+        assertEquals(AnalysisReason.NoThresholdReference, WorkoutAnalysisJson.decode(withoutSection).thresholdEstimates.reason)
     }
 
     @Test fun `a document that cannot be read is an error, not a wrong analysis`() {

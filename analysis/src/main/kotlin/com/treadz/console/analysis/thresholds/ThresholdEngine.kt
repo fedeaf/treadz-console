@@ -212,9 +212,11 @@ object ThresholdEngine {
     /**
      * Version of this algorithm (and of the derived values of the tests); stored with every result. 2 (2026-10-21): the
      * tests analyse from the start of the warm-up instead of the start of the ramp, and their peak heart rate includes
-     * the seconds after the end of the effort.
+     * the seconds after the end of the effort. 3 (2026-10-23): a maximal test whose peak heart rate is under 85 % of the
+     * maximum in use gives no VO2max and no MAS (the engine itself is unchanged; the version makes the stored results be
+     * recalculated once with the new rule).
      */
-    const val ALGORITHM_VERSION = 2
+    const val ALGORITHM_VERSION = 3
 
     fun analyse(input: ThresholdInput, rules: ThresholdRules = ThresholdRules()): ThresholdAnalysis {
         val start = input.fromMillis

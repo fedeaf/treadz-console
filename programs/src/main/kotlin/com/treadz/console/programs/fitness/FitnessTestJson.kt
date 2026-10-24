@@ -80,6 +80,10 @@ import java.time.format.DateTimeParseException
  * `notEnoughValidWindows`, `noAlpha1Decline`, `vt1OutOfRange`; then `quality` and `metrics` may still be present).
  * A result is written with the lowest version that holds it: version 1 when it has neither `thresholds` nor an
  * `acsmWalkRamp` VO2max (so older apps keep reading it). Version 1 documents are read as before.
+ *
+ * A valid maximal test whose peak heart rate was under 85 % of the maximum in use has no `outputs` and says why with
+ * `"outputsWithheld": "peakHeartRateBelowMinimum"` (an optional field: it changes no format version, older readers
+ * ignore it and just see a valid test without outputs).
  */
 object FitnessTestJson {
 
@@ -119,6 +123,7 @@ object FitnessTestJson {
             ),
             "outputs" to r.outputs?.let { outputsTree(it) },
             "thresholds" to r.thresholds?.let { thresholdsTree(it) },
+            "outputsWithheld" to r.outputsWithheld,
             "durations" to linkedMapOf("effortSeconds" to r.effortSeconds, "coolDownSeconds" to r.coolDownSeconds),
             when (val m = r.measurements) {
                 is EbbelingMeasurements -> "ebbeling" to ebbelingTree(m)
@@ -322,6 +327,7 @@ object FitnessTestJson {
             outputs = o.optObj("outputs")?.let { outputsFrom(it) },
             thresholds = o.optObj("thresholds")?.let { thresholdsFrom(it) },
             schemaVersion = version,
+            outputsWithheld = o.optEnum("outputsWithheld", OutputsWithheldReason.entries.toTypedArray()),
         )
     }
 
@@ -489,7 +495,7 @@ object FitnessTestJson {
      * }
      * ```
      * Added on 2026-10-17 (optional, the profile stays at version 1 because older apps ignore unknown fields):
-     * `thresholds`; in `rules` `submaximalFactorWithMaximal`, `maximalRecencyDays` and `discrepancyFactor`; in
+     * `thresholds`; in `rules` `submaximalFactorWithMaximal`, `maximalRecencyDays`, `discrepancyFactor` and `walkingFactorWithRunning`; in
      * `vo2max` `discrepancy` (only when true); in each VO2max source `weightFactor` (only when not 1) and `discrepant`
      * (only when true).
      */
@@ -506,6 +512,7 @@ object FitnessTestJson {
                     "submaximalFactorWithMaximal" to profile.rules.submaximalFactorWithMaximal,
                     "maximalRecencyDays" to profile.rules.maximalRecencyDays,
                     "discrepancyFactor" to profile.rules.discrepancyFactor,
+                    "walkingFactorWithRunning" to profile.rules.walkingFactorWithRunning,
                 ),
                 "vo2max" to profile.vo2max?.let { v ->
                     compact(
@@ -669,6 +676,7 @@ object FitnessTestJson {
                 submaximalFactorWithMaximal = it.optDouble("submaximalFactorWithMaximal") ?: defaults.submaximalFactorWithMaximal,
                 maximalRecencyDays = it.optInt("maximalRecencyDays") ?: defaults.maximalRecencyDays,
                 discrepancyFactor = it.optDouble("discrepancyFactor") ?: defaults.discrepancyFactor,
+                walkingFactorWithRunning = it.optDouble("walkingFactorWithRunning") ?: defaults.walkingFactorWithRunning,
             )
         } ?: defaults
         return FitnessProfile(

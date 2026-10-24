@@ -150,7 +150,7 @@ class PerformanceUiTest {
         exists("analysis_panel")
         listOf(
             "analysis_kcal_net", "analysis_kcal_gross", "analysis_mets", "analysis_vo2", "analysis_zones", "analysis_zone_2",
-            "analysis_trimp", "analysis_efficiency", "analysis_decoupling", "analysis_long_zone2", "analysis_recovery", "analysis_recovery_context",
+            "analysis_trimp", "analysis_efficiency", "analysis_recovery", "analysis_recovery_context",
             "analysis_alpha1_below", "analysis_alpha1_above", "analysis_alpha1_mean", "analysis_coverage", "analysis_sources", "analysis_artifacts",
         ).forEach { exists(it) }
         gone("analysis_note_NoHeartRate")

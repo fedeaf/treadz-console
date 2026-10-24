@@ -366,9 +366,6 @@ internal data class WorkoutAnalysisEntity(
     val trimp: Double?,
     /** Aerobic fitness index (ml/kg/min). */
     val fitnessIndex: Double?,
-    val decouplingPercent: Double?,
-    /** The decoupling comes from a long steady zone 2 session (the comparable ones). */
-    val longSteadyZone2: Boolean,
     val recoveryDrop60Bpm: Double?,
     val recoveryDrop120Bpm: Double?,
     /** `RecoveryContext` name. */

@@ -45,22 +45,6 @@ object FitnessIndexTrends {
     }
 }
 
-data class DecouplingPoint(val epochDay: Long, val decouplingPercent: Double, val analysedSeconds: Int)
-
-/** @property slopePer30Days Change of the decoupling, percentage points **per 30 days**; `null` if not computable. */
-data class DecouplingTrend(val points: List<DecouplingPoint>, val slopePer30Days: Double?)
-
-/** Decoupling of the long steady zone 2 sessions (see `DecouplingAnalysis.longSteadyZone2`), the comparable ones. */
-object DecouplingTrends {
-
-    fun compute(analyses: List<DatedAnalysis>): DecouplingTrend {
-        val points = analyses.sortedBy { it.epochDay }.mapNotNull { a ->
-            a.analysis.decoupling.value?.takeIf { it.longSteadyZone2 }?.let { DecouplingPoint(a.epochDay, it.decouplingPercent, it.analysedSeconds) }
-        }
-        return DecouplingTrend(points, TrendMath.slopePer30Days(points.map { it.epochDay }, points.map { it.decouplingPercent }))
-    }
-}
-
 /** One heart-rate recovery. */
 data class RecoveryPoint(
     val epochDay: Long,

@@ -122,7 +122,7 @@ class WorkoutAnalyzerBasicsTest {
     fun `without heart rate only the energy`() {
         val a = analyse(session(600, heartRate = { null }))
         assertNotNull(a.energy.value)
-        for (reason in listOf(a.zoneTime.reason, a.trimp.reason, a.efficiency.reason, a.decoupling.reason, a.fitnessIndex.reason, a.recovery.reason, a.alpha1.reason)) {
+        for (reason in listOf(a.zoneTime.reason, a.trimp.reason, a.efficiency.reason, a.fitnessIndex.reason, a.recovery.reason, a.alpha1.reason)) {
             assertEquals(AnalysisReason.NoHeartRate, reason)
         }
         assertEquals(0.0, a.signal.heartRateCoverage!!, 1e-12)

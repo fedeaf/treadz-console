@@ -27,8 +27,8 @@ import kotlin.math.roundToInt
  * sections measure exercise, so they count only the seconds with the belt **moving** (speed above 0); pauses and the
  * countdown at the start are not exercise (the ACSM equations do not describe them either). The recovery is the one
  * section that looks at the stopped belt. A heart rate outside 30-250 bpm, or frozen (a console or unknown-source value
- * unchanged for more than 5 min, *assumption*), is treated as missing. The whole-session heart-rate sections (zones, TRIMP, efficiency,
- * decoupling) need the heart rate for 80 % of the moving seconds; the local ones need it where they look (fitness index:
+ * unchanged for more than 5 min, *assumption*), is treated as missing. The whole-session heart-rate sections (zones, TRIMP,
+ * efficiency) need the heart rate for 80 % of the moving seconds; the local ones need it where they look (fitness index:
  * 80 % of each stretch; recovery: 80 % of the peak window and data at the marks; α1: valid windows), so a session with
  * the strap connected late still gives them.
  *
@@ -42,15 +42,8 @@ import kotlin.math.roundToInt
  *     e^(b·HRr), HRr = (HR − resting) / (maximum − resting) limited to 0-1; men k = 0.64, b = 1.92; women k = 0.86,
  *     b = 1.67. Without a resting heart rate, the one assumed for the zones ([HeartRateBands.ASSUMED_RESTING_FRACTION] of
  *     the maximum) is used and flagged.
- *  4. **Efficiency factor and decoupling** (Friel J. The Triathlete's Training Bible, Pa:HR): EF = mean VO2 / mean heart
- *     rate; decoupling = (EF₁ − EF₂) / EF₁ between the two halves of the main block. Using the computed VO2 instead of
- *     the speed makes it valid when the incline changes. *Assumption (no program information)*: the **main block** runs
- *     from the first moving second to the end of the session minus a trailing **cool-down**, detected from the load: the
- *     typical net oxygen demand is the median of the moving seconds after the first 5 min, and the cool-down is the end
- *     of the session where the net demand stays below 80 % of it. The first 5 min are left out (the heart rate is still
- *     rising), the rest must last ≥ 20 min and have 90 % of its seconds moving with a heart rate. *Assumption*: a **long
- *     steady zone 2** session is one that passed all that and has ≥ 75 % of the analysed seconds in zones 1-2 (zone
- *     set of the context); the trends use it to follow the decoupling.
+ *  4. **Efficiency factor** (Friel J. The Triathlete's Training Bible): EF = mean VO2 / mean heart rate of the moving
+ *     seconds with a heart rate. Using the computed VO2 instead of the speed makes it valid when the incline changes.
  *  5. **Aerobic fitness index** (trend only, not the profile VO2max): in each stretch of steady load of ≥ 3 min (speed and
  *     incline within 0.3 km/h and 1 % of its start; *assumption*), the last 60 % gives mean VO2 and mean heart rate;
  *     VO2max ≈ 3.5 + (VO2 − 3.5) / HRr, because the % of the heart-rate reserve ≈ the % of the VO2 reserve (Swain DP,
@@ -127,7 +120,6 @@ object WorkoutAnalyzer {
             zoneTime = gated(hrGate) { context.zones?.let { zoneTime(tl, it) } ?: Section.missing(AnalysisReason.NoZones) },
             trimp = gated(maxGate) { trimp(tl, context) },
             efficiency = gated(hrGate) { efficiency(tl) },
-            decoupling = gated(hrGate) { AerobicSections.decoupling(tl, context.zones, rules) },
             fitnessIndex = gated(localMaxGate) { AerobicSections.fitnessIndex(tl, context, rules) },
             recovery = gated(anyHrGate) { RecoverySection.compute(tl, rules) },
             alpha1 = gated(anyHrGate) { Alpha1Section.compute(tl, rr, cleaned, rules) },

@@ -364,8 +364,6 @@ class RoomWorkoutAnalysisRecalculationTest : WorkoutAnalysisRecalculationTest() 
         assertEquals(stored.trimp.value?.trimp, row.trimp)
         assertNotNull(row.trimp)
         assertEquals(stored.fitnessIndex.value?.vo2maxEstimate, row.fitnessIndex)
-        assertEquals(stored.decoupling.value?.decouplingPercent, row.decouplingPercent)
-        assertEquals(stored.decoupling.value?.longSteadyZone2 ?: false, row.longSteadyZone2)
         assertEquals(stored.recovery.value?.drop60Bpm, row.recoveryDrop60Bpm)
         assertEquals(stored.recovery.value?.drop120Bpm, row.recoveryDrop120Bpm)
         assertEquals(stored.recovery.value?.context?.name, row.recoveryContext)
@@ -378,8 +376,6 @@ class RoomWorkoutAnalysisRecalculationTest : WorkoutAnalysisRecalculationTest() 
         val row = db.workoutAnalysis().observe(noHr).first()!!
         assertNull(row.trimp)
         assertNull(row.fitnessIndex)
-        assertNull(row.decouplingPercent)
-        assertEquals(false, row.longSteadyZone2)
         assertNull(row.recoveryContext)
     }
 

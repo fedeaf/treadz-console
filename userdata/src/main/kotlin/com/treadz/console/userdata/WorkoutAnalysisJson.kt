@@ -3,7 +3,6 @@ package com.treadz.console.userdata
 import com.treadz.console.analysis.energy.FuelAnchors
 import com.treadz.console.analysis.fitness.Sex
 import com.treadz.console.analysis.workout.AnalysisReason
-import com.treadz.console.analysis.workout.DecouplingAnalysis
 import com.treadz.console.analysis.workout.EfficiencyAnalysis
 import com.treadz.console.analysis.workout.EnergyAnalysis
 import com.treadz.console.analysis.workout.FitnessIndexAnalysis
@@ -47,7 +46,6 @@ internal object WorkoutAnalysisJson {
             "zoneTime" to writeSection(analysis.zoneTime, ::writeZoneTime),
             "trimp" to writeSection(analysis.trimp, ::writeTrimp),
             "efficiency" to writeSection(analysis.efficiency, ::writeEfficiency),
-            "decoupling" to writeSection(analysis.decoupling, ::writeDecoupling),
             "fitnessIndex" to writeSection(analysis.fitnessIndex, ::writeFitnessIndex),
             "recovery" to writeSection(analysis.recovery, ::writeRecovery),
             "alpha1" to writeSection(analysis.alpha1, ::writeAlpha1),
@@ -75,7 +73,7 @@ internal object WorkoutAnalysisJson {
             zoneTime = readSection(root, "zoneTime", ::readZoneTime),
             trimp = readSection(root, "trimp", ::readTrimp),
             efficiency = readSection(root, "efficiency", ::readEfficiency),
-            decoupling = readSection(root, "decoupling", ::readDecoupling),
+            // Documents written before the decoupling was removed (2026-10-25) still have a "decoupling" section: ignored.
             fitnessIndex = readSection(root, "fitnessIndex", ::readFitnessIndex),
             recovery = readSection(root, "recovery", ::readRecovery),
             alpha1 = readSection(root, "alpha1", ::readAlpha1),
@@ -153,16 +151,6 @@ internal object WorkoutAnalysisJson {
         "meanHeartRateBpm" to e.meanHeartRateBpm,
         "efficiencyFactor" to e.efficiencyFactor,
         "seconds" to e.seconds,
-    )
-
-    private fun writeDecoupling(d: DecouplingAnalysis) = linkedMapOf(
-        "mainBlockSeconds" to d.mainBlockSeconds,
-        "analysedSeconds" to d.analysedSeconds,
-        "ef1" to d.ef1,
-        "ef2" to d.ef2,
-        "decouplingPercent" to d.decouplingPercent,
-        "zone12Fraction" to d.zone12Fraction,
-        "longSteadyZone2" to d.longSteadyZone2,
     )
 
     private fun writeFitnessIndex(f: FitnessIndexAnalysis) = linkedMapOf(
@@ -292,16 +280,6 @@ internal object WorkoutAnalysisJson {
         meanHeartRateBpm = o.double("meanHeartRateBpm"),
         efficiencyFactor = o.double("efficiencyFactor"),
         seconds = o.int("seconds"),
-    )
-
-    private fun readDecoupling(o: Obj) = DecouplingAnalysis(
-        mainBlockSeconds = o.int("mainBlockSeconds"),
-        analysedSeconds = o.int("analysedSeconds"),
-        ef1 = o.double("ef1"),
-        ef2 = o.double("ef2"),
-        decouplingPercent = o.double("decouplingPercent"),
-        zone12Fraction = o.optDouble("zone12Fraction"),
-        longSteadyZone2 = o.boolean("longSteadyZone2"),
     )
 
     private fun readFitnessIndex(o: Obj) = FitnessIndexAnalysis(

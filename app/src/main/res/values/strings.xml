@@ -1153,7 +1153,6 @@
     <string name="perf_recovery_empty">Needs a workout with heart rate that ends with a stop or a clear slow-down.</string>
     <string name="perf_resting_empty">Needs resting heart rate measurements.</string>
     <string name="perf_weight_empty">Needs a fitness test and your weight.</string>
-    <string name="perf_decoupling_empty">Needs a steady zone 2 session of at least 25 minutes with heart rate.</string>
     <string name="perf_change_vs_test">%1$s vs the previous test</string>
     <string name="perf_lower_bound_tag">Lower bound</string>
     <string name="perf_vt1_short">VT1</string>
@@ -1170,10 +1169,6 @@
     <string name="perf_chart_fitness">Fitness index of each session (ml/kg/min)</string>
     <string name="perf_legend_session">Each session</string>
     <string name="perf_legend_median">Median of the last 5 sessions</string>
-    <string name="perf_decoupling_title">Heart-rate drift in long zone 2 sessions</string>
-    <string name="perf_decoupling_help">How much the heart rate rose for the same effort between the first and the second half (decoupling). Lower is better.</string>
-    <string name="perf_decoupling_per_30">%1$s points per 30 days</string>
-    <string name="perf_chart_decoupling">Decoupling of each long zone 2 session (%)</string>
     <string name="perf_load_last_7">Last 7 days</string>
     <string name="perf_load_trimp_unit">TRIMP</string>
     <string name="perf_load_vs_previous">%1$s vs the 7 days before</string>
@@ -1223,8 +1218,6 @@
     <string name="analysis_trimp_assumed">Resting heart rate assumed</string>
     <string name="analysis_efficiency">Efficiency factor</string>
     <string name="analysis_efficiency_note">Oxygen per heartbeat (ml/kg): higher means a more efficient heart.</string>
-    <string name="analysis_decoupling">Heart-rate drift (decoupling)</string>
-    <string name="analysis_long_zone2">Long steady zone 2 session</string>
     <string name="analysis_fitness">Fitness index of this session</string>
     <string name="analysis_fitness_note">Steady stretches: %1$d. A trend marker, not your VO2max.</string>
     <string name="analysis_fitness_rest_assumed">Resting heart rate assumed.</string>

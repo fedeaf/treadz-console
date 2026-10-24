@@ -1153,7 +1153,6 @@
     <string name="perf_recovery_empty">Necesita un entrenamiento con pulso que acabe con una parada o una bajada clara de ritmo.</string>
     <string name="perf_resting_empty">Necesita mediciones de pulso en reposo.</string>
     <string name="perf_weight_empty">Necesita un test de forma y tu peso.</string>
-    <string name="perf_decoupling_empty">Necesita una sesión de zona 2 estable de al menos 25 minutos con pulso.</string>
     <string name="perf_change_vs_test">%1$s respecto al test anterior</string>
     <string name="perf_lower_bound_tag">Valor mínimo</string>
     <string name="perf_vt1_short">VT1</string>
@@ -1170,10 +1169,6 @@
     <string name="perf_chart_fitness">Índice de forma de cada sesión (ml/kg/min)</string>
     <string name="perf_legend_session">Cada sesión</string>
     <string name="perf_legend_median">Mediana de las últimas 5 sesiones</string>
-    <string name="perf_decoupling_title">Deriva del pulso en sesiones largas de zona 2</string>
-    <string name="perf_decoupling_help">Cuánto subió el pulso para el mismo esfuerzo entre la primera y la segunda mitad (desacople). Cuanto menos, mejor.</string>
-    <string name="perf_decoupling_per_30">%1$s puntos cada 30 días</string>
-    <string name="perf_chart_decoupling">Desacople de cada sesión larga de zona 2 (%)</string>
     <string name="perf_load_last_7">Últimos 7 días</string>
     <string name="perf_load_trimp_unit">TRIMP</string>
     <string name="perf_load_vs_previous">%1$s respecto a los 7 días anteriores</string>
@@ -1223,8 +1218,6 @@
     <string name="analysis_trimp_assumed">Pulso en reposo supuesto</string>
     <string name="analysis_efficiency">Factor de eficiencia</string>
     <string name="analysis_efficiency_note">Oxígeno por latido (ml/kg): más es un corazón más eficiente.</string>
-    <string name="analysis_decoupling">Deriva del pulso (desacople)</string>
-    <string name="analysis_long_zone2">Sesión larga y estable de zona 2</string>
     <string name="analysis_fitness">Índice de forma de esta sesión</string>
     <string name="analysis_fitness_note">Tramos estables: %1$d. Una marca de tendencia, no tu VO2máx.</string>
     <string name="analysis_fitness_rest_assumed">Pulso en reposo supuesto.</string>

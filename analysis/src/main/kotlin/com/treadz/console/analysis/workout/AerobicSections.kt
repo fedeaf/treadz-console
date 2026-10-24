@@ -1,51 +1,12 @@
 package com.treadz.console.analysis.workout
 
 import com.treadz.console.analysis.fitness.Acsm
-import com.treadz.console.analysis.zones.ZoneSet
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-/** Efficiency-based sections of [WorkoutAnalyzer]: the decoupling and the aerobic fitness index. */
+/** Efficiency-based section of [WorkoutAnalyzer]: the aerobic fitness index. */
 internal object AerobicSections {
-
-    fun decoupling(tl: WorkoutTimeline, zones: ZoneSet?, rules: AnalysisRules): Section<DecouplingAnalysis> {
-        val first = tl.moving.indexOfFirst { it }
-        val start = first + rules.warmUpSeconds
-        // Typical net demand of the session after the warm-up: the median is not moved by a short cool-down.
-        val nets = (start until tl.size).filter { tl.moving[it] }.map { tl.vo2[it] - Acsm.REST_VO2 }
-        if (nets.isEmpty()) return Section.missing(AnalysisReason.TooShort)
-        val typical = Stats.median(nets)
-        var blockEnd = -1
-        for (k in tl.size - 1 downTo first) {
-            if (tl.moving[k] && tl.vo2[k] - Acsm.REST_VO2 >= rules.coolDownFraction * typical) {
-                blockEnd = k
-                break
-            }
-        }
-        val span = blockEnd - start + 1
-        if (blockEnd < 0 || span < rules.minDecouplingSeconds) return Section.missing(AnalysisReason.TooShort)
-        val ticks = (start..blockEnd).filter { tl.moving[it] && tl.hr[it] > 0 }
-        if (ticks.size < rules.minBlockContinuity * span - 1e-9) return Section.missing(AnalysisReason.Interrupted)
-        val half = ticks.size / 2
-        val ef1 = ef(tl, ticks.subList(0, half))
-        val ef2 = ef(tl, ticks.subList(ticks.size - half, ticks.size))
-        val zone12 = zones?.let { z -> ticks.count { WorkoutAnalyzer.zoneIndex(z, tl.hr[it]) <= 1 }.toDouble() / ticks.size }
-        return Section.of(
-            DecouplingAnalysis(
-                mainBlockSeconds = blockEnd - first + 1,
-                analysedSeconds = span,
-                ef1 = ef1,
-                ef2 = ef2,
-                decouplingPercent = (ef1 - ef2) / ef1 * 100.0,
-                zone12Fraction = zone12,
-                longSteadyZone2 = zone12 != null && zone12 >= rules.zone2MinFraction,
-            ),
-        )
-    }
-
-    private fun ef(tl: WorkoutTimeline, ticks: List<Int>): Double =
-        ticks.sumOf { tl.vo2[it] } / ticks.size / (ticks.sumOf { tl.hr[it].toDouble() } / ticks.size)
 
     fun fitnessIndex(tl: WorkoutTimeline, context: WorkoutAnalysisContext, rules: AnalysisRules): Section<FitnessIndexAnalysis> {
         val (rest, assumed) = WorkoutAnalyzer.restingFor(context)

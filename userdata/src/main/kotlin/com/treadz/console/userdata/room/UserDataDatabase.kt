@@ -21,6 +21,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 6. The cache of the per-workout analysis: table `workout_analysis` (derived data, never synchronised). See
  *    [Migration5To6].
  * 7. The events of a workout (what changed the load during it): column `workouts.eventsJson`. See [Migration6To7].
+ * 8. The decoupling is no longer part of the analysis: columns `decouplingPercent` and `longSteadyZone2` of
+ *    `workout_analysis` removed. See [Migration7To8].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -56,7 +58,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun workoutAnalysis(): WorkoutAnalysisDao
 
     companion object {
-        const val VERSION = 7
+        const val VERSION = 8
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -66,7 +68,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7(), Migration7To8())
     }
 }
 
@@ -262,5 +264,33 @@ internal class Migration6To7 : Migration(6, 7) {
 
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `workouts` ADD COLUMN `eventsJson` TEXT")
+    }
+}
+
+/**
+ * Version 7 to 8 (the decoupling removed from the analysis). Drops the columns `decouplingPercent` and `longSteadyZone2` of
+ * the analysis cache: the SQLite of Android 13 (3.32, the minimum version of the app) has no `DROP COLUMN` (3.35), so the
+ * table is rebuilt with the statement of the exported version-8 schema and its rows are copied, every other value as it
+ * was. Nothing is flagged
+ * `dirty` (the analyses are never synchronised) and nothing is recalculated: the documents keep a `decoupling` section
+ * that is no longer read.
+ */
+internal class Migration7To8 : Migration(7, 8) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workout_analysis_new` (`workoutId` INTEGER NOT NULL, `algorithmVersion` INTEGER NOT NULL, " +
+                "`fingerprint` TEXT NOT NULL, `computedAtMillis` INTEGER NOT NULL, `json` TEXT NOT NULL, `trimp` REAL, `fitnessIndex` REAL, " +
+                "`recoveryDrop60Bpm` REAL, `recoveryDrop120Bpm` REAL, `recoveryContext` TEXT, PRIMARY KEY(`workoutId`), " +
+                "FOREIGN KEY(`workoutId`) REFERENCES `workouts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL(
+            "INSERT INTO `workout_analysis_new` (`workoutId`, `algorithmVersion`, `fingerprint`, `computedAtMillis`, `json`, `trimp`, " +
+                "`fitnessIndex`, `recoveryDrop60Bpm`, `recoveryDrop120Bpm`, `recoveryContext`) SELECT `workoutId`, `algorithmVersion`, " +
+                "`fingerprint`, `computedAtMillis`, `json`, `trimp`, `fitnessIndex`, `recoveryDrop60Bpm`, `recoveryDrop120Bpm`, " +
+                "`recoveryContext` FROM `workout_analysis`",
+        )
+        db.execSQL("DROP TABLE `workout_analysis`")
+        db.execSQL("ALTER TABLE `workout_analysis_new` RENAME TO `workout_analysis`")
     }
 }

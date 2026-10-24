@@ -4,8 +4,6 @@ import com.treadz.console.analysis.thresholds.ThresholdQuality
 import com.treadz.console.analysis.trends.AbsoluteVo2
 import com.treadz.console.analysis.trends.AbsoluteVo2Point
 import com.treadz.console.analysis.trends.DatedValue
-import com.treadz.console.analysis.trends.DecouplingTrend
-import com.treadz.console.analysis.trends.DecouplingTrends
 import com.treadz.console.analysis.trends.EpochDays
 import com.treadz.console.analysis.trends.FitnessIndexTrend
 import com.treadz.console.analysis.trends.FitnessIndexTrends
@@ -40,7 +38,6 @@ data class PerformanceTrends(
     val todayEpochDay: Long,
     val tests: TestSeries,
     val fitnessIndex: FitnessIndexTrend,
-    val decoupling: DecouplingTrend,
     val loadDays: List<LoadDay>,
     val loadWeeks: List<LoadWeek>,
     val zoneWeeks: List<ZoneWeek>,
@@ -98,9 +95,6 @@ data class PerformanceTrends(
 
     val rmssdChange: Double? get() = weekChange(rmssdMean)
 
-    /** There is at least one long steady zone 2 session with a decoupling. */
-    val hasDecoupling: Boolean get() = decoupling.points.isNotEmpty()
-
     companion object {
         /** The mean at the latest day minus the mean at the latest day at least a week earlier; `null` without one. */
         fun weekChange(means: List<TrailingMean>): Double? {
@@ -132,7 +126,6 @@ object PerformanceTrendsCalculator {
             todayEpochDay = todayEpochDay,
             tests = TestTrends.series(inputs.tests),
             fitnessIndex = FitnessIndexTrends.compute(dated),
-            decoupling = DecouplingTrends.compute(dated),
             loadDays = days.filter { it.epochDay >= firstLoadDay },
             loadWeeks = LoadTrends.weekly(days.filter { it.epochDay >= firstShownWeek }),
             zoneWeeks = ZoneDistributionTrends.weekly(dated, todayEpochDay).filter { it.weekStartEpochDay >= firstShownWeek },

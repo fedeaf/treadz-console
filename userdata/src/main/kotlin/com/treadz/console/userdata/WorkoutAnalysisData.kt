@@ -32,7 +32,7 @@ data class DatedWorkoutAnalysis(
     val epochDay: Long,
     val analysis: WorkoutAnalysis,
 ) {
-    /** The input of `FitnessIndexTrends`, `DecouplingTrends`, `RecoveryTrends`, `LoadTrends` and `ZoneDistributionTrends`. */
+    /** The input of `FitnessIndexTrends`, `RecoveryTrends`, `LoadTrends` and `ZoneDistributionTrends`. */
     val dated: DatedAnalysis get() = DatedAnalysis(epochDay, analysis)
 }
 

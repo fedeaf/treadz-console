@@ -2,7 +2,6 @@ package com.treadz.console.userdata
 
 import com.treadz.console.analysis.samples.WorkoutSample as AnalysisSample
 import com.treadz.console.analysis.workout.AnalysisReason
-import com.treadz.console.analysis.workout.DecouplingAnalysis
 import com.treadz.console.analysis.workout.EfficiencyAnalysis
 import com.treadz.console.analysis.workout.EnergyAnalysis
 import com.treadz.console.analysis.workout.FitnessIndexAnalysis
@@ -67,7 +66,6 @@ fun fullAnalysis(version: Int = WorkoutAnalyzer.ALGORITHM_VERSION) = WorkoutAnal
     zoneTime = Section.of(ZoneTimeAnalysis(zones(), listOf(10, 120, 300, 100, 50), 580)),
     trimp = Section.of(TrimpAnalysis(61.5, 9.83, 58, restingAssumed = true)),
     efficiency = Section.of(EfficiencyAnalysis(21.4, 141.5, 0.1512, 580)),
-    decoupling = Section.of(DecouplingAnalysis(1500, 1200, 0.155, 0.15, 3.2, 0.82, longSteadyZone2 = true)),
     fitnessIndex = Section.of(FitnessIndexAnalysis(41.7, 2, 3, listOf(40.9, 42.5), restingAssumed = false)),
     recovery = Section.of(RecoveryAnalysis(171.5, 1_791_374_400_000L + 540_000, 28.0, 41.5, RecoveryContext.BeltStopped, 3.5)),
     alpha1 = Section.of(SessionAlpha1(40, 35, 300, 50, 0.81)),
@@ -81,13 +79,12 @@ fun sparseAnalysis() = WorkoutAnalysis(
     zoneTime = Section.of(ZoneTimeAnalysis(zones(ZoneSource.Default, vt2FromTable = true), listOf(0, 0, 0, 0, 0), 0)),
     trimp = Section.missing(AnalysisReason.NoHeartRate),
     efficiency = Section.missing(AnalysisReason.NoHeartRate),
-    decoupling = Section.of(DecouplingAnalysis(1500, 1200, 0.155, 0.15, -1.0, null, longSteadyZone2 = false)),
     fitnessIndex = Section.missing(AnalysisReason.NoHeartRate),
     recovery = Section.of(RecoveryAnalysis(150.0, 5L, null, null, RecoveryContext.BeltMoving, 12.0)),
     alpha1 = Section.missing(AnalysisReason.NoRrIntervals),
 )
 
-/** An analysis whose eight sections are missing, each for the reason of [reasons] (cyclically). */
+/** An analysis whose seven sections are missing, each for the reason of [reasons] (cyclically). */
 fun analysisWithReasons(reasons: List<AnalysisReason>): WorkoutAnalysis {
     fun reason(i: Int) = reasons[i % reasons.size]
     return WorkoutAnalysis(
@@ -97,10 +94,9 @@ fun analysisWithReasons(reasons: List<AnalysisReason>): WorkoutAnalysis {
         zoneTime = Section.missing(reason(1)),
         trimp = Section.missing(reason(2)),
         efficiency = Section.missing(reason(3)),
-        decoupling = Section.missing(reason(4)),
-        fitnessIndex = Section.missing(reason(5)),
-        recovery = Section.missing(reason(6)),
-        alpha1 = Section.missing(reason(7)),
+        fitnessIndex = Section.missing(reason(4)),
+        recovery = Section.missing(reason(5)),
+        alpha1 = Section.missing(reason(6)),
     )
 }
 

@@ -58,23 +58,7 @@ class TrendsTest {
         assertNull(FitnessIndexTrends.compute(sessions).slopePer30Days)
     }
 
-    // ------------------------------------------------------------------ decoupling and recovery
-
-    @Test
-    fun `decoupling trend only takes long steady zone 2 sessions`() {
-        val a = listOf(
-            dated(0, analysis(decoupling = TrendFixtures.decoupling(8.0, steady = true))),
-            dated(10, analysis(decoupling = TrendFixtures.decoupling(20.0, steady = false))),
-            dated(15, analysis(decoupling = TrendFixtures.decoupling(6.0, steady = true))),
-            dated(30, analysis(decoupling = TrendFixtures.decoupling(4.0, steady = true))),
-            dated(31, analysis()),
-        )
-        val t = DecouplingTrends.compute(a)
-        assertEquals(listOf(0L, 15L, 30L), t.points.map { it.epochDay })
-        assertEquals(listOf(8.0, 6.0, 4.0), t.points.map { it.decouplingPercent })
-        // Exactly linear: -4 points in 30 days.
-        assertEquals(-4.0, t.slopePer30Days!!, 0.3)
-    }
+    // ------------------------------------------------------------------ recovery
 
     @Test
     fun `recovery is grouped by context`() {

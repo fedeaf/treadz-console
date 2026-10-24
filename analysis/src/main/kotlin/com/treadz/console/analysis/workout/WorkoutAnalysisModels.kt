@@ -29,12 +29,6 @@ enum class AnalysisReason {
     /** No zone set was given in the context. */
     NoZones,
 
-    /** The session (or its main block) is too short for this metric. */
-    TooShort,
-
-    /** The main block has too many interruptions (belt stopped, gaps, missing heart rate) for a decoupling. */
-    Interrupted,
-
     /** No stretch of steady load long enough, or none with a usable heart-rate reserve fraction. */
     NoSteadyStretch,
 
@@ -119,7 +113,7 @@ data class AnalysisRules(
     val minHeartRateBpm: Int = 30,
     val maxHeartRateBpm: Int = 250,
     /**
-     * The whole-session heart-rate sections (zones, TRIMP, efficiency, decoupling) need it for at least this share of
+     * The whole-session heart-rate sections (zones, TRIMP, efficiency) need it for at least this share of
      * the time the belt moved; the local ones (fitness index, recovery) need it for this share of the span they use.
      */
     val minHeartRateCoverage: Double = 0.8,
@@ -129,17 +123,6 @@ data class AnalysisRules(
      * a steady load, change within a few minutes (the longest real run seen is under 2 min). Strap readings are exempt.
      */
     val maxFrozenHeartRateSeconds: Int = 300,
-
-    /** Decoupling: the first minutes of the main block are left out (the heart rate is still rising). */
-    val warmUpSeconds: Int = 300,
-    /** Decoupling: minimum length of the analysed part of the main block (after the warm-up). */
-    val minDecouplingSeconds: Int = 1200,
-    /** Decoupling: the analysed part needs this share of its seconds with the belt moving and a heart rate. */
-    val minBlockContinuity: Double = 0.9,
-    /** A trailing cool-down is the end of the session where the net oxygen demand is below this share of the typical one. */
-    val coolDownFraction: Double = 0.8,
-    /** A long steady zone 2 session has at least this share of the analysed main block in zones 1-2. */
-    val zone2MinFraction: Double = 0.75,
 
     /** Fitness index: minimum length of a steady-load stretch. */
     val steadyMinSeconds: Int = 180,
@@ -282,27 +265,6 @@ data class EfficiencyAnalysis(
 )
 
 /**
- * Aerobic decoupling (Pa:HR) of the main block.
- *
- * @property mainBlockSeconds From the first moving second to the end of the main block (cool-down removed).
- * @property analysedSeconds The part analysed: the main block without its first [AnalysisRules.warmUpSeconds].
- * @property ef1 Efficiency factor of the first half, [ef2] of the second.
- * @property decouplingPercent (EF₁ − EF₂) / EF₁ · 100: positive when the heart rate drifts up for the same load.
- * @property zone12Fraction Share of the analysed moving seconds with a heart rate in zones 1-2; `null` without zones.
- * @property longSteadyZone2 The block is long (it passed the minimum for the decoupling) and
- *   [zone12Fraction] ≥ [AnalysisRules.zone2MinFraction]: the sessions the trends use for the zone 2 decoupling.
- */
-data class DecouplingAnalysis(
-    val mainBlockSeconds: Int,
-    val analysedSeconds: Int,
-    val ef1: Double,
-    val ef2: Double,
-    val decouplingPercent: Double,
-    val zone12Fraction: Double?,
-    val longSteadyZone2: Boolean,
-)
-
-/**
  * The aerobic fitness index: median of the VO2max estimates of the steady stretches (trend only, never the profile
  * VO2max).
  *
@@ -409,7 +371,6 @@ data class WorkoutAnalysis(
     val zoneTime: Section<ZoneTimeAnalysis>,
     val trimp: Section<TrimpAnalysis>,
     val efficiency: Section<EfficiencyAnalysis>,
-    val decoupling: Section<DecouplingAnalysis>,
     val fitnessIndex: Section<FitnessIndexAnalysis>,
     val recovery: Section<RecoveryAnalysis>,
     val alpha1: Section<SessionAlpha1>,

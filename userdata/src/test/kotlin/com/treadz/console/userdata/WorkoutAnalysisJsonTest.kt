@@ -40,7 +40,6 @@ class WorkoutAnalysisJsonTest {
         assertEquals(a, back)
         assertNull(back.signal.heartRateCoverage)
         assertNull(back.energy.value!!.grossKcal)
-        assertNull(back.decoupling.value!!.zone12Fraction)
         assertNull(back.recovery.value!!.drop60Bpm)
         assertEquals(AnalysisReason.NoRrIntervals, back.alpha1.reason)
         assertNull(back.alpha1.value)
@@ -49,17 +48,27 @@ class WorkoutAnalysisJsonTest {
     @Test fun `every reason of a missing section survives the round trip`() {
         val reasons = AnalysisReason.entries
         val seen = HashSet<AnalysisReason>()
-        // eight sections per analysis: shift the list so that each reason is used in every section
+        // seven sections per analysis: shift the list so that each reason is used in every section
         for (shift in reasons.indices) {
             val a = analysisWithReasons(reasons.drop(shift) + reasons.take(shift))
             val back = roundTrip(a)
             assertEquals(a, back)
-            listOf(back.energy, back.zoneTime, back.trimp, back.efficiency, back.decoupling, back.fitnessIndex, back.recovery, back.alpha1).forEach {
+            listOf(back.energy, back.zoneTime, back.trimp, back.efficiency, back.fitnessIndex, back.recovery, back.alpha1).forEach {
                 assertNull(it.value)
                 seen += it.reason!!
             }
         }
         assertEquals(reasons.toSet(), seen)
+    }
+
+    @Test fun `a document written before the decoupling was removed is still read`() {
+        val a = fullAnalysis()
+        val old = WorkoutAnalysisJson.encode(a).trimEnd().removeSuffix("}") +
+            ""","decoupling":{"value":{"mainBlockSeconds":1500,"analysedSeconds":1200,"ef1":0.155,"ef2":0.15,""" +
+            """"decouplingPercent":3.2,"zone12Fraction":null,"longSteadyZone2":false}}}"""
+        assertEquals(a, WorkoutAnalysisJson.decode(old))
+        // with a reason that no longer exists
+        assertEquals(a, WorkoutAnalysisJson.decode("""{"decoupling":{"reason":"TooShort"},""" + WorkoutAnalysisJson.encode(a).trimStart().removePrefix("{")))
     }
 
     @Test fun `what the analyzer produces round trips`() {

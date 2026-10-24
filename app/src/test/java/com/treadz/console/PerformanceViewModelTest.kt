@@ -81,7 +81,6 @@ class PerformanceViewModelTest {
         assertTrue(trends.tests.vo2max.isEmpty())
         assertTrue(trends.tests.thresholds.isEmpty())
         assertTrue(trends.fitnessIndex.points.isEmpty())
-        assertTrue(trends.decoupling.points.isEmpty())
         assertFalse(trends.hasLoad)
         assertTrue(trends.loadDays.isEmpty())
         assertTrue(trends.recovery.values.all { it.isEmpty() })
@@ -122,15 +121,13 @@ class PerformanceViewModelTest {
         assertNotNull(trends.vt1Change)
     }
 
-    @Test fun theFitnessIndexAndTheDecouplingComeFromTheAnalysedSessions() {
+    @Test fun theFitnessIndexComesFromTheAnalysedSessions() {
         users
         richAna()
         val trends = checkNotNull(viewModel().uiState.value.trends)
         assertTrue(trends.fitnessIndex.points.size >= 8)
         // The older the session, the higher its heart rate for the same load: the index rises.
         assertTrue(trends.fitnessIndex.slopePer30Days!! > 0.0)
-        assertTrue(trends.hasDecoupling)
-        assertTrue(trends.decoupling.points.all { it.analysedSeconds >= 1_200 })
     }
 
     @Test fun theLoadHasTheWeeksTheDaysAndTheWorkoutsWithoutHeartRateFlagged() {

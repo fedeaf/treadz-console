@@ -205,7 +205,7 @@ private class PerformanceCards(private val state: PerformanceUiState, private va
     fun FitnessIndex() {
         val trend = t.fitnessIndex
         val last = trend.points.lastOrNull()
-        Card(PerformanceCard.FitnessIndex, stringResource(R.string.perf_fitness_title), expandable = last != null || t.hasDecoupling, summary = {
+        Card(PerformanceCard.FitnessIndex, stringResource(R.string.perf_fitness_title), expandable = last != null, summary = {
             if (last == null) {
                 EmptyLine(stringResource(R.string.perf_fitness_empty), "perf_fitness_empty")
             } else {
@@ -236,26 +236,6 @@ private class PerformanceCards(private val state: PerformanceUiState, private va
                 }
                 ChartLegend(listOf(LegendEntry(stringResource(R.string.perf_legend_session), sessionColor), LegendEntry(stringResource(R.string.perf_legend_median), medianColor)))
                 Passive(stringResource(R.string.perf_fitness_trend_note))
-            }
-            // The drift of the long steady zone 2 sessions.
-            SectionLabel(stringResource(R.string.perf_decoupling_title))
-            val points = t.decoupling.points
-            if (points.isEmpty()) {
-                EmptyLine(stringResource(R.string.perf_decoupling_empty), "perf_decoupling_empty")
-            } else {
-                val lastPoint = points.last()
-                Headline(Format.number("%.1f", lastPoint.decouplingPercent), "%", "perf_decoupling_value")
-                t.decoupling.slopePer30Days?.let { ChangeLine(stringResource(R.string.perf_decoupling_per_30, signed(it, 1)), "perf_decoupling_change") }
-                Passive(stringResource(R.string.perf_decoupling_help))
-                val x = points.map { it.epochDay.toDouble() }
-                val color = MaterialTheme.extra.warning
-                val title = stringResource(R.string.perf_chart_decoupling)
-                ChartBlock(title, "perf_decoupling_chart") { mod ->
-                    TrendChart(
-                        series = listOf(TrendSeries(color, points.map { ChartPoint(it.epochDay.toDouble(), it.decouplingPercent) })),
-                        xLabel = epochDayLabel(needsYear(x.first(), x.last()), locale), yLabel = { Format.number("%.0f", it) }, description = title, modifier = mod,
-                    )
-                }
             }
         }
     }

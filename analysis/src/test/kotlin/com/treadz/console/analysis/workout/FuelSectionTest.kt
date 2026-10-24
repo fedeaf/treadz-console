@@ -461,7 +461,7 @@ class FuelSectionTest {
         val analysis = WorkoutAnalyzer.analyse(steady(10, 120), ref)
         val built = WorkoutAnalysis(
             analysis.algorithmVersion, analysis.signal, analysis.energy, analysis.zoneTime, analysis.trimp, analysis.efficiency,
-            analysis.decoupling, analysis.fitnessIndex, analysis.recovery, analysis.alpha1,
+            analysis.fitnessIndex, analysis.recovery, analysis.alpha1,
         )
         assertEquals(AnalysisReason.NoMeasuredThresholds, built.fuel.reason)
     }

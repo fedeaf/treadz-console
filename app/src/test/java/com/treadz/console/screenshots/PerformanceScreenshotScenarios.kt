@@ -100,7 +100,7 @@ abstract class PerformanceScreenshotScenarios(private val prefix: String) {
         card("Thresholds")
     }
 
-    @Test fun p06_fitness_index_and_decoupling() {
+    @Test fun p06_fitness_index() {
         richAna()
         card("FitnessIndex")
     }

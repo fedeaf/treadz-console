@@ -1,7 +1,6 @@
 package com.treadz.console.analysis.trends
 
 import com.treadz.console.analysis.workout.AnalysisReason
-import com.treadz.console.analysis.workout.DecouplingAnalysis
 import com.treadz.console.analysis.workout.FitnessIndexAnalysis
 import com.treadz.console.analysis.workout.HeartRateSourceMix
 import com.treadz.console.analysis.workout.RecoveryAnalysis
@@ -22,7 +21,6 @@ object TrendFixtures {
     fun analysis(
         fitness: Double? = null,
         trimp: Double? = null,
-        decoupling: DecouplingAnalysis? = null,
         recovery: RecoveryAnalysis? = null,
         zoneSeconds: List<Int>? = null,
     ): WorkoutAnalysis {
@@ -34,7 +32,6 @@ object TrendFixtures {
             zoneTime = zoneSeconds?.let { Section.of(ZoneTimeAnalysis(WorkoutFixtures.zones, it, it.sum())) } ?: Section.missing(missing),
             trimp = trimp?.let { Section.of(TrimpAnalysis(it, 30.0, 60, false)) } ?: Section.missing(missing),
             efficiency = Section.missing(missing),
-            decoupling = decoupling?.let { Section.of(it) } ?: Section.missing(missing),
             fitnessIndex = fitness?.let { Section.of(FitnessIndexAnalysis(it, 1, 1, listOf(it), false)) } ?: Section.missing(missing),
             recovery = recovery?.let { Section.of(it) } ?: Section.missing(missing),
             alpha1 = Section.missing(missing),
@@ -42,9 +39,6 @@ object TrendFixtures {
     }
 
     fun dated(day: Long, a: WorkoutAnalysis) = DatedAnalysis(day, a)
-
-    fun decoupling(percent: Double, steady: Boolean, seconds: Int = 1800) =
-        DecouplingAnalysis(seconds + 300, seconds, 0.2, 0.2, percent, 1.0, steady)
 
     fun recovery(context: RecoveryContext, drop60: Double?, drop120: Double? = null, vo2: Double = 3.5) =
         RecoveryAnalysis(150.0, 0L, drop60, drop120, context, vo2)

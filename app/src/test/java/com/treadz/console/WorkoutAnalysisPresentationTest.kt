@@ -37,12 +37,10 @@ class WorkoutAnalysisPresentationTest {
         assertNotNull(view.zoneTime)
         assertNotNull(view.trimp)
         assertNotNull(view.efficiency)
-        assertNotNull(view.decoupling)
         assertNotNull(view.fitnessIndex)
         assertNotNull(view.recovery)
         assertNotNull(view.alpha1)
         assertTrue(view.notes.isEmpty())
-        assertTrue(view.decoupling!!.longSteadyZone2)
     }
 
     @Test fun aWorkoutWithNothingToAnalyseHidesTheWholeSection() {
@@ -62,7 +60,7 @@ class WorkoutAnalysisPresentationTest {
     }
 
     @Test fun lowCoverageOfAWholeSessionMetricIsANoteButOfALocalOneIsNot() {
-        val whole = present(AnalysisFixtures.with(zoneTime = AnalysisReason.LowHeartRateCoverage, trimp = AnalysisReason.LowHeartRateCoverage, efficiency = AnalysisReason.LowHeartRateCoverage, decoupling = AnalysisReason.LowHeartRateCoverage))
+        val whole = present(AnalysisFixtures.with(zoneTime = AnalysisReason.LowHeartRateCoverage, trimp = AnalysisReason.LowHeartRateCoverage, efficiency = AnalysisReason.LowHeartRateCoverage))
         assertEquals(setOf(AnalysisNote.LowHeartRateCoverage), whole.notes)
         val local = present(AnalysisFixtures.with(fitnessIndex = AnalysisReason.LowHeartRateCoverage, recovery = AnalysisReason.LowHeartRateCoverage))
         assertTrue(local.notes.isEmpty())
@@ -88,17 +86,13 @@ class WorkoutAnalysisPresentationTest {
     @Test fun reasonsThatMeanItDoesNotApplyAreHiddenWithoutANote() {
         val view = present(
             AnalysisFixtures.with(
-                zoneTime = AnalysisReason.NoZones, decoupling = AnalysisReason.TooShort, fitnessIndex = AnalysisReason.NoSteadyStretch, recovery = AnalysisReason.NoLoadDrop,
+                zoneTime = AnalysisReason.NoZones, fitnessIndex = AnalysisReason.NoSteadyStretch, recovery = AnalysisReason.NoLoadDrop,
             ),
         )
         assertTrue(view.notes.isEmpty())
         assertNull(view.zoneTime)
-        assertNull(view.decoupling)
         assertNull(view.fitnessIndex)
         assertNull(view.recovery)
-        listOf(AnalysisReason.Interrupted, AnalysisReason.TooShort).forEach {
-            assertTrue(present(AnalysisFixtures.with(decoupling = it)).notes.isEmpty())
-        }
         listOf(AnalysisReason.NoRecoveryData, AnalysisReason.NoLoadDrop).forEach {
             val v = present(AnalysisFixtures.with(recovery = it))
             assertTrue(v.notes.isEmpty())

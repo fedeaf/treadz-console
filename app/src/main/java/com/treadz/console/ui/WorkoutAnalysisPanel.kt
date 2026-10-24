@@ -59,10 +59,6 @@ fun WorkoutAnalysisPanel(view: WorkoutAnalysisView, modifier: Modifier = Modifie
                 FactRow(stringResource(R.string.analysis_efficiency), Format.number("%.2f", ef.efficiencyFactor), tag = "analysis_efficiency")
                 Note(stringResource(R.string.analysis_efficiency_note), null)
             }
-            view.decoupling?.let { d ->
-                FactRow(stringResource(R.string.analysis_decoupling), stringResource(R.string.value_percent, Format.number("%.1f", d.decouplingPercent)), tag = "analysis_decoupling")
-                if (d.longSteadyZone2) Tag(stringResource(R.string.analysis_long_zone2), MaterialTheme.colorScheme.secondary, Modifier.testTag("analysis_long_zone2"))
-            }
             view.fitnessIndex?.let { fi ->
                 FactRow(stringResource(R.string.analysis_fitness), stringResource(R.string.value_vo2max, Format.weight(fi.vo2maxEstimate)), tag = "analysis_fitness")
                 Note(stringResource(R.string.analysis_fitness_note, fi.stretchCount) + if (fi.restingAssumed) " " + stringResource(R.string.analysis_fitness_rest_assumed) else "", "analysis_fitness_note")

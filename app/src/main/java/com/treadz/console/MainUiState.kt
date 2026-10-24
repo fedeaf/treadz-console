@@ -4,6 +4,7 @@ import com.treadz.console.controls.ControlsState
 import com.treadz.console.controls.ManualControls
 import com.treadz.console.controls.SessionControls
 import com.treadz.console.devices.StrapUiState
+import com.treadz.console.fuel.FuelFigures
 import com.treadz.console.sync.SyncError
 import com.treadz.console.training.FinishedWorkout
 import com.treadz.console.treadmill.BeltStatus
@@ -24,6 +25,16 @@ data class MainUiState(
      * (`null` without a session or a weight). The treadmill's own count ([TreadmillState.calories]) is not shown.
      */
     val liveCalories: Int? = null,
+    /**
+     * The estimated fat/carbohydrate split of the workout being recorded, for [liveCalories]: `null` unless the engine
+     * says it can be shown and there are calories to split. Dimmed while the latest heart rate was not valid.
+     */
+    val liveFuel: FuelFigures? = null,
+    /**
+     * The split of the workout that has just ended ([finishedWorkout]), for its stored calories: `null` until the data
+     * layer has analysed it (a few seconds after the end), when it cannot be shown, and for a fitness test.
+     */
+    val finishedFuel: FuelFigures? = null,
     val scanning: Boolean = false,
 
     /** At least one scan has finished (so that "no treadmills" is only shown then). */

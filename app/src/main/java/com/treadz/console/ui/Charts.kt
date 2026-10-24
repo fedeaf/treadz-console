@@ -72,6 +72,73 @@ fun LineChart(
     }
 }
 
+/** Where the plot of a chart is and how data maps onto it (see [drawChartFrame]). */
+internal class ChartFrame(
+    val axis: NiceAxis,
+    val leftMargin: Float,
+    val topMargin: Float,
+    val plot: Size,
+    private val xMin: Double,
+    private val xSpan: Double,
+    private val xFlat: Boolean,
+) {
+    fun px(x: Double): Float = if (xFlat) leftMargin + plot.width / 2 else (leftMargin + ((x - xMin) / xSpan * plot.width)).toFloat()
+
+    fun py(y: Double): Float = (topMargin + plot.height - ((y - axis.min) / (axis.max - axis.min) * plot.height)).toFloat()
+}
+
+/**
+ * The frame the charts of the app share: margins sized to the Y labels, a horizontal gridline with its label at every
+ * tick of [axis] and [xTickCount] X labels (the first at the left edge, the last at the right edge, the others centred)
+ * between [xMin] and [xMax]. `null` when there is no room to draw.
+ */
+internal fun DrawScope.drawChartFrame(
+    measurer: TextMeasurer,
+    labelStyle: TextStyle,
+    axis: NiceAxis,
+    xMin: Double,
+    xMax: Double,
+    axisColor: Color,
+    yLabel: (Double) -> String,
+    xLabel: (Double) -> String,
+    xTickCount: Int,
+): ChartFrame? {
+    val ticks = axis.ticks
+    val labels = ticks.map { measurer.measure(yLabel(it), labelStyle) }
+    val leftMargin = (labels.maxOf { it.size.width } + 10.dp.toPx())
+    val bottomMargin = labels.first().size.height + 10.dp.toPx()
+    val topMargin = 8.dp.toPx()
+    val rightMargin = 12.dp.toPx()
+    val plot = Size(size.width - leftMargin - rightMargin, size.height - topMargin - bottomMargin)
+    if (plot.width <= 0f || plot.height <= 0f) return null
+
+    val xFlat = xMax - xMin < 1e-9
+    val xSpan = (xMax - xMin).takeIf { !xFlat } ?: 1.0
+    val frame = ChartFrame(axis, leftMargin, topMargin, plot, xMin, xSpan, xFlat)
+
+    // Gridlines and Y labels.
+    ticks.forEachIndexed { i, tick ->
+        val y = frame.py(tick)
+        drawLine(axisColor, Offset(leftMargin, y), Offset(leftMargin + plot.width, y), strokeWidth = 1.dp.toPx())
+        drawText(measurer, yLabel(tick), Offset(leftMargin - 8.dp.toPx() - labels[i].size.width, y - labels[i].size.height / 2f), labelStyle)
+    }
+
+    // X labels: first at the left edge, last at the right edge, the others centred.
+    val count = if (xFlat) 1 else xTickCount.coerceAtLeast(2)
+    for (i in 0 until count) {
+        val x = if (count == 1) xMin else xMin + xSpan * i / (count - 1)
+        val text = measurer.measure(xLabel(x), labelStyle)
+        val cx = frame.px(x)
+        val left = when (i) {
+            0 -> if (count == 1) cx - text.size.width / 2f else leftMargin
+            count - 1 -> leftMargin + plot.width - text.size.width
+            else -> cx - text.size.width / 2f
+        }
+        drawText(text, topLeft = Offset(left, topMargin + plot.height + 6.dp.toPx()))
+    }
+    return frame
+}
+
 private fun DrawScope.drawChart(
     measurer: TextMeasurer,
     labelStyle: TextStyle,
@@ -94,42 +161,11 @@ private fun DrawScope.drawChart(
         min = if (yFloor != null) minOf(yFloor, values.min()) else values.min() - room,
         max = values.max() + room,
     )
-    val ticks = axis.ticks
-    val labels = ticks.map { measurer.measure(yLabel(it), labelStyle) }
-    val leftMargin = (labels.maxOf { it.size.width } + 10.dp.toPx())
-    val bottomMargin = labels.first().size.height + 10.dp.toPx()
-    val topMargin = 8.dp.toPx()
-    val rightMargin = 12.dp.toPx()
-    val plot = Size(size.width - leftMargin - rightMargin, size.height - topMargin - bottomMargin)
-    if (plot.width <= 0f || plot.height <= 0f) return
-
-    val xMin = points.first().x
-    val xMax = points.last().x
-    val xSpan = (xMax - xMin).takeIf { it > 1e-9 } ?: 1.0
-    fun px(x: Double): Float =
-        if (xMax - xMin < 1e-9) leftMargin + plot.width / 2 else (leftMargin + ((x - xMin) / xSpan * plot.width)).toFloat()
-    fun py(y: Double): Float = (topMargin + plot.height - ((y - axis.min) / (axis.max - axis.min) * plot.height)).toFloat()
-
-    // Gridlines and Y labels.
-    ticks.forEachIndexed { i, tick ->
-        val y = py(tick)
-        drawLine(axisColor, Offset(leftMargin, y), Offset(leftMargin + plot.width, y), strokeWidth = 1.dp.toPx())
-        drawText(measurer, yLabel(tick), Offset(leftMargin - 8.dp.toPx() - labels[i].size.width, y - labels[i].size.height / 2f), labelStyle)
-    }
-
-    // X labels: first at the left edge, last at the right edge, the others centred.
-    val count = if (xMax - xMin < 1e-9) 1 else xTickCount.coerceAtLeast(2)
-    for (i in 0 until count) {
-        val x = if (count == 1) xMin else xMin + xSpan * i / (count - 1)
-        val text = measurer.measure(xLabel(x), labelStyle)
-        val cx = px(x)
-        val left = when (i) {
-            0 -> if (count == 1) cx - text.size.width / 2f else leftMargin
-            count - 1 -> leftMargin + plot.width - text.size.width
-            else -> cx - text.size.width / 2f
-        }
-        drawText(text, topLeft = Offset(left, topMargin + plot.height + 6.dp.toPx()))
-    }
+    val frame = drawChartFrame(measurer, labelStyle, axis, points.first().x, points.last().x, axisColor, yLabel, xLabel, xTickCount) ?: return
+    val leftMargin = frame.leftMargin
+    val plot = frame.plot
+    fun px(x: Double): Float = frame.px(x)
+    fun py(y: Double): Float = frame.py(y)
 
     // Line and area (hollow points are not part of the line).
     val line = points.filter { !it.hollow }

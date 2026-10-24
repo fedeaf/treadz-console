@@ -44,6 +44,8 @@ fun FinishedWorkoutNotice(ui: MainUiState, actions: MainActions) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.finished_workout_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(finishedWorkoutFigures(workout), style = MaterialTheme.typography.bodyMedium)
+            // The split appears when the data layer has analysed the workout, a few seconds after the end.
+            ui.finishedFuel?.let { FuelEndLine(it) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 TextButton(onClick = { confirming = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("discard_workout_button")) {
                     Text(stringResource(R.string.action_discard), color = MaterialTheme.colorScheme.error)

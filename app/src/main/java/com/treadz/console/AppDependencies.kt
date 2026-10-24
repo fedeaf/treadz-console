@@ -3,6 +3,7 @@ package com.treadz.console
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.treadz.console.analysis.energy.FuelSnapshot
 import com.treadz.console.devices.StrapController
 import com.treadz.console.heartrate.PeakOfferController
 import com.treadz.console.hrm.HeartRateMonitor
@@ -76,6 +77,9 @@ interface AppDependencies {
     /** Calories of the workout being recorded, as they are stored (`null` without a session or a weight). */
     val liveCalories: Flow<Int?> get() = flowOf(null)
 
+    /** The estimated fat/carbohydrate split of the workout being recorded (`null` outside a workout or without a split). */
+    val liveFuel: Flow<FuelSnapshot?> get() = flowOf(null)
+
     /** A resting heart-rate measurement fed by [heartRate] (it runs in [scope] and starts with `start()`). */
     fun restingSession(scope: CoroutineScope): RestingHeartRateSession
 
@@ -98,7 +102,7 @@ interface AppDependencies {
  * optional collaborators (synchronisation, training, strap) can be left out by mistake.
  */
 fun AppDependencies.mainViewModel(clock: Clock = Clock.System): MainViewModel =
-    MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, clock, liveCalories)
+    MainViewModel(controller, recorder, settings, userData, appLifecycle, sync, training, strap, clock, liveCalories, liveFuel)
 
 /** [scope] lives as long as the process: the runners and the workout history observer run in it. */
 class RealDependencies(private val context: Context, private val scope: CoroutineScope) : AppDependencies {
@@ -126,6 +130,7 @@ class RealDependencies(private val context: Context, private val scope: Coroutin
         userData.workoutObserver(controller, heartRateSource = heartRate, onError = { Log.e("TreadZ", "Workout history error", it) })
     }
     override val liveCalories: Flow<Int?> get() = workoutObserver.liveCalories
+    override val liveFuel: Flow<FuelSnapshot?> get() = workoutObserver.liveFuel
 
     override val training: TrainingCoordinator by lazy {
         TrainingCoordinator(

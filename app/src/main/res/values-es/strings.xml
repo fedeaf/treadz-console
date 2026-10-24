@@ -1281,4 +1281,18 @@
     <string name="block_list_hr_zone_profile_bpm">Pulso zona %1$d: %2$d–%3$d ppm</string>
     <string name="program_sessions_title">Tus sesiones (%1$d)</string>
     <string name="program_sessions_empty">Todavía no has hecho este programa.</string>
+    <!-- Estimated fat/carbohydrate split of the energy of a workout: live, at the end and in the history. -->
+    <string name="fuel_metric">Grasas · Hidratos</string>
+    <string name="fuel_fat">Grasas</string>
+    <string name="fuel_carbs">Hidratos</string>
+    <string name="fuel_percents">%1$s\u00A0%% · %2$s\u00A0%%</string>
+    <string name="fuel_kcal_note">%1$s · %2$s\u00A0kcal</string>
+    <string name="fuel_summary">Grasas\u00A0%1$s\u00A0kcal\u00A0(%2$s\u00A0%%) · Hidratos\u00A0%3$s\u00A0kcal\u00A0(%4$s\u00A0%%)</string>
+    <string name="fuel_total">%1$s\u00A0kcal · %2$s\u00A0%%</string>
+    <string name="fuel_title">Fuentes de energía</string>
+    <string name="fuel_by_zone">Grasas por zona</string>
+    <string name="fuel_chart_description">Energía por minuto: grasas e hidratos</string>
+    <string name="fuel_estimate_note">Estimación a partir de tu pulso y tus umbrales, no una medida.</string>
+    <string name="fuel_how_title">¿Cómo se calcula?</string>
+    <string name="fuel_how_text">Las calorías salen de la velocidad, la pendiente y tu peso. Para repartirlas, la app sitúa tu pulso entre tu pulso en reposo, tus umbrales (VT1 y VT2) y tu FCmáx, y aplica la proporción media de grasas e hidratos que miden los estudios a esa intensidad; con los minutos, la proporción de grasa sube un poco. Cada persona se aparta de esa media (dieta, descanso, lo que comiste antes): tómalo como una estimación con un margen de 10 a 20 puntos. Solo se calcula con la banda de pecho conectada a la app y un VT1 medido en un test.</string>
 </resources>

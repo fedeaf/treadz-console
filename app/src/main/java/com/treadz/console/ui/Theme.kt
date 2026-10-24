@@ -18,6 +18,9 @@ data class ExtraColors(
     val onWarning: Color,
     val alert: Color,
     val onAlert: Color,
+    /** Fat and carbohydrate in the estimated split of the energy (distinct from speed, incline and heart-rate colours). */
+    val fuelFat: Color,
+    val fuelCarbs: Color,
 )
 
 private val DarkExtra = ExtraColors(
@@ -27,6 +30,8 @@ private val DarkExtra = ExtraColors(
     onWarning = Color(0xFF2B1D00),
     alert = Color(0xFFC62828),
     onAlert = Color(0xFFFFFFFF),
+    fuelFat = Color(0xFFFF9F43),
+    fuelCarbs = Color(0xFFB69CFF),
 )
 
 private val LightExtra = ExtraColors(
@@ -36,6 +41,8 @@ private val LightExtra = ExtraColors(
     onWarning = Color(0xFFFFFFFF),
     alert = Color(0xFFB71C1C),
     onAlert = Color(0xFFFFFFFF),
+    fuelFat = Color(0xFFB45309),
+    fuelCarbs = Color(0xFF5B3FC4),
 )
 
 private val DarkColors: ColorScheme = darkColorScheme(

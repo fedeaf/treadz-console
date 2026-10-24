@@ -1281,4 +1281,18 @@
     <string name="block_list_hr_zone_profile_bpm">Heart rate zone %1$d: %2$d–%3$d bpm</string>
     <string name="program_sessions_title">Your sessions (%1$d)</string>
     <string name="program_sessions_empty">You have not done this program yet.</string>
+    <!-- Estimated fat/carbohydrate split of the energy of a workout: live, at the end and in the history. -->
+    <string name="fuel_metric">Fat · Carbs</string>
+    <string name="fuel_fat">Fat</string>
+    <string name="fuel_carbs">Carbs</string>
+    <string name="fuel_percents">%1$s\u00A0%% · %2$s\u00A0%%</string>
+    <string name="fuel_kcal_note">%1$s · %2$s\u00A0kcal</string>
+    <string name="fuel_summary">Fat\u00A0%1$s\u00A0kcal\u00A0(%2$s\u00A0%%) · Carbs\u00A0%3$s\u00A0kcal\u00A0(%4$s\u00A0%%)</string>
+    <string name="fuel_total">%1$s\u00A0kcal · %2$s\u00A0%%</string>
+    <string name="fuel_title">Energy sources</string>
+    <string name="fuel_by_zone">Fat by zone</string>
+    <string name="fuel_chart_description">Energy per minute: fat and carbs</string>
+    <string name="fuel_estimate_note">An estimate from your heart rate and thresholds, not a measurement.</string>
+    <string name="fuel_how_title">How is it calculated?</string>
+    <string name="fuel_how_text">Calories come from the speed, the incline and your weight. To split them, the app places your heart rate between your resting heart rate, your thresholds (VT1 and VT2) and your maximum, and applies the average share of fat and carbohydrates that studies measure at that intensity; with the minutes, the share of fat rises a little. Everyone differs from that average (diet, rest, what you ate before): take it as an estimate within 10 to 20 points. It is only computed with the chest strap connected to the app and a VT1 measured in a test.</string>
 </resources>

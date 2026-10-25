@@ -8,11 +8,21 @@ import kotlin.math.sqrt
  * An RR series after artifact correction.
  *
  * @property rrMs The intervals, artifacts replaced by interpolation.
- * @property artifact Which intervals were artifacts.
+ * @property artifact Which intervals were corrected: artifacts and the pauses after premature beats.
+ * @property pause Which of them are the pause after a premature beat ([RrCleaning]): a real beat, not a fault of the
+ *   strap, corrected only because it distorts the beat-to-beat pattern.
  */
-class CleanedRr(val rrMs: DoubleArray, val artifact: BooleanArray) {
+class CleanedRr(val rrMs: DoubleArray, val artifact: BooleanArray, val pause: BooleanArray = BooleanArray(rrMs.size)) {
     val size: Int get() = rrMs.size
+
+    /** Corrected intervals (pauses included): the share that matters for DFA-α1. */
     val artifactCount: Int get() = artifact.count { it }
+
+    /** Corrected intervals that are not pauses: the share that tells about the strap's readings. */
+    val strapArtifactCount: Int get() = artifact.indices.count { artifact[it] && !pause[it] }
+
+    /** The interval at [i] is an artifact of the readings (corrected and not a pause). */
+    fun isStrapArtifact(i: Int): Boolean = artifact[i] && !pause[i]
 }
 
 /**
@@ -25,6 +35,19 @@ class CleanedRr(val rrMs: DoubleArray, val artifact: BooleanArray) {
  * share of corrected beats is counted per window (Rogers B, Giles D, Draper N, Mourot L, Gronwald T. Influence of
  * artefact correction and recording device type on the practical application of a non-linear heart rate variability
  * biomarker for aerobic threshold determination. Sensors. 2021;21(3):821).
+ *
+ * **Premature beats**: an atrial or ventricular premature beat gives a short interval followed by a long one (the
+ * pause until the next normal beat, full or partial). The short one is caught by the 20 % rule; the pause is often only
+ * 10-25 % above the local median and would stay, adding a spurious jump that lowers α1. So the interval right after a
+ * short artifact (in range and more than [MAX_DEVIATION] below its median) is corrected too when it is more than
+ * [PAUSE_MIN_EXCESS] (8 %) above its own local median. Only that pattern: an extra detection of the strap (two short
+ * intervals, then a normal one), a missed beat (one interval of about twice the median) and the ordinary beat-to-beat
+ * variation without a premature beat are left as before. The rule depends on no person: it is relative to the local
+ * median at any heart rate. In real recordings the interval after a short one fell either at 0.97-1.03 of the median
+ * (a normal beat) or at 1.10-1.25 (a pause), hence 8 %. Corrected pauses are marked ([CleanedRr.pause]): they count for
+ * the quality of α1, not as faults of the strap. Source of the short-long pattern: Lipponen JA, Tarvainen MP. A robust
+ * algorithm for heart rate variability time series artefact correction using novel beat classification. J Med Eng
+ * Technol. 2019;43(3):173-181.
  */
 object RrCleaning {
 
@@ -32,23 +55,30 @@ object RrCleaning {
     const val MAX_RR_MS = 2_000
     const val LOCAL_BEATS = 11
     const val MAX_DEVIATION = 0.20
+    const val PAUSE_MIN_EXCESS = 0.08
 
     fun clean(rrMs: List<Int>): CleanedRr {
         val n = rrMs.size
         val raw = DoubleArray(n) { rrMs[it].toDouble() }
         val inRange = BooleanArray(n) { rrMs[it] in MIN_RR_MS..MAX_RR_MS }
         val artifact = BooleanArray(n)
+        val pause = BooleanArray(n)
+        val medians = DoubleArray(n)
         val half = LOCAL_BEATS / 2
         val buffer = DoubleArray(LOCAL_BEATS)
         for (i in 0 until n) {
-            if (!inRange[i]) {
-                artifact[i] = true
-                continue
-            }
             var m = 0
             for (j in maxOf(0, i - half)..minOf(n - 1, i + half)) if (inRange[j]) buffer[m++] = raw[j]
-            val median = median(buffer, m)
-            artifact[i] = abs(raw[i] - median) > MAX_DEVIATION * median
+            medians[i] = median(buffer, m)
+            artifact[i] = !inRange[i] || abs(raw[i] - medians[i]) > MAX_DEVIATION * medians[i]
+        }
+        // The pause after a premature beat (see the description).
+        for (i in 0 until n - 1) {
+            val premature = inRange[i] && raw[i] < (1 - MAX_DEVIATION) * medians[i]
+            if (premature && inRange[i + 1] && !artifact[i + 1] && raw[i + 1] > (1 + PAUSE_MIN_EXCESS) * medians[i + 1]) {
+                artifact[i + 1] = true
+                pause[i + 1] = true
+            }
         }
         val out = raw.copyOf()
         var previousGood = -1
@@ -72,7 +102,7 @@ object RrCleaning {
             }
             i = next
         }
-        return CleanedRr(out, artifact)
+        return CleanedRr(out, artifact, pause)
     }
 
     private fun median(values: DoubleArray, count: Int): Double {

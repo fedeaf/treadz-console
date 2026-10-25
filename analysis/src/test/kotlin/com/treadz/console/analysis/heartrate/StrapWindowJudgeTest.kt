@@ -73,6 +73,18 @@ class StrapWindowJudgeTest {
     }
 
     @Test
+    fun `the pause after a premature beat is a real beat - only the premature one counts against the strap`() {
+        // 125 bpm (480 ms): about 21 beats in the window (50 s, 60 s]. Two premature beats (300 ms), each followed by its
+        // pause (555 ms): counting the pauses too, 4 of 21 would make the window doubtful.
+        val judge = StrapWindowJudge()
+        feed(judge, 0, 60_000, 125) { i -> when (i) { 108, 116 -> 300; 109, 117 -> 555; else -> 480 } }
+        val j = judge.judge(50_000, 60_000)
+        assertEquals(StrapWindowVerdict.Reliable, j.verdict, "$j")
+        assertEquals(2.0 / j.beats, j.artifactFraction!!, 1e-9)
+        assertEquals(125.0, j.rrHeartRateBpm!!, 0.1)
+    }
+
+    @Test
     fun `the share of artifacts is compared with 10 percent - a few bad beats pass, more do not`() {
         // 150 bpm (400 ms): about 24 beats in the 10-s window. A doubled interval (a missed beat) is an artifact.
         fun judged(bad: Int): StrapWindowJudgement {

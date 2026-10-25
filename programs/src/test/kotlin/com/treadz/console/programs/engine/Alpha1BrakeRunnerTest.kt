@@ -131,7 +131,8 @@ class Alpha1BrakeRunnerTest {
         testScope: TestScope,
         style: RrStyle,
         kind: HeartRateSourceKind = HeartRateSourceKind.DirectStrap,
-        scripted: Int? = 120,
+        // In zone 2 (114-126) at or above the brake's fast floor (no VT1: the zone's ceiling - 3 = 123).
+        scripted: Int? = 124,
         val profile: HeartRateProfile = HeartRateProfile(maxBpm = 180, restingBpm = 60),
     ) {
         private val bg = testScope.backgroundScope
@@ -296,8 +297,9 @@ class Alpha1BrakeRunnerTest {
 
     @Test
     fun `with a measured VT1 the zone ceiling decides`() = runTest {
-        // Zone 3 (ceiling 144) but a VT1 of 145: the block counts as easy. Zone 2 (ceiling 126) with a VT1 of 110 does not.
-        val easy = Rig(this, RrStyle.Low, scripted = 135, profile = HeartRateProfile(180, 60, vt1Bpm = 145))
+        // Zone 3 (ceiling 144) but a VT1 of 145: the block counts as easy (fast floor 142). Zone 2 (ceiling 126) with a VT1
+        // of 110 does not.
+        val easy = Rig(this, RrStyle.Low, scripted = 143, profile = HeartRateProfile(180, 60, vt1Bpm = 145))
         easy.run(plan(zone3, seconds = 400))
         assertTrue(easy.brakeEvents().isNotEmpty())
         val hard = Rig(this, RrStyle.Low, profile = HeartRateProfile(180, 60, vt1Bpm = 110))

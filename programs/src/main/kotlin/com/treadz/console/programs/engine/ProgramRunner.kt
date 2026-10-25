@@ -849,6 +849,7 @@ class ProgramRunner(
             config = config.heartRate,
             startedAt = clock.nowMillis(),
             alpha1BrakeActive = hrAlpha1 != null && Alpha1BrakePolicy.appliesTo(zoneBpm, mode, profile, config.heartRate.alpha1Brake),
+            alpha1FastFloorBpm = Alpha1BrakePolicy.fastFloorBpm(zoneBpm, profile, config.heartRate.alpha1Brake),
         )
         hrControl = c
         if (speed) targetSpeed = initial else targetIncline = initial

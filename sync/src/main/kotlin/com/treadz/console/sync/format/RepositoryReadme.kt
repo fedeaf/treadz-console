@@ -201,7 +201,8 @@ file untouched. **Version 2** (added in October 2026) adds:
 - **`thresholds`**, on the valid maximal tests (walking and running): the heart rates of the first and second ventilatory
   thresholds (VT1 and VT2) found with the DFA-alpha1 of the RR intervals of the test, from the start of the warm-up to the
   end of the effort (alpha1 = 0.75 for VT1, 0.5 for VT2, from the windows of 120 s where alpha1 falls as the heart rate
-  rises; algorithm version 1 looked at the ramp only). It needs RR intervals from a strap connected to the app
+  rises; algorithm version 1 looked at the ramp only; from version 4 the cleaning of the RR also corrects the pause
+  after a premature beat). It needs RR intervals from a strap connected to the app
   (`hr_source` `direct_strap` in the workout csv); the console's heart rate and imported workouts have none.
 
   ```

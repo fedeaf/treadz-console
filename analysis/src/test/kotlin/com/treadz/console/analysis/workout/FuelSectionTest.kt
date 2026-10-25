@@ -447,10 +447,10 @@ class FuelSectionTest {
     // ------------------------------------------------------------------ the analyzer
 
     @Test
-    fun `the analyzer computes the section and the version is 4`() {
-        assertEquals(4, WorkoutAnalyzer.ALGORITHM_VERSION)
+    fun `the analyzer computes the section and the version is 5`() {
+        assertEquals(5, WorkoutAnalyzer.ALGORITHM_VERSION)
         val analysis = WorkoutAnalyzer.analyse(steady(10, 120), ref)
-        assertEquals(4, analysis.algorithmVersion)
+        assertEquals(5, analysis.algorithmVersion)
         assertEquals(FuelSection.compute(steady(10, 120), ref), analysis.fuel)
         assertEquals(AnalysisReason.NoBeltMovement, WorkoutAnalyzer.analyse(WorkoutFixtures.session(300, speed = { 0.0 }), ref).fuel.reason)
         assertEquals(AnalysisReason.NoMeasuredThresholds, WorkoutAnalyzer.analyse(steady(10, 120), WorkoutFixtures.context()).fuel.reason)

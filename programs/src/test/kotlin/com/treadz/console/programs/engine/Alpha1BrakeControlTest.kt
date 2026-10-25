@@ -20,7 +20,8 @@ import org.junit.jupiter.api.Test
  * ticks every 250 ms, an evaluation every 10 s of block time. Zone 114-126 bpm (zone 2 at 45-55 % of the reserve for a
  * maximum of 180 and a resting rate of 60), ceiling 134. The first evaluation whose window lies entirely inside the
  * block is the one at block time 120 s; the brake needs six counting evaluations (120..170 s) whose median is below 0.70,
- * so with α1 low from there it fires at 170 s, and then not again for 180 s.
+ * so with α1 low from there it fires at 170 s, and then not again for 180 s. Without a fast floor the fast trigger counts
+ * anywhere in the zone; the slow one (5 min of evidence) fires on the 24th counting evaluation, at 350 s.
  */
 class Alpha1BrakeControlTest {
 
@@ -41,6 +42,7 @@ class Alpha1BrakeControlTest {
         val bpm: Int = 120,
         val evaluationOffsetMs: Long = 0,
         config: HeartRateControlConfig = HeartRateControlConfig(),
+        fastFloorBpm: Int? = null,
     ) {
         val grid = if (adjust == HeartRateAdjust.Speed) 0.1 else 1.0
         val tracker = HeartRateTracker(HeartRateProfile(180, 60), config)
@@ -64,7 +66,7 @@ class Alpha1BrakeControlTest {
             blockStart = t
             control = HeartRateBlockControl(
                 0, adjust, mode, HeartRateZoneBpm(114, 126, HeartRateBasis.MaxHeartRate), 180, min, max, grid, start, start,
-                tracker, config, t, alpha1BrakeActive = brakeActive,
+                tracker, config, t, alpha1BrakeActive = brakeActive, alpha1FastFloorBpm = fastFloorBpm,
             )
         }
 
@@ -171,12 +173,12 @@ class Alpha1BrakeControlTest {
 
     @Test
     fun `reductions are at least 180 s apart and stop at the block minimum`() {
-        val s = Sim(adjust = HeartRateAdjust.Speed, start = 9.0, min = 8.5, max = 12.0)
+        val s = Sim(adjust = HeartRateAdjust.Speed, start = 9.0, min = 8.8, max = 12.0)
         s.run(900_000)
         // 170 s, then six evaluations after it and at least 180 s later (350 s); the second lands on the minimum and nothing follows.
         assertEquals(listOf(170_000L, 350_000L), s.brakeChanges().map { it.ms })
-        assertEquals(listOf(8.7, 8.5), s.brakeChanges().map { it.to })
-        assertEquals(8.5, s.value)
+        assertEquals(listOf(8.9, 8.8), s.brakeChanges().map { it.to })
+        assertEquals(8.8, s.value)
         assertEquals(2, s.summary().alpha1Reductions)
         assertTrue(s.changes.all { it.to < it.from }, "only ever lowers: ${s.changes}")
     }
@@ -190,17 +192,17 @@ class Alpha1BrakeControlTest {
     }
 
     @Test
-    fun `running adjusts the speed in steps of 0_3 km h, walking the incline in steps of 1 percent`() {
+    fun `running adjusts the speed in steps of 0_1 km h, walking the incline in steps of 1 percent`() {
         val run = Sim(adjust = HeartRateAdjust.Speed, start = 9.0, min = 7.0, max = 12.0)
         run.run(360_000)
-        assertEquals(listOf(8.7, 8.4), run.brakeChanges().map { it.to })
+        assertEquals(listOf(8.9, 8.8), run.brakeChanges().map { it.to })
         val walk = Sim(adjust = HeartRateAdjust.Incline, start = 6.0, min = 0.0, max = 12.0)
         walk.run(360_000)
         assertEquals(listOf(5.0, 4.0), walk.brakeChanges().map { it.to })
     }
 
     @Test
-    fun `the step is cut at the block minimum, and nothing happens at it`() {
+    fun `the brake stops at the block minimum, and nothing happens at it`() {
         val s = Sim(adjust = HeartRateAdjust.Speed, start = 8.0, min = 7.9, max = 12.0)
         s.run(175_000)
         assertEquals(listOf(7.9), s.brakeChanges().map { it.to })
@@ -251,10 +253,12 @@ class Alpha1BrakeControlTest {
         val edge = Sim(bpm = 114)
         edge.run(175_000, hr = { 114 })
         assertEquals(1, edge.brakeChanges().size)
-        // Above the zone counts too (the regular control has been lowering the load meanwhile).
-        val above = Sim(start = 10.0, bpm = 130, config = everyDecision)
-        above.run(185_000, hr = { 130 })
-        assertEquals(listOf(180_000L), above.brakeChanges().map { it.ms }, "the regular control lowered the load at 160 s: ${above.changes}")
+        // Above the zone the regular control lowers the load every 60 s, and each reduction restarts the brake's evidence:
+        // the brake never piles up on it.
+        val above = Sim(start = 10.0, bpm = 130)
+        above.run(400_000, hr = { 130 })
+        assertEquals(listOf(20_000L, 80_000L, 140_000L, 200_000L, 260_000L, 320_000L, 380_000L), above.changes.map { it.ms })
+        assertTrue(above.changes.all { it.reason == HeartRateAdjustReason.AboveZone }, "${above.changes}")
     }
 
     @Test
@@ -304,25 +308,86 @@ class Alpha1BrakeControlTest {
     @Test
     fun `the regular decision due at the same moment is postponed a full interval`() {
         val s = Sim(start = 6.0, config = everyDecision)
-        // Above the zone (and under the ceiling) from 100 s: regular reductions at 120, 140 and 160 s. The sixth evaluation
-        // (170 s) finds a change 10 s old, so the brake waits for 180 s, where it goes before the regular decision.
-        s.run(300_000, hr = { ms -> if (ms < 100_000) 120 else 130 })
-        assertEquals(Change(120_000L, 6.0, 5.0, HeartRateAdjustReason.AboveZone), s.changes[0])
-        assertEquals(Change(160_000L, 4.0, 3.0, HeartRateAdjustReason.AboveZone), s.changes[2])
-        assertEquals(Change(180_000L, 3.0, 2.0, HeartRateAdjustReason.Alpha1Brake), s.changes[3])
-        // The regular decision due at 180 s waited: the next change is at 200 s.
-        assertEquals(200_000L, s.changes[4].ms, "${s.changes}")
-        assertTrue(s.changes.zipWithNext().all { (a, b) -> b.ms - a.ms >= 20_000L })
+        // In the zone until 175 s, above it (and under the ceiling) after: the brake fires at 170 s, and the regular
+        // decision due at 180 s waits a full interval.
+        s.run(300_000, hr = { ms -> if (ms < 175_000) 120 else 130 })
+        assertEquals(Change(170_000L, 6.0, 5.0, HeartRateAdjustReason.Alpha1Brake), s.changes[0])
+        assertEquals(Change(190_000L, 5.0, 4.0, HeartRateAdjustReason.AboveZone), s.changes[1])
     }
 
     @Test
-    fun `a change of the control in the last 20 s delays the brake`() {
-        // Evaluations at 125, 135 ... 175 s: the sixth would fire at 175 s, but a regular reduction (heart rate above the
-        // zone) happened at 160 s.
-        val s = Sim(start = 6.0, evaluationOffsetMs = 5_000, config = everyDecision)
-        s.run(300_000, hr = { ms -> if (ms < 130_000) 120 else 130 })
+    fun `after an α1 reduction a regular reduction waits 60 s`() {
+        // As above with the normal 60-s wait: the α1 reduction counts as a reduction, so the regular one comes at 230 s
+        // (the decisions at 190 and 210 s find it less than 60 s old).
+        val s = Sim(start = 6.0)
+        s.run(300_000, hr = { ms -> if (ms < 175_000) 120 else 130 })
+        assertEquals(Change(170_000L, 6.0, 5.0, HeartRateAdjustReason.Alpha1Brake), s.changes[0])
+        assertEquals(Change(230_000L, 5.0, 4.0, HeartRateAdjustReason.AboveZone), s.changes[1])
+    }
+
+    @Test
+    fun `any change of the load restarts the evidence - only windows that start after it count`() {
+        // Above the zone only from 130 to 150 s: one regular reduction at 140 s. The brake would have fired at 170 s on
+        // windows that hold the beats of the old load; it needs six windows that start after 140 s (260..310 s).
+        val s = Sim(start = 6.0)
+        s.run(400_000, hr = { ms -> if (ms in 130_000L until 150_000L) 130 else 120 })
         assertEquals(Change(140_000L, 6.0, 5.0, HeartRateAdjustReason.AboveZone), s.changes.first())
-        assertEquals(180_000L, s.brakeChanges().first().ms, "${s.changes}")
+        assertEquals(310_000L, s.brakeChanges().first().ms, "${s.changes}")
+        // The windows before it are still recorded in the summary.
+        assertEquals(29, s.summary().alpha1Windows, "evaluations at 120..400 s")
+    }
+
+    @Test
+    fun `the fast trigger only counts evaluations at or above the fast floor`() {
+        // Fast floor 123 (VT1 126 - 3): at 120 bpm nothing within the first 5 min (the slow trigger needs 24 evaluations).
+        val below = Sim(fastFloorBpm = 123)
+        below.run(345_000)
+        assertTrue(below.changes.isEmpty(), "${below.changes}")
+        val at = Sim(bpm = 123, fastFloorBpm = 123)
+        at.run(175_000)
+        assertEquals(listOf(170_000L), at.brakeChanges().map { it.ms })
+        // A floor under the zone's lower limit is the lower limit.
+        val low = Sim(bpm = 114, fastFloorBpm = 100)
+        low.run(175_000)
+        assertEquals(listOf(170_000L), low.brakeChanges().map { it.ms })
+    }
+
+    @Test
+    fun `the slow trigger acts anywhere in the zone on 5 minutes of evidence`() {
+        val s = Sim(bpm = 118, fastFloorBpm = 123)
+        s.run(345_000) // 23 counting evaluations (120..340 s)
+        assertTrue(s.changes.isEmpty())
+        s.run(10_000) // the 24th, at 350 s
+        assertEquals(listOf(Change(350_000L, 4.0, 3.0, HeartRateAdjustReason.Alpha1Brake)), s.changes)
+        // The next one needs 24 windows that start after it: 470..700 s.
+        s.run(500_000)
+        assertEquals(listOf(350_000L, 700_000L), s.brakeChanges().map { it.ms })
+        assertEquals(2, s.summary().alpha1Reductions)
+        // A median at the trigger does not fire.
+        val edge = Sim(bpm = 118, fastFloorBpm = 123)
+        edge.alpha = { 0.70 }
+        edge.run(900_000)
+        assertTrue(edge.changes.isEmpty())
+    }
+
+    @Test
+    fun `the slow trigger skips a few evaluations that do not count, not many`() {
+        // Three windows not valid (130..150 s): the 24th counting evaluation comes at 380 s.
+        val few = Sim(bpm = 118, fastFloorBpm = 123)
+        few.alpha = { ms -> if (ms in 130_000L..150_000L) null else 0.5 }
+        few.run(375_000)
+        assertTrue(few.changes.isEmpty())
+        few.run(10_000)
+        assertEquals(listOf(380_000L), few.brakeChanges().map { it.ms })
+        // One of every two not valid: never 24 in 5 min.
+        val many = Sim(bpm = 118, fastFloorBpm = 123)
+        many.alpha = { ms -> if ((ms / 10_000L) % 2 == 0L) null else 0.5 }
+        many.run(900_000)
+        assertTrue(many.changes.isEmpty())
+        // Under the zone's lower limit they do not count either.
+        val under = Sim(bpm = 110, fastFloorBpm = 123)
+        under.run(900_000, hr = { 110 })
+        assertTrue(under.brakeChanges().isEmpty())
     }
 
     @Test
@@ -438,6 +503,14 @@ class Alpha1BrakeControlTest {
         val noRest = HeartRateProfile(180)
         assertTrue(applies(108, 126, noRest))
         assertFalse(applies(126, 144, noRest))
+    }
+
+    @Test
+    fun `the fast floor is VT1 minus 3, or the zone's ceiling minus 3 without a VT1`() {
+        val zone = HeartRateZoneBpm(114, 126, HeartRateBasis.MaxHeartRate)
+        assertEquals(137, Alpha1BrakePolicy.fastFloorBpm(zone, HeartRateProfile(180, 60, vt1Bpm = 140), config))
+        assertEquals(123, Alpha1BrakePolicy.fastFloorBpm(zone, profile, config))
+        assertEquals(123, Alpha1BrakePolicy.fastFloorBpm(zone, HeartRateProfile(180, 60, vt1Bpm = 20), config), "an implausible VT1 is ignored")
     }
 
     @Test

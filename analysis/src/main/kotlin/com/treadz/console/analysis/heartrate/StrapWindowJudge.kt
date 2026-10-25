@@ -1,5 +1,6 @@
 package com.treadz.console.analysis.heartrate
 
+import com.treadz.console.analysis.rr.CleanedRr
 import com.treadz.console.analysis.rr.RrCleaning
 import com.treadz.console.analysis.samples.RrInterval
 import com.treadz.console.analysis.samples.RrSeries
@@ -80,7 +81,8 @@ data class StrapWindowJudgement(
  * strap showed 135-137 bpm for 10-15 s while the clean RR said 127-131, and the control lowered the load for it).
  *
  * A window is **doubtful** when
- *  - more than [StrapWindowConfig.maxArtifactFraction] of its beats are artifacts ([RrCleaning]), or
+ *  - more than [StrapWindowConfig.maxArtifactFraction] of its beats are artifacts ([RrCleaning]; the pause after a
+ *    premature beat is a real beat, not a fault of the strap, and does not count), or
  *  - the heart rate from the RR (60 000 / the median of the clean RR) and the mean of the strap readings differ by more
  *    than [StrapWindowConfig.maxDifferenceBpm].
  *
@@ -105,6 +107,7 @@ class StrapWindowJudge(val config: StrapWindowConfig = StrapWindowConfig()) {
     private var readingStart = 0
 
     private val beats = ArrayList<RrInterval>()
+    /** Which held beats are faults of the readings ([CleanedRr.isStrapArtifact]); `null` until needed. */
     private var cleaned: BooleanArray? = null
 
     /** Readings held (for tests and diagnostics). */
@@ -172,7 +175,8 @@ class StrapWindowJudge(val config: StrapWindowConfig = StrapWindowConfig()) {
         val n = last - first
         if (n < config.minBeats) return StrapWindowJudgement.NOT_JUDGED.copy(beats = n)
 
-        val artifact = cleaned ?: RrCleaning.clean(beats.map { it.rrMs }).artifact.also { cleaned = it }
+        val artifact = cleaned ?: RrCleaning.clean(beats.map { it.rrMs }).let { c -> BooleanArray(c.size) { c.isStrapArtifact(it) } }
+            .also { cleaned = it }
         val clean = ArrayList<Int>(n)
         for (i in first until last) if (!artifact[i]) clean += beats[i].rrMs
         val fraction = (n - clean.size).toDouble() / n

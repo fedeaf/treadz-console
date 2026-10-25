@@ -272,6 +272,6 @@ class FitnessPeakRuleTest {
             (stored(FitnessTestType.MaxIncrementalRun, 100.0)).measurements, FitnessEndReason.StoppedByUser, 180,
         )
         assertNull(stopped, "only an effort that ended by exhaustion is judged")
-        assertEquals(3, ThresholdEngine.ALGORITHM_VERSION)
+        assertEquals(4, ThresholdEngine.ALGORITHM_VERSION)
     }
 }

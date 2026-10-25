@@ -173,13 +173,14 @@ internal abstract class FitnessProtocol(
 
     /**
      * Strap check: the share of artifacts of all the RR received so far in the warm-up, with the same correction as the
-     * threshold engine ([RrCleaning]), from [FitnessTestConfig.strapCheckFromSeconds] into the warm-up. Recomputed with
+     * threshold engine ([RrCleaning]; the pause after a premature beat is a real beat and does not count), from
+     * [FitnessTestConfig.strapCheckFromSeconds] into the warm-up. Recomputed with
      * every batch of RR, so it clears by itself when the share falls back. It never blocks the test.
      */
     private fun updateStrapCheck(t: Long) {
         if (t < config.strapCheckFromSeconds * 1000L || rrIntervals.size < config.strapCheckMinBeats) return
         val cleaned = RrCleaning.clean(rrIntervals.map { it.rrMs })
-        val percent = FitnessFormulas.round1(cleaned.artifactCount * 100.0 / cleaned.size)
+        val percent = FitnessFormulas.round1(cleaned.strapArtifactCount * 100.0 / cleaned.size)
         strapCheck = StrapCheck(percent, percent > config.strapCheckMaxArtifactPercent)
     }
 

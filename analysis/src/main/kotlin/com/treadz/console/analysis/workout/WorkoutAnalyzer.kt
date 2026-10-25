@@ -78,9 +78,11 @@ object WorkoutAnalyzer {
      * section of the thresholds implied by the stable stretches ([ThresholdEstimatesSection]) was added. 3 (2026-10-24):
      * the fitness index only takes stretches up to 75 % of the heart-rate reserve (was 85 %), and the calories come from
      * [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above), as the stored ones. 4
-     * (2026-10-24): the section of the fat/carbohydrate split of the energy ([FuelSection]) was added.
+     * (2026-10-24): the section of the fat/carbohydrate split of the energy ([FuelSection]) was added. 5 (2026-10-25):
+     * the RR cleaning also corrects the pause after a premature beat ([RrCleaning]), which moves the α1 of the windows;
+     * the signal's artifact share counts only the faults of the readings.
      */
-    const val ALGORITHM_VERSION = 4
+    const val ALGORITHM_VERSION = 5
 
 
     fun analyse(
@@ -92,7 +94,7 @@ object WorkoutAnalyzer {
         val tl = WorkoutTimeline.build(sorted, rules)
         val rr = RrSeries.fromSamples(sorted)
         val cleaned = if (rr.isEmpty()) null else RrCleaning.clean(rr.map { it.rrMs })
-        val signal = signal(tl, rr.size, cleaned?.let { it.artifactCount * 100.0 / it.size })
+        val signal = signal(tl, rr.size, cleaned?.let { it.strapArtifactCount * 100.0 / it.size })
 
         val base: AnalysisReason? = when {
             tl.problem != null -> tl.problem

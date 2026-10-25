@@ -204,8 +204,8 @@ data class HeartRateSourceMix(val strapSeconds: Int, val consoleSeconds: Int, va
  * @property frozenHeartRateSeconds Moving seconds whose heart rate was dropped as frozen
  *   ([AnalysisRules.maxFrozenHeartRateSeconds]); they are not in [heartRateSeconds].
  * @property heartRateCoverage [heartRateSeconds] / [movingSeconds]; `null` if the belt never moved.
- * @property rrBeats Beats of the strap RR series; [rrArtifactPercent] the share of them corrected as artifacts (whole
- *   series, `null` without RR).
+ * @property rrBeats Beats of the strap RR series; [rrArtifactPercent] the share of them corrected as artifacts of the
+ *   readings (whole series, `null` without RR; the pauses after premature beats, corrected too, do not count).
  */
 data class SignalQuality(
     val sampleCount: Int,

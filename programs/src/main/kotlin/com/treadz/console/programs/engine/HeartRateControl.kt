@@ -43,8 +43,8 @@ enum class HeartRateControlState {
 
     /** Outside the zone but waiting: the first 90 s of the block (or after a safety reduction) allow no increase, the
      *  30-s trend forecast says the heart rate is already entering the zone, the heart rate is still rising by more than
-     *  [HeartRateControlConfig.risingTrendBpmPerMin], the last regular change in the same direction is less than
-     *  [HeartRateControlConfig.sameDirectionHoldMs] old, or the strap readings are doubtful (see
+     *  [HeartRateControlConfig.risingTrendBpmPerMin], the last change in the same direction (for a decrease, any
+     *  reduction) is less than [HeartRateControlConfig.sameDirectionHoldMs] old, or the strap readings are doubtful (see
      *  [HeartRateControlStatus.decisionDeferredByStrap]). */
     Waiting,
 
@@ -83,9 +83,9 @@ enum class HeartRateAdjustReason {
     NextRepetition,
 
     /**
-     * The real-time α1 brake: the median of the last six α1 evaluations (all counting, all after the previous reduction)
-     * was below the trigger while the heart rate was in or above the zone, so the load went one small step down (see
-     * [Alpha1BrakeConfig]). It only ever lowers the load.
+     * The real-time α1 brake: the median of the α1 evaluations made since the last change of the load was below the
+     * trigger, either over the last minute with the heart rate near VT1 or over the last 5 minutes anywhere in the zone,
+     * so the load went one small step down (see [Alpha1BrakeConfig]). It only ever lowers the load.
      */
     Alpha1Brake,
 }
@@ -112,11 +112,12 @@ data class HeartRateControlConfig(
      */
     val risingTrendBpmPerMin: Double = 3.0,
     /**
-     * After a regular change (heart rate above or below the zone), no other regular change in the same direction for
-     * this long: the heart rate needs 60-90 s to answer and the load moves in whole steps of 1 %, so a decision 20 s
-     * later would repeat the change on the same, not yet answered, heart rate (the audit of 2026-10-24: two reductions
-     * 20 s apart on a heart rate 0.4 bpm above the zone). A change in the opposite direction is not held; safety
-     * reductions and the α1 brake are not affected.
+     * After a regular increase, no other regular increase for this long; after any reduction (regular, safety or α1
+     * brake), no regular reduction for this long: the heart rate needs 60-90 s to answer and the load moves in whole
+     * steps of 1 %, so a decision 20 s later would repeat the change on the same, not yet answered, heart rate (the audit
+     * of 2026-10-24: two reductions 20 s apart on a heart rate 0.4 bpm above the zone; the one of 2026-10-25: an α1
+     * reduction 23 s after a regular one). A change in the opposite direction is not held; the safety rules and the α1
+     * brake are never held by it.
      */
     val sameDirectionHoldMs: Long = 60_000,
     /**
@@ -172,36 +173,56 @@ data class HeartRateControlConfig(
  * zone 2 of the highest fitness level, 65 %; without a resting heart rate the equivalent % of the maximum). The fitness tests run on their own runner and never
  * get the brake.
  *
- * **Trigger**: the **median of the last [medianEvaluations] (6) evaluations** is below [triggerAlpha1] (the estimator
- * evaluates every 10 s over the last 120 s). Those evaluations must be consecutive and **all counting**: each one a
- * window of at most [maxArtifactFraction] artifacts, entirely inside the running block, with the 10-s heart rate at or
- * above the zone's lower limit, a strap connected to the app and the control on. They must also all have been made
- * **after the last reduction**: a reduction empties the list, so the next trigger looks at evaluations that already see
- * the effect of the load that was lowered, and never comes before [minReductionIntervalMs] (180 s: 120 s for the
- * window to hold only beats after the reduction plus about 60 s for the heart rate to respond). Then one reduction:
- * [inclineStepPercent] of incline when the block adjusts the incline (walking) or [speedStepKmh] when it adjusts the
- * speed (running), never below the block's minimum. Any evaluation that does not count (a window that is not valid or
- * has too many artifacts, no RR, heart rate under the zone, control off) empties the list, so the brake is off while RR
- * are missing or noisy and the heart-rate regulation goes on alone. A median rather than a run of low values: one
- * high evaluation among six does not cancel the signal, and one low episode that is already fading does not trigger a
- * second reduction.
+ * **Evidence**: the estimator evaluates every 10 s over the last 120 s. An evaluation *counts* when its window has at
+ * most [maxArtifactFraction] artifacts, starts after the **last change of the load** (any change of this control, a
+ * resume or a re-enable: the windows hold only beats under the current load, so a reduction is never repeated on beats
+ * from before another one), and comes with the 10-s heart rate at or above the zone's lower limit, a strap connected to
+ * the app and the control on. One α1 evaluation is noisy: on real zone-2 walks two evaluations 10 s apart (92 % of their
+ * beats shared) differed by 0.15 (standard deviation), and inside a 121-131 bpm zone α1 barely followed the heart rate
+ * (R² 0.02). Hence two triggers, both on the median below [triggerAlpha1]:
+ *  - **Fast**: the median of the last [medianEvaluations] (6) consecutive counting evaluations, each with the 10-s heart
+ *    rate at or above the *fast floor* ([Alpha1BrakePolicy.fastFloorBpm]: VT1 − [fastMarginBelowVt1Bpm]). Near VT1 the
+ *    expected α1 is close to 0.75 and one minute of evidence is enough; lower in the zone the expected α1 is higher
+ *    (≥ 0.80 for a typical slope) and one noisy minute would brake for nothing. Any evaluation that does not count
+ *    (not valid, too many artifacts, no RR, heart rate under the fast floor, control off) restarts this count. At least
+ *    [minReductionIntervalMs] (180 s) after the previous α1 reduction.
+ *  - **Slow**: the median of the counting evaluations of the last [slowWindowMs] (5 min), at least [slowMinEvaluations]
+ *    of them (80 % of the 30 possible), anywhere in the zone. It covers a day when α1 is low at the usual heart rate
+ *    (fatigue, heat); evaluations that do not count are skipped, not a restart, so one noisy window does not throw away
+ *    5 min. At least [slowMinReductionIntervalMs] after the previous α1 reduction. With the evidence restarted at every
+ *    change, it needs about 7 min at the same load: it is slow on purpose.
+ *
+ * Then one reduction: [inclineStepPercent] of incline when the block adjusts the incline (walking) or [speedStepKmh]
+ * when it adjusts the speed (running), never below the block's minimum. While RR are missing or noisy the brake does
+ * not act and the heart-rate regulation goes on alone. A median rather than a run of low values: one high evaluation
+ * does not cancel the signal, and one low episode that is already fading does not trigger a second reduction.
  *
  * Sources of the thresholds: Rogers B, Giles D, Draper N, Hoos O, Gronwald T. A new detection method defining the
  * aerobic threshold for endurance exercise and training prescription based on fractal correlation properties of heart
  * rate variability. Front Physiol. 2021;12:596567 (α1 = 0.75 at the aerobic threshold, 0.5 at the anaerobic one); the
- * 0.70 trigger, the count of 6, the 180 s and the steps are design assumptions (a margin under the population cut of
- * 0.75; the waiting time follows from the 120-s window and the response of the heart rate).
+ * 0.70 trigger, the counts, the margin, the waiting times and the steps are design assumptions (a margin under the
+ * population cut of 0.75; the waiting times follow from the 120-s window and the response of the heart rate), checked
+ * by replaying real sessions (2026-10-25): no reduction in four zone-2 walks, and still the reductions of a walk spent
+ * above VT1.
  */
 data class Alpha1BrakeConfig(
     val enabled: Boolean = true,
     val triggerAlpha1: Double = 0.70,
-    /** The brake looks at the median of this many consecutive counting evaluations (all made after the last reduction). */
+    /** Fast trigger: the median of this many consecutive counting evaluations at or above the fast floor. */
     val medianEvaluations: Int = 6,
     val maxArtifactFraction: Double = 0.03,
-    /** After a reduction, the next one cannot come earlier than this (the window must see the effect of the first). */
+    /** After an α1 reduction, the next fast one cannot come earlier than this. */
     val minReductionIntervalMs: Long = 180_000,
+    /** The fast trigger only counts evaluations with the 10-s heart rate at or above VT1 minus this. */
+    val fastMarginBelowVt1Bpm: Int = 3,
+    /** Slow trigger: the counting evaluations of this last stretch of time. */
+    val slowWindowMs: Long = 300_000,
+    /** Slow trigger: at least this many counting evaluations in [slowWindowMs]. */
+    val slowMinEvaluations: Int = 24,
+    /** After an α1 reduction, the next slow one cannot come earlier than this. */
+    val slowMinReductionIntervalMs: Long = 300_000,
     val inclineStepPercent: Double = 1.0,
-    val speedStepKmh: Double = 0.3,
+    val speedStepKmh: Double = 0.1,
     val vt1ToleranceBpm: Int = 3,
     val zone2CeilingReservePercent: Int = 65,
 )
@@ -396,6 +417,14 @@ internal object Alpha1BrakePolicy {
             ?: HeartRateBands.reserveBpm(profile.maxBpm, profile.usableRestingBpm, config.zone2CeilingReservePercent)
         return zone.highBpm <= ceiling
     }
+
+    /**
+     * The fast floor of the brake ([Alpha1BrakeConfig]): the lowest 10-s heart rate at which an evaluation counts for the
+     * fast trigger, VT1 − [Alpha1BrakeConfig.fastMarginBelowVt1Bpm]. Without any VT1 the zone's ceiling takes its place
+     * (the brake only runs in easy zones, whose ceiling is at most the top of zone 2).
+     */
+    fun fastFloorBpm(zone: HeartRateZoneBpm, profile: HeartRateProfile, config: Alpha1BrakeConfig): Int =
+        (profile.usableVt1Bpm ?: zone.highBpm) - config.fastMarginBelowVt1Bpm
 }
 
 /**
@@ -410,8 +439,8 @@ internal object Alpha1BrakePolicy {
  * **Between repetitions**: no regular decisions inside the repetition; [nextRepetitionValue] corrects the next one.
  *
  * **Regular decisions wait** (they change nothing and the next one comes at the normal interval) when
- *  - the last regular change in the same direction is less than [HeartRateControlConfig.sameDirectionHoldMs] old (the
- *    opposite direction is not held);
+ *  - for an increase, the last regular increase, and for a reduction, the last reduction of any kind (regular, safety
+ *    or α1 brake), is less than [HeartRateControlConfig.sameDirectionHoldMs] old (the opposite direction is not held);
  *  - the strap readings of the 10-s window are doubtful ([StrapWindowJudge]: they are not confirmed by the RR of the same
  *    window; only with a strap connected to the app) and the same for the correction between repetitions;
  *  - and, for an increase, the heart-rate trend is above [HeartRateControlConfig.risingTrendBpmPerMin].
@@ -429,15 +458,17 @@ internal object Alpha1BrakePolicy {
  * **α1 brake** (when [alpha1BrakeActive], see [Alpha1BrakeConfig]): the runner passes every real-time α1 evaluation to
  * [onAlpha1]. It is one more input of this control, evaluated in [decide] after the safety rules and the no-heart-rate
  * hold and before the regular decision, so it combines with the other decisions like this:
- *  - Safety wins: a ceiling or maximum-heart-rate reduction returns first, and the brake waits at least a decision
- *    interval (20 s) after *any* change made by this control (a regular correction counts too), so two reductions never
- *    pile up on the same stale heart rate.
- *  - An α1 reduction counts as a decision: the next regular decision waits a full interval, and, like a safety
- *    reduction, it restarts the 90-s window without upward corrections, so the load is not raised back at once while
- *    the heart rate settles.
+ *  - Safety wins: a ceiling or maximum-heart-rate reduction returns first.
+ *  - Every change of the load made by this control (regular, safety, the no-heart-rate fallback or the brake itself)
+ *    restarts the brake's evidence: only windows that start after it count, so the brake never acts on beats from
+ *    before a change and two reductions never pile up on the same stale heart rate (at least 120 s + 50 s after any
+ *    change).
+ *  - An α1 reduction counts as a decision: the next regular decision waits a full interval, a regular reduction waits
+ *    [HeartRateControlConfig.sameDirectionHoldMs], and, like a safety reduction, it restarts the 90-s window without
+ *    upward corrections, so the load is not raised back at once while the heart rate settles.
  *  - It never raises the load, never goes below the block's minimum, and is off while the control is off after a
- *    manual change (until the next block or [reEnable]), while the heart rate is missing and while the last evaluations
- *    were not valid.
+ *    manual change (until the next block or [reEnable]), while the heart rate is missing and while the evaluations are
+ *    not valid.
  *  - Only windows entirely inside the running block count (not the warm-up before it, nor the time before a pause,
  *    a resume or a re-enable): the heart-rate regulation alone covers the first 2 min.
  */
@@ -458,6 +489,11 @@ internal class HeartRateBlockControl(
     startedAt: Long,
     /** The α1 brake applies to this block ([Alpha1BrakePolicy]). The evaluations in [onAlpha1] are recorded either way. */
     private val alpha1BrakeActive: Boolean = false,
+    /**
+     * The fast floor of the brake ([Alpha1BrakePolicy.fastFloorBpm]); `null` = the zone's lower limit (the fast trigger
+     * anywhere in the zone). Never below the zone's lower limit.
+     */
+    alpha1FastFloorBpm: Int? = null,
 ) {
     val ceilingBpm: Int = zone.highBpm + config.ceilingMarginBpm
 
@@ -482,17 +518,24 @@ internal class HeartRateBlockControl(
     private var lastRegularAt: Long? = null
     private var lastRegularDown = false
 
+    /** When this control last lowered the load, for any reason (regular reductions wait after it). */
+    private var lastReductionAt: Long? = null
+
     /** The last regular decision was deferred because the strap readings of its window were doubtful. */
     private var strapDeferred = false
     private var strapDeferrals = 0
 
     // -- α1 brake
-    /** Windows must start at or after this time (block start, last resume or re-enable). */
+    /** Recorded windows must start at or after this time (block start, last resume or re-enable). */
     private var alpha1FloorMs = startedAt
-    /** The α1 of the last counting evaluations, oldest first; emptied by anything that does not count and by a reduction. */
+    /** Counting windows must also start at or after this time (and the last change of the load). */
+    private var alpha1EvidenceFloorMs = startedAt
+    /** Fast trigger: the α1 of the last consecutive counting evaluations, oldest first; emptied by anything that does not count. */
     private val alpha1Recent = ArrayDeque<Double>()
+    /** Slow trigger: time and α1 of the counting evaluations of the last [Alpha1BrakeConfig.slowWindowMs], oldest first. */
+    private val alpha1Slow = ArrayDeque<Pair<Long, Double>>()
+    private val alpha1FastFloor = max(zone.lowBpm, alpha1FastFloorBpm ?: zone.lowBpm)
     private var lastAlpha1ReductionAt: Long? = null
-    private var lastChangeAt: Long? = null
     private var alpha1Reductions = 0
     private var alpha1Sum = 0.0
     private var alpha1Count = 0
@@ -553,6 +596,7 @@ internal class HeartRateBlockControl(
         waiting = false
         strapDeferred = false
         alpha1Recent.clear()
+        alpha1Slow.clear()
         signalState()
     }
 
@@ -563,10 +607,11 @@ internal class HeartRateBlockControl(
         controlValue = current
         nextDecisionAt = t
         lastRegularAt = null
+        lastReductionAt = null
         aboveCeilingSince = null
         atMaxSince = null
         alpha1FloorMs = t
-        alpha1Recent.clear()
+        restartAlpha1Evidence(t)
         if (!tracker.hasValid(t)) {
             holding = true
             holdSince = tracker.lastValidAt ?: t
@@ -587,16 +632,24 @@ internal class HeartRateBlockControl(
         atMaxSince = null
         lastAccountT = t
         alpha1FloorMs = t
-        alpha1Recent.clear()
+        restartAlpha1Evidence(t)
         if (holding) holdSince = t
         strapDeferred = false
     }
 
+    /** Only windows that start at or after [t] count for the brake from now on (see [Alpha1BrakeConfig]). */
+    private fun restartAlpha1Evidence(t: Long) {
+        alpha1EvidenceFloorMs = t
+        alpha1Recent.clear()
+        alpha1Slow.clear()
+    }
+
     /**
      * A real-time α1 evaluation ([e]) at [t]. It is recorded for the block summary when it is valid and its window lies
-     * inside the running block; it counts towards the brake only if the brake is active, the control is on and has a
-     * heart rate from a strap connected to the app, the window has few artifacts and the 10-s heart rate is at or above
-     * the zone's lower limit. Anything else empties the list of counting evaluations.
+     * inside the running block. It counts towards the brake only if the brake is active, its window starts after the
+     * last change of the load, the control is on and has a heart rate from a strap connected to the app, the window has
+     * few artifacts and the 10-s heart rate is at or above the zone's lower limit (for the fast trigger, at or above the
+     * fast floor). Anything else empties the fast list; the slow list just skips it.
      */
     fun onAlpha1(t: Long, e: Alpha1Evaluation) {
         val alpha = e.alpha1
@@ -607,12 +660,14 @@ internal class HeartRateBlockControl(
         alpha1Sum += alpha
         alpha1Count++
         val brake = config.alpha1Brake
+        while (alpha1Slow.isNotEmpty() && alpha1Slow.first().first <= t - brake.slowWindowMs) alpha1Slow.removeFirst()
         val hr = tracker.mean(t, config.meanWindowMs)
-        val counts = alpha1BrakeActive && !off && !holding && tracker.hasValid(t) &&
-            tracker.lastSource == HeartRateSourceKind.DirectStrap &&
+        val counts = alpha1BrakeActive && e.windowStartMillis >= alpha1EvidenceFloorMs && !off && !holding &&
+            tracker.hasValid(t) && tracker.lastSource == HeartRateSourceKind.DirectStrap &&
             e.artifactFraction <= brake.maxArtifactFraction + EPS &&
             hr != null && hr >= zone.lowBpm
-        if (!counts) {
+        if (counts) alpha1Slow.addLast(t to alpha)
+        if (!counts || hr == null || hr < alpha1FastFloor) {
             alpha1Recent.clear()
             return
         }
@@ -703,8 +758,13 @@ internal class HeartRateBlockControl(
             return null
         }
         val isAbove = mean > zone.highBpm
-        // The heart rate needs time to answer the last change: no other one in the same direction yet.
-        val held = lastRegularAt?.let { lastRegularDown == isAbove && t - it < config.sameDirectionHoldMs } == true
+        // The heart rate needs time to answer the last change: no other one in the same direction yet (for a reduction,
+        // after a reduction of any kind).
+        val held = if (isAbove) {
+            lastReductionAt?.let { t - it < config.sameDirectionHoldMs } == true
+        } else {
+            lastRegularAt?.let { !lastRegularDown && t - it < config.sameDirectionHoldMs } == true
+        }
         if (held) {
             waiting = true
             strapDeferred = false
@@ -746,16 +806,19 @@ internal class HeartRateBlockControl(
     }
 
     private fun alpha1Reduction(t: Long, blockMs: Long, current: Double): Double? {
+        if (!alpha1BrakeActive) return null
         val brake = config.alpha1Brake
-        if (!alpha1BrakeActive || alpha1Recent.size < brake.medianEvaluations) return null
-        if (median(alpha1Recent) >= brake.triggerAlpha1) return null
-        if (lastAlpha1ReductionAt?.let { t - it < brake.minReductionIntervalMs } == true) return null
-        if (lastChangeAt?.let { t - it < config.decisionIntervalMs } == true) return null
+        val sinceLast = lastAlpha1ReductionAt?.let { t - it } ?: Long.MAX_VALUE
+        val fast = alpha1Recent.size >= brake.medianEvaluations && median(alpha1Recent) < brake.triggerAlpha1 &&
+            sinceLast >= brake.minReductionIntervalMs
+        while (alpha1Slow.isNotEmpty() && alpha1Slow.first().first <= t - brake.slowWindowMs) alpha1Slow.removeFirst()
+        val slow = !fast && alpha1Slow.size >= brake.slowMinEvaluations &&
+            median(alpha1Slow.map { it.second }) < brake.triggerAlpha1 && sinceLast >= brake.slowMinReductionIntervalMs
+        if (!fast && !slow) return null
         val step = if (adjust == HeartRateAdjust.Incline) brake.inclineStepPercent else brake.speedStepKmh
         val target = snap(max(minimum, current - step))
         if (target >= current - EPS) return null
-        // The next trigger needs evaluations made after this reduction.
-        alpha1Recent.clear()
+        // The next trigger needs windows that start after this reduction ([change] restarts the evidence).
         lastAlpha1ReductionAt = t
         alpha1Reductions++
         // It counts as a decision: the regular one waits a full interval and no upward correction follows at once.
@@ -787,7 +850,9 @@ internal class HeartRateBlockControl(
 
     private fun change(from: Double, to: Double, reason: HeartRateAdjustReason, t: Long, safety: Boolean): Double {
         adjustments++
-        lastChangeAt = t
+        if (to < from) lastReductionAt = t
+        // The brake only looks at beats under the new load.
+        restartAlpha1Evidence(t)
         if (safety) {
             safetyReductions++
             // The heart rate needs time to respond: the next regular decision waits a full interval.

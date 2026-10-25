@@ -4,6 +4,7 @@ import com.treadz.console.programs.fitness.FitnessTestJson
 import com.treadz.console.programs.fitness.HeartRateSourceKind
 import com.treadz.console.programs.personalised.GeneratedSessionJson
 import com.treadz.console.programs.json.PlanJson
+import com.treadz.console.userdata.AvatarRules
 import com.treadz.console.userdata.FitnessLevel
 import com.treadz.console.userdata.Goal
 import com.treadz.console.userdata.HeartRatePeak
@@ -74,6 +75,7 @@ internal object RecordCodec {
             p.maxHeartRateSetAtMillis?.let { json.put("max_hr_set_at", time(it)) }
             p.strapAddress?.let { json.put("strap_address", it) }
             p.strapName?.let { json.put("strap_name", it) }
+            p.avatar?.let { json.put("avatar", it) }
         }
         json.put("updated_at", time(p.version.updatedAtMillis)).put("updated_by", p.version.deviceId)
         return json.toText().toByteArray(Charsets.UTF_8)
@@ -103,6 +105,8 @@ internal object RecordCodec {
                 maxHeartRateSetAtMillis = o.optStringOrNull("max_hr_set_at")?.let(::parseTime),
                 strapAddress = o.optStringOrNull("strap_address"),
                 strapName = o.optStringOrNull("strap_name"),
+                // An id of the wrong format is read as "no avatar"; one this version does not know is kept as it is.
+                avatar = AvatarRules.normalize(o.optStringOrNull("avatar")),
                 // A "fitness" block (older versions) is ignored: the fitness profile is derived data, see fitness.json.
             )
         }

@@ -48,6 +48,9 @@ that a `resting_hr_bpm` in a repository that has no `resting-heart-rate.csv` for
 existed, and the app reads that value as the user's first manual measurement.
 `strap_address` and `strap_name`, present only when the user has paired a heart rate strap, are the Bluetooth address
 (`AA:BB:CC:DD:EE:FF`) and the name of the strap, so that every device of the user finds the same strap.
+`avatar`, present only when the user picked one, is the id of the avatar (lower case letters, digits and `_`, such as
+`man`), so that every device shows the same one. A device that does not know an id shows the initial of the name and
+keeps the id.
 `max_hr_bpm` is the maximum heart rate the user entered; `max_hr_set_at`, present only when known, is when it was
 entered or last confirmed (values entered before the field existed lack it and count as older than any fitness test). When there is no manual value the app uses the maximum heart
 rate measured by a maximal fitness test and, failing that, the Tanaka estimate `208 - 0.7 * age`.

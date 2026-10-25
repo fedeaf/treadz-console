@@ -164,6 +164,10 @@
     <string name="editor_personalize_intro">Sustituye el usuario genérico por tus datos, para que el peso, los entrenamientos y las zonas de pulso sean los tuyos.</string>
     <string name="editor_not_found">Este usuario ya no existe.</string>
     <string name="field_name">Nombre</string>
+    <string name="field_avatar">Avatar</string>
+    <string name="avatar_none">Sin avatar, usar la inicial del nombre</string>
+    <string name="avatar_man">Hombre calvo con barba corta gris</string>
+    <string name="avatar_woman">Mujer con el pelo muy corto y oscuro con mechas rubias</string>
     <string name="field_sex">Sexo</string>
     <string name="sex_male">Hombre</string>
     <string name="sex_female">Mujer</string>

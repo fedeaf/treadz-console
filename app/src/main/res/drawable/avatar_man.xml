@@ -1,0 +1,92 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="#21B6A8"
+        android:pathData="M 0 0 H 512 V 512 H 0 Z" />
+    <path
+        android:fillColor="#E39B6B"
+        android:pathData="M 216 370 H 296 V 470 H 216 Z" />
+    <path
+        android:fillColor="#FF6B35"
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:strokeLineJoin="round"
+        android:pathData="M 150 512 L 178 456 Q 256 470 334 456 L 362 512 Z" />
+    <path
+        android:fillColor="#F6BE94"
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:pathData="M 54 262 A 30 38 0 1 0 114 262 A 30 38 0 1 0 54 262 Z" />
+    <path
+        android:fillColor="#F6BE94"
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:pathData="M 398 262 A 30 38 0 1 0 458 262 A 30 38 0 1 0 398 262 Z" />
+    <path
+        android:fillColor="#F6BE94"
+        android:pathData="M 256 60 C 384 60 428 140 428 240 C 428 290 420 330 404 356 C 380 396 326 412 256 412 C 186 412 132 396 108 356 C 92 330 84 290 84 240 C 84 140 128 60 256 60 Z" />
+    <path
+        android:strokeColor="#E39B6B"
+        android:strokeWidth="26"
+        android:strokeLineCap="round"
+        android:pathData="M 300 92 C 360 104 396 150 404 210" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="16"
+        android:strokeLineCap="round"
+        android:pathData="M 170 120 Q 186 96 218 90" />
+    <path
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:strokeLineJoin="round"
+        android:pathData="M 256 60 C 384 60 428 140 428 240 C 428 290 420 330 404 356 C 380 396 326 412 256 412 C 186 412 132 396 108 356 C 92 330 84 290 84 240 C 84 140 128 60 256 60 Z" />
+    <path
+        android:fillColor="#B4BAC4"
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:strokeLineJoin="round"
+        android:pathData="M 84 240 C 98 268 126 298 176 306 C 210 314 228 318 256 320 C 284 318 302 314 336 306 C 386 298 414 268 428 240 C 428 290 420 330 404 356 C 380 396 326 412 256 412 C 186 412 132 396 108 356 C 92 330 84 290 84 240 Z" />
+    <path
+        android:fillColor="#9AA2AE"
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:strokeLineJoin="round"
+        android:pathData="M 178 296 C 196 280 232 284 256 292 C 280 284 316 280 334 296 C 324 306 304 318 256 322 C 208 318 188 306 178 296 Z" />
+    <path
+        android:strokeColor="#3B2A24"
+        android:strokeWidth="20"
+        android:strokeLineCap="round"
+        android:pathData="M 164 200 Q 194 184 228 196" />
+    <path
+        android:strokeColor="#3B2A24"
+        android:strokeWidth="20"
+        android:strokeLineCap="round"
+        android:pathData="M 284 196 Q 318 184 348 200" />
+    <path
+        android:fillColor="#2B2233"
+        android:pathData="M 179 240 A 17 21 0 1 0 213 240 A 17 21 0 1 0 179 240 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 196 232 A 6 6 0 1 0 208 232 A 6 6 0 1 0 196 232 Z" />
+    <path
+        android:fillColor="#2B2233"
+        android:pathData="M 299 240 A 17 21 0 1 0 333 240 A 17 21 0 1 0 299 240 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 316 232 A 6 6 0 1 0 328 232 A 6 6 0 1 0 316 232 Z" />
+    <path
+        android:strokeColor="#2B2233"
+        android:strokeWidth="14"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 258 240 Q 270 256 256 264" />
+    <path
+        android:fillColor="#2B2233"
+        android:pathData="M 210 318 Q 256 326 302 318 Q 294 368 256 370 Q 218 368 210 318 Z" />
+    <path
+        android:fillColor="#FF7A8A"
+        android:pathData="M 232 350 A 24 11 0 1 0 280 350 A 24 11 0 1 0 232 350 Z" />
+</vector>

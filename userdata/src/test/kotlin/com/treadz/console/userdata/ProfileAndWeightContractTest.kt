@@ -54,6 +54,21 @@ abstract class ProfileAndWeightContractTest {
         assertEquals(Goal.BuildEndurance, p.goal)
     }
 
+    @Test fun `a profile has no avatar until one is picked, and the avatar can be changed and removed`() = runBlocking<Unit> {
+        val p = data.profiles.create(validInput("Ana")).ok()
+        assertNull(p.avatarId)
+        val picked = data.profiles.update(p.id, validInput("Ana").copy(avatarId = "man")).ok()
+        assertEquals("man", picked.avatarId)
+        assertEquals("man", data.profiles.profile(p.id).first()!!.avatarId)
+        assertEquals("woman", data.profiles.update(p.id, validInput("Ana").copy(avatarId = "woman")).ok().avatarId)
+        assertNull(data.profiles.update(p.id, validInput("Ana")).ok().avatarId)
+    }
+
+    @Test fun `an avatar can be set when the profile is created, and an id of the wrong format is dropped`() = runBlocking<Unit> {
+        assertEquals("woman", data.profiles.create(validInput("Ana").copy(avatarId = "woman")).ok().avatarId)
+        assertNull(data.profiles.create(validInput("Beto").copy(avatarId = "Not An Id!")).ok().avatarId)
+    }
+
     @Test fun `with no profile at all the first one created becomes active, later ones do not`() = runBlocking<Unit> {
         val a = data.profiles.create(validInput("Ana")).ok()
         val b = data.profiles.create(validInput("Beto")).ok()

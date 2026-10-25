@@ -57,6 +57,7 @@ data class ProfileEditorActions(
     val onMaxHeartRate: (String) -> Unit = {},
     val onFitnessLevel: (FitnessLevel?) -> Unit = {},
     val onGoal: (Goal?) -> Unit = {},
+    val onAvatar: (String?) -> Unit = {},
     val onWeight: (String) -> Unit = {},
     val onSave: () -> Unit = {},
     val onDelete: () -> Unit = {},
@@ -150,6 +151,11 @@ private fun IdentityFields(state: ProfileEditorUiState, today: LocalDate, action
     val errors = state.errors
     @Composable fun error(field: InputField): String? = errors[field]?.let { code -> validationText(field, code) }
 
+    AvatarPicker(
+        name = form.name.trim().ifBlank { stringResource(R.string.generic_user_label) },
+        selectedId = form.avatarId,
+        onSelect = actions.onAvatar,
+    )
     TextField(
         label = stringResource(R.string.field_name),
         value = form.name,

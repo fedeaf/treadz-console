@@ -47,6 +47,7 @@ internal fun UserEntity.toProfile(restingHeartRateBpm: Int? = null) = UserProfil
     maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
     strapAddress = strapAddress,
     strapName = strapName,
+    avatarId = avatar,
 )
 
 internal fun WeightEntryEntity.toEntry() = WeightEntry(id, userId, LocalDate.ofEpochDay(epochDay), weightKg, isPlaceholder, createdAtMillis)

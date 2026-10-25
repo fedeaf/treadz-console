@@ -62,6 +62,11 @@ data class UserProfile(
     val strapAddress: String? = null,
     /** Name the strap advertises, for the UI; `null` if unknown or no strap. */
     val strapName: String? = null,
+    /**
+     * Id of the avatar the user picked (see [AvatarRules]), or `null` for none. The catalogue of avatars lives in the
+     * UI: this module keeps the id as it was saved, so an id this version does not know (an avatar added later) is not lost.
+     */
+    val avatarId: String? = null,
 ) {
     /** Age in whole years on [date] (never negative). */
     fun ageOn(date: LocalDate): Int = Period.between(birthDate, date).years.coerceAtLeast(0)
@@ -99,7 +104,18 @@ data class ProfileInput(
     val maxHeartRateBpm: Int? = null,
     val fitnessLevel: FitnessLevel? = null,
     val goal: Goal? = null,
+    /** The avatar picked, as [UserProfile.avatarId]; an id that [AvatarRules.normalize] rejects is saved as `null`. */
+    val avatarId: String? = null,
 )
+
+/** Rules of the avatar id of a profile, shared by every implementation. */
+object AvatarRules {
+    const val MAX_LENGTH = 40
+    private val ID = Regex("^[a-z0-9_]{1,$MAX_LENGTH}$")
+
+    /** The id when it has the format of an avatar id (lower case letters, digits and `_`), else `null`. */
+    fun normalize(id: String?): String? = id?.trim()?.takeIf { ID.matches(it) }
+}
 
 /**
  * The generic default profile. A fresh database (first install) contains exactly this one profile, active, so the

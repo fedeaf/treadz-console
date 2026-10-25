@@ -23,6 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 7. The events of a workout (what changed the load during it): column `workouts.eventsJson`. See [Migration6To7].
  * 8. The decoupling is no longer part of the analysis: columns `decouplingPercent` and `longSteadyZone2` of
  *    `workout_analysis` removed. See [Migration7To8].
+ * 9. The avatar of a user: column `users.avatar`. See [Migration8To9].
  *
  * ## Changing the schema
  * 1. Bump [VERSION] and edit the entities. The build exports the new schema to `userdata/schemas/<version>.json`:
@@ -58,7 +59,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
     abstract fun workoutAnalysis(): WorkoutAnalysisDao
 
     companion object {
-        const val VERSION = 8
+        const val VERSION = 9
         const val FILE_NAME = "treadz_userdata.db"
 
         /** Device id recorded on the rows migrated by [MIGRATIONS], which has no device to ask. */
@@ -68,7 +69,7 @@ internal abstract class UserDataDatabase : RoomDatabase() {
         val MIGRATIONS: Array<Migration> = migrations(MIGRATED_DEVICE_ID)
 
         /** Migrations between consecutive versions; rows that exist before version 2 are stamped with [deviceId]. */
-        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7(), Migration7To8())
+        fun migrations(deviceId: String): Array<Migration> = arrayOf(Migration1To2(deviceId), Migration2To3(), Migration3To4(), Migration4To5(deviceId), Migration5To6(), Migration6To7(), Migration7To8(), Migration8To9())
     }
 }
 
@@ -292,5 +293,16 @@ internal class Migration7To8 : Migration(7, 8) {
         )
         db.execSQL("DROP TABLE `workout_analysis`")
         db.execSQL("ALTER TABLE `workout_analysis_new` RENAME TO `workout_analysis`")
+    }
+}
+
+/**
+ * Version 8 to 9 (the avatar of a user). Only adds the nullable column `users.avatar`: every existing row is kept as it
+ * is (no avatar), nothing is flagged `dirty`. The statement is the one of the exported version-9 schema.
+ */
+internal class Migration8To9 : Migration(8, 9) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `users` ADD COLUMN `avatar` TEXT")
     }
 }

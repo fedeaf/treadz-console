@@ -28,3 +28,16 @@ fun profileInput(
 
 fun InMemoryUserData.createProfile(name: String, age: Int = 35): UserProfile =
     runBlocking { (profiles.create(profileInput(name, age = age)) as DataResult.Success).value }
+
+/** Gives [user] the avatar [avatarId] (`null` for none), keeping the rest of the profile as it is. */
+fun InMemoryUserData.setAvatar(user: UserProfile, avatarId: String?) {
+    runBlocking {
+        profiles.update(
+            user.id,
+            ProfileInput(
+                user.name, user.sex, user.heightCm, user.birthDate, user.restingHeartRateBpm, user.maxHeartRateBpm,
+                user.fitnessLevel, user.goal, avatarId,
+            ),
+        )
+    }
+}

@@ -62,6 +62,8 @@ internal data class UserEntity(
     /** Paired heart rate strap (since schema version 5). */
     val strapAddress: String? = null,
     val strapName: String? = null,
+    /** Id of the avatar picked (since schema version 8); `null` for none. */
+    val avatar: String? = null,
 )
 
 /** Single row (id 1) holding the active user; cleared by the database itself when that user is deleted. */

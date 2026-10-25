@@ -81,6 +81,7 @@ GitHub repository.
 ### Users, weight and history
 
 - Several users on the same device, each with their own workouts, programs, tests, weight log and strap.
+- An avatar for each user, picked in the profile editor (the initial of the name is used when there is none).
 - Weight log with a chart and a target weight. The latest weight feeds the calorie estimates.
 - Workout history per user, with charts of speed, incline and heart rate, and the planned versus the actual workout
   for programs.

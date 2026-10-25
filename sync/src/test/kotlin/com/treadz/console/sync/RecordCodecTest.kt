@@ -72,6 +72,25 @@ class RecordCodecTest {
         assertTrue(text(RecordCodec.profile(bare)).contains("\"goal\": null"))
     }
 
+    @Test fun `the avatar is written after the creation time, read back and left out when there is none`() {
+        val picked = profile.copy(avatar = "woman")
+        val json = text(RecordCodec.profile(picked))
+        assertTrue(
+            json,
+            json.contains("  \"target_weight_kg\": 62.5,\n  \"created_at\": \"2026-10-08T00:39:59.000Z\",\n  \"avatar\": \"woman\",\n  \"updated_at\""),
+        )
+        assertEquals(picked, RecordCodec.parseProfile(json.toByteArray()))
+        // without one the file is the one written before avatars existed, and reads as "no avatar"
+        assertFalse(text(RecordCodec.profile(profile)).contains("avatar"))
+        assertNull(RecordCodec.parseProfile(RecordCodec.profile(profile))!!.avatar)
+        // a tombstone keeps none
+        assertFalse(text(RecordCodec.profile(picked.copy(deleted = true))).contains("avatar"))
+        // an id this version does not know is kept as it is; a value that is not an id is read as none
+        val future = profile.copy(avatar = "avatar_from_a_later_version")
+        assertEquals(future, RecordCodec.parseProfile(RecordCodec.profile(future)))
+        assertNull(RecordCodec.parseProfile(json.replace("\"woman\"", "\"Not An Id!\"").toByteArray())!!.avatar)
+    }
+
     @Test fun `a profile tombstone keeps no personal data but the name`() {
         val tombstone = profile.copy(deleted = true)
         val json = text(RecordCodec.profile(tombstone))

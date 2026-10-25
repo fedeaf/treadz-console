@@ -6,6 +6,7 @@ import com.treadz.console.programs.json.PlanJson
 import com.treadz.console.programs.personalised.GeneratedSessionJson
 import com.treadz.console.programs.personalised.GeneratedSessionRecord
 import com.treadz.console.treadmill.control.Clock
+import com.treadz.console.userdata.AvatarRules
 import com.treadz.console.userdata.DataResult
 import com.treadz.console.userdata.GenericProfile
 import com.treadz.console.userdata.HeartRatePeakRecord
@@ -323,6 +324,7 @@ internal class RoomProfileRepository(
         deleted = false,
         dirty = false,
         maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
+        avatar = AvatarRules.normalize(avatarId),
     )
 
     private companion object {

@@ -289,6 +289,7 @@ internal class RoomSyncStore(
             maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
             strapAddress = strapAddress,
             strapName = strapName,
+            avatar = avatar,
         )
     }
 
@@ -314,6 +315,7 @@ internal class RoomSyncStore(
         maxHeartRateSetAtMillis = maxHeartRateSetAtMillis,
         strapAddress = strapAddress,
         strapName = strapName,
+        avatar = avatar,
     )
 
     private fun RestingHeartRateEntity.toSync(userUuid: String) = SyncRestingHeartRate(

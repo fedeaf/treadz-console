@@ -118,6 +118,28 @@ class SyncStoreTest {
         assertEquals(87.9, data.weights.latestWeight(ana.id).first()!!.weightKg, 0.0)
     }
 
+    @Test fun `the avatar of a profile is part of it when it is pending and when a remote version is applied`() = runBlocking<Unit> {
+        val ana = createAna()
+        val uuid = pending().profiles.single().uuid
+        assertNull(pending().profiles.single().avatar)
+        sync.markSynced(SyncedRecords(profiles = pending().profiles.map { SyncedRef(it.uuid, it.version) }))
+
+        clock.nowMillis += 1_000
+        ok(data.profiles.update(ana.id, validInput("Ana").copy(avatarId = "woman")))
+        assertEquals("woman", pending().profiles.single().avatar)
+        sync.markSynced(SyncedRecords(profiles = pending().profiles.map { SyncedRef(it.uuid, it.version) }))
+
+        // another device picks a different one, later
+        val remote = profile(uuid, "Ana", T0 + 10_000).copy(avatar = "man")
+        sync.applyRemote(RemoteChanges(profiles = listOf(remote)))
+        assertEquals("man", data.profiles.profile(ana.id).first()!!.avatarId)
+        assertTrue(pending().isEmpty)
+
+        // and removes it
+        sync.applyRemote(RemoteChanges(profiles = listOf(remote.copy(version = RecordVersion(T0 + 20_000, "dev-b"), avatar = null))))
+        assertNull(data.profiles.profile(ana.id).first()!!.avatarId)
+    }
+
     @Test fun `markSynced clears pending, an edit makes the record pending again, an edit that changes nothing does not`() = runBlocking<Unit> {
         val ana = createAna()
         fun all(p: com.treadz.console.userdata.sync.PendingChanges) =

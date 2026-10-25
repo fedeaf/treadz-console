@@ -50,6 +50,8 @@ data class SyncProfile(
     /** The user's heart rate strap (see `UserProfile.strapAddress`); part of the profile, so the other devices find the same strap. */
     val strapAddress: String? = null,
     val strapName: String? = null,
+    /** The avatar the user picked (see `UserProfile.avatarId`), so that every device shows the same one; `null` for none. */
+    val avatar: String? = null,
 )
 
 /**

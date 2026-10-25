@@ -84,6 +84,15 @@ class PeakOfferTest {
         assertEquals(measurementsBefore, runBlocking { data.restingHeartRates.measurements(ana.id).first() }.size)
     }
 
+    @Test fun yesKeepsTheAvatarOfTheProfile() {
+        runBlocking { data.profiles.update(ana.id, profileInput("Ana").copy(avatarId = "woman")) }
+        workoutWithPeak(estimated + 10)
+        home().acceptPeakOffer()
+        val profile = runBlocking { data.profiles.profile(ana.id).first()!! }
+        assertEquals(estimated + 10, profile.maxHeartRateBpm)
+        assertEquals("woman", profile.avatarId)
+    }
+
     @Test fun noRemembersTheAnswerAndTheSamePeakIsNotOfferedAgain() {
         workoutWithPeak(estimated + 10)
         val vm = home()

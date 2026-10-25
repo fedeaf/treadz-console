@@ -24,8 +24,8 @@ android {
         applicationId = "com.treadz.console"
         minSdk = 33
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.0.6"
+        versionCode = 9
+        versionName = "1.0.7"
     }
 
     signingConfigs {

@@ -135,6 +135,9 @@ data class ThresholdAnalysis(
  * @property maxHeartRateBpm The user's maximum heart rate (windows at or above 95 % of it end the stretch).
  * @property restingHeartRateBpm For the % of the reserve at each threshold; `null` = not given.
  * @property vo2maxMlKgMin VO2max of the test (or of the profile) for the % of VO2max at each threshold.
+ * @property walked The test is walked by definition (the maximal walking test): the oxygen demand at each threshold uses
+ *   the walking equation at any speed, as its VO2max does ([com.treadz.console.analysis.fitness.WalkingTestVo2max]);
+ *   otherwise the equation of the speed ([Acsm.vo2]).
  */
 data class ThresholdInput(
     val rr: List<RrInterval>,
@@ -144,6 +147,7 @@ data class ThresholdInput(
     val maxHeartRateBpm: Int,
     val restingHeartRateBpm: Int? = null,
     val vo2maxMlKgMin: Double? = null,
+    val walked: Boolean = false,
 )
 
 /** Parameters of [ThresholdEngine] (the defaults are the published method; see the engine). */
@@ -152,8 +156,21 @@ data class ThresholdRules(
     val stepSeconds: Int = 10,
     val minBeats: Int = 100,
     val maxArtifactFraction: Double = 0.05,
-    /** The stretch starts at the last window above this α1. */
+    /**
+     * A window is valid only when its beats cover it: no stretch without beats longer than this from its start to its
+     * first beat, between two beats or from its last beat to its end. α1 over a series spliced across a dropout of the
+     * strap means nothing, however many beats are left (since algorithm version 5; the real-time estimator always had it).
+     */
+    val maxRrGapSeconds: Int = 15,
+    /** The stretch starts at the last window above this α1 (confirmed, see [stretchStartConfirmWindows]). */
     val stretchStartAlpha1: Double = 1.0,
+    /**
+     * The start must be the last of this many consecutive valid windows above [stretchStartAlpha1] (or the series starts
+     * before them): a single noisy window above it late in the ramp does not cut the stretch short. The same rule as the
+     * end ([stretchEndConfirmWindows]), since algorithm version 5: in a real walking ramp one window at 1.016, after seven
+     * at 0.85-0.92, started the stretch there and left out the windows from 122 bpm up.
+     */
+    val stretchStartConfirmWindows: Int = 2,
     /** The stretch ends at the first window below this α1 (confirmed, see [stretchEndConfirmWindows])... */
     val stretchEndAlpha1: Double = 0.4,
     /**
@@ -185,15 +202,16 @@ data class ThresholdRules(
  * 1. **RR cleaning** ([RrCleaning]): outside 300-2000 ms or more than 20 % from the local median of 11 beats is an
  *    artifact, replaced by interpolation; the share of artifacts is counted per window.
  * 2. **Windows** ([Alpha1Windows]) of 120 s every 10 s, entirely inside the analysed part. α1 by DFA over 4-16 beats ([Dfa]). A window
- *    is valid with ≥ 100 beats and ≤ 5 % artifacts (3-5 % counts but lowers the quality, step 5). Its heart rate is
- *    60 000 / its mean corrected RR, its load the time-weighted mean of the samples.
- * 3. **Regression of α1 against the heart rate** on the falling stretch: from the last valid window with α1 > 1.0 to the
- *    first with α1 < 0.4 followed by another valid window below 0.4 (one noisy window does not end it), or to the last
- *    one below 95 % of the maximum heart rate (α1 rises again near the maximum).
+ *    is valid with ≥ 100 beats, ≤ 5 % artifacts (3-5 % counts but lowers the quality, step 5) and no hole without beats
+ *    longer than 15 s. Its heart rate is 60 000 / its mean corrected RR, its load the time-weighted mean of the samples.
+ * 3. **Regression of α1 against the heart rate** on the falling stretch: from the last valid window with α1 > 1.0 that
+ *    follows another valid window above 1.0 (one noisy window does not start it; the first valid window needs none) to
+ *    the first with α1 < 0.4 followed by another valid window below 0.4 (one noisy window does not end it), or to the
+ *    last one below 95 % of the maximum heart rate (α1 rises again near the maximum).
  *    **VT1** = heart rate at α1 = 0.75; **VT2** = heart rate at α1 = 0.5, only when some valid window of the stretch is
  *    below 0.55. Neither is extrapolated beyond the heart-rate range of the stretch.
  * 4. **Load at each threshold**: interpolated between the windows whose heart rate brackets it; its ACSM oxygen demand
- *    and its % of the VO2max given.
+ *    (the walking equation for a walked test, [ThresholdInput.walked]) and its % of the VO2max given.
  * 5. **Quality**: high with ≥ 8 stretch windows, R² ≥ 0.7 and mean artifacts < 3 %; medium with ≥ 6, R² ≥ 0.5 and < 5 %;
  *    low otherwise (stored, but not used for the profile).
  *
@@ -215,9 +233,14 @@ object ThresholdEngine {
      * the seconds after the end of the effort. 3 (2026-10-23): a maximal test whose peak heart rate is under 85 % of the
      * maximum in use gives no VO2max and no MAS (the engine itself is unchanged; the version makes the stored results be
      * recalculated once with the new rule). 4 (2026-10-25): the RR cleaning also corrects the pause after a premature
-     * beat ([RrCleaning]).
+     * beat ([RrCleaning]). 5 (2026-10-26): a window with a hole of more than 15 s without beats is not valid
+     * ([ThresholdRules.maxRrGapSeconds]); the beats of a sample without a usable reading count
+     * ([com.treadz.console.analysis.samples.WorkoutSample.hasStrapRr]); the start of the stretch is confirmed by the
+     * window before it ([ThresholdRules.stretchStartConfirmWindows]); the oxygen demand changes to the running equation
+     * above 7 km/h instead of 7.5 ([Acsm.vo2]), and the maximal walking test uses the walking one at any speed for its
+     * VO2max and the load at its thresholds ([ThresholdInput.walked]).
      */
-    const val ALGORITHM_VERSION = 4
+    const val ALGORITHM_VERSION = 5
 
     fun analyse(input: ThresholdInput, rules: ThresholdRules = ThresholdRules()): ThresholdAnalysis {
         val start = input.fromMillis
@@ -309,9 +332,11 @@ object ThresholdEngine {
             }
         }
         if (endPos < 0) return emptyList()
+        fun aboveStart(pos: Int): Boolean = checkNotNull(windows[valid[pos]].alpha1) > rules.stretchStartAlpha1
         var startPos = 0
         for (pos in endPos downTo 0) {
-            if (checkNotNull(windows[valid[pos]].alpha1) > rules.stretchStartAlpha1) {
+            // Confirmed by the previous windows above the start value, or by the series starting first.
+            if (aboveStart(pos) && (maxOf(0, pos - rules.stretchStartConfirmWindows + 1) until pos).all(::aboveStart)) {
                 startPos = pos
                 break
             }
@@ -349,7 +374,11 @@ object ThresholdEngine {
             speed = nearest?.speedKmh
             incline = nearest?.inclinePercent
         }
-        val vo2 = if (speed != null && incline != null) Acsm.vo2(speed, incline) else null
+        val vo2 = if (speed != null && incline != null) {
+            if (input.walked) Acsm.walkingVo2(speed, incline) else Acsm.vo2(speed, incline)
+        } else {
+            null
+        }
         val rest = input.restingHeartRateBpm?.takeIf { it < input.maxHeartRateBpm }
         return ThresholdPoint(
             heartRateBpm = heartRate,

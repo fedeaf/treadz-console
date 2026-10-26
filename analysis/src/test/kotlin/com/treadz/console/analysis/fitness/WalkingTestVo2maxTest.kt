@@ -19,7 +19,7 @@ class WalkingTestVo2maxTest {
         assertEquals(3.5 + 0.1 * s + 1.8 * s * (42 * 0.16 + 18 * 0.17) / 60, e.vo2maxMlKgMin, 1e-9)
         assertEquals(44.15, e.vo2maxMlKgMin, 0.01)
         assertTrue(e.fromStages)
-        assertFalse(e.running)
+        assertFalse(e.aboveWalkingSpeeds)
         assertEquals(60.0, e.coveredSeconds)
     }
 
@@ -39,12 +39,22 @@ class WalkingTestVo2maxTest {
     }
 
     @Test
-    fun `above 7,5 km per h on average the running equation is used`() {
+    fun `the walking equation at any speed, so going past 7 km per h never lowers the VO2max`() {
         val end = 100_000L
-        val samples = (0..60).map { WorkoutSample(end - 60_000 + it * 1000L, 8.0, 5.0) }
-        val e = WalkingTestVo2max.fromSamples(samples, end)!!
-        assertTrue(e.running)
-        assertEquals(Acsm.runningVo2(8.0, 5.0), e.vo2maxMlKgMin, 1e-9)
+        fun at(speed: Double, incline: Double) =
+            WalkingTestVo2max.fromSamples((0..60).map { WorkoutSample(end - 60_000 + it * 1000L, speed, incline) }, end)!!
+        val e = at(8.0, 5.0)
+        assertTrue(e.aboveWalkingSpeeds)
+        assertEquals(Acsm.walkingVo2(8.0, 5.0), e.vo2maxMlKgMin, 1e-9)
+        // At the 18 % of the ramp's top: 6.9 → 7.6 km/h raises it (the running equation would give 49.3 at 7.6).
+        val slower = at(6.9, 18.0)
+        val faster = at(7.6, 18.0)
+        assertFalse(slower.aboveWalkingSpeeds)
+        assertEquals(Acsm.walkingVo2(7.6, 18.0), faster.vo2maxMlKgMin, 1e-9)
+        assertTrue(faster.vo2maxMlKgMin > slower.vo2maxMlKgMin)
+        assertTrue(Acsm.vo2(7.6, 18.0) < slower.vo2maxMlKgMin)
+        // The same from the stage records.
+        assertEquals(Acsm.walkingVo2(7.6, 18.0), WalkingTestVo2max.fromStages(listOf(StageLoad(7.6, 18.0, 60)))!!.vo2maxMlKgMin, 1e-9)
     }
 
     @Test

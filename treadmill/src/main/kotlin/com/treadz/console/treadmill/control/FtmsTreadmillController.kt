@@ -1469,21 +1469,38 @@ class FtmsTreadmillController(
         class Fail(val result: CommandResult) : Sent
     }
 
-    /** Writes to the Control Point and waits for its indication. The returned cursor starts before the write. */
+    /**
+     * Writes to the Control Point and waits for its indication. The returned cursor starts before the write.
+     *
+     * A stop or pause issued meanwhile ends the wait of any other command at once ([FailureCode.Preempted]): it holds the
+     * command lock, and an indication that never comes would otherwise delay the stop by the whole response timeout.
+     * Only a stop itself and Request Control (without control nothing can be stopped) wait for their indication.
+     * The command it interrupted may still be unanswered, and the FTMS specification lets the treadmill refuse a write
+     * meanwhile: a stop whose write fails is written again every [STOP_REWRITE_INTERVAL_MS] until the response timeout.
+     */
     private suspend fun sendCommand(name: String, bytes: ByteArray): Sent {
         val cursor = Cursor(lastSeq.value)
         val responseCursor = Cursor(cursor.seq)
-        trace(TraceRecord.RawSent(now(), FtmsCharacteristic.ControlPoint, bytes))
-        try {
-            transport.writeControlPoint(bytes)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            trace(TraceRecord.Note(now(), "Failed to write $name: $e"))
-            return Sent.Fail(
-                if (_connection.value !is ConnectionState.Connected) CommandResult.NotConnected
-                else CommandResult.NotVerified(FailureCode.WriteFailed, "Error writing to the Control Point: ${e.message}"),
-            )
+        val writeDeadline = now() + config.controlPointResponseTimeoutMs
+        while (true) {
+            trace(TraceRecord.RawSent(now(), FtmsCharacteristic.ControlPoint, bytes))
+            try {
+                transport.writeControlPoint(bytes)
+                break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                trace(TraceRecord.Note(now(), "Failed to write $name: $e"))
+                val connected = _connection.value is ConnectionState.Connected
+                if (connected && name == "stop" && now() + STOP_REWRITE_INTERVAL_MS < writeDeadline) {
+                    delay(STOP_REWRITE_INTERVAL_MS)
+                    continue
+                }
+                return Sent.Fail(
+                    if (!connected) CommandResult.NotConnected
+                    else CommandResult.NotVerified(FailureCode.WriteFailed, "Error writing to the Control Point: ${e.message}"),
+                )
+            }
         }
         val op = bytes[0].toInt() and 0xFF
         val deadline = now() + config.controlPointResponseTimeoutMs
@@ -1493,6 +1510,10 @@ class FtmsTreadmillController(
             when (obs) {
                 is Obs.Control -> if (obs.response.requestOpCode == op) response = obs.response
                 is Obs.Lost -> return Sent.Fail(CommandResult.NotConnected)
+                is Obs.Preempt -> if (name != "stop" && name != "requestControl") {
+                    trace(TraceRecord.Note(now(), "$name: stopped waiting for its Control Point response, a ${obs.command} command was issued"))
+                    return Sent.Fail(CommandResult.NotVerified(FailureCode.Preempted, "Interrupted by a ${obs.command} command"))
+                }
                 else -> Unit
             }
         }
@@ -1566,5 +1587,8 @@ class FtmsTreadmillController(
         const val SPEED_TOLERANCE = 0.05
         const val INCLINE_EPS = 0.05
         const val OBS_CAPACITY = 512
+
+        /** Time between two writes of a stop the treadmill refused (see [sendCommand]). */
+        const val STOP_REWRITE_INTERVAL_MS = 250L
     }
 }

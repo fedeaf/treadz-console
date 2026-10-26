@@ -435,6 +435,7 @@ internal abstract class FitnessProtocol(
             vo2maxMlKgMin = outputs?.vo2maxMlKgMin?.takeIf {
                 FitnessTestRecalculation.withheldReason(measurements(), endReason ?: FitnessEndReason.CommandFailed, subject.hrMaxBpm, config) == null
             },
+            walked = testType == FitnessTestType.MaxHeartRateWalk,
         )
 
     protected abstract fun measurements(): FitnessTestMeasurements

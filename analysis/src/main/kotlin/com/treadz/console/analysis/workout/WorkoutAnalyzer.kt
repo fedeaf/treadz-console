@@ -33,9 +33,11 @@ import kotlin.math.roundToInt
  * the strap connected late still gives them.
  *
  * Sources and assumptions of each section:
- *  1. **Energy**: ACSM metabolic equations per second (walking up to 7.5 km/h, running above it; ACSM's Guidelines for
- *     Exercise Testing and Prescription, see [Acsm]); 1 L of oxygen ≈ 5 kcal. Gross kcal = Σ VO2 · weight; net kcal
- *     leaves out the resting 3.5 ml·kg⁻¹·min⁻¹ (1 MET). Independent of the treadmill's kcal.
+ *  1. **Energy**: the oxygen demand, METs and % of VO2max per second with the ACSM metabolic equations (walking up to
+ *     7 km/h, running above it; ACSM's Guidelines for Exercise Testing and Prescription, see [Acsm]); the gross kcal with
+ *     [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above at 5 kcal per litre of oxygen),
+ *     the same equations and the same cut as the stored calories; net kcal leaves out the resting 3.5 ml·kg⁻¹·min⁻¹
+ *     (1 MET). Independent of the treadmill's kcal.
  *  2. **Time in zones**: seconds with the belt moving and a heart rate in each zone of the zone set given.
  *  3. **TRIMP** (Banister EW. Modeling elite athletic performance. In: MacDougall JD, Wenger HA, Green HJ, eds.
  *     Physiological Testing of the High-Performance Athlete. 2nd ed. Human Kinetics; 1991:403-424): Σ Δt(min) · HRr · k ·
@@ -80,9 +82,13 @@ object WorkoutAnalyzer {
      * [EnergyExpenditure] (Looney et al. 2019 walking up to 7 km/h, ACSM running above), as the stored ones. 4
      * (2026-10-24): the section of the fat/carbohydrate split of the energy ([FuelSection]) was added. 5 (2026-10-25):
      * the RR cleaning also corrects the pause after a premature beat ([RrCleaning]), which moves the α1 of the windows;
-     * the signal's artifact share counts only the faults of the readings.
+     * the signal's artifact share counts only the faults of the readings. 6 (2026-10-26): the α1 windows need beats
+     * without a hole of more than 15 s and take the beats of samples without a usable reading
+     * ([com.treadz.console.analysis.thresholds.ThresholdRules.maxRrGapSeconds],
+     * [com.treadz.console.analysis.samples.WorkoutSample.hasStrapRr]); the oxygen demand changes to the running equation
+     * above 7 km/h instead of 7.5, the cut of the calories ([Acsm.vo2], [EnergyExpenditure]).
      */
-    const val ALGORITHM_VERSION = 5
+    const val ALGORITHM_VERSION = 6
 
 
     fun analyse(

@@ -18,6 +18,17 @@ class AcsmTest {
     }
 
     @Test
+    fun `walking up to 7 km per hour, running above it, the cut of the calories`() {
+        assertEquals(7.0, Acsm.RUNNING_SPEED_THRESHOLD_KMH)
+        assertEquals(Acsm.walkingVo2(7.0, 3.0), Acsm.vo2(7.0, 3.0), 1e-9)
+        assertEquals(Acsm.runningVo2(7.1, 3.0), Acsm.vo2(7.1, 3.0), 1e-9)
+        // The means follow the mean speed; the walking equation of the means at any speed.
+        assertEquals(Acsm.runningVo2(7.2, 3.0), Acsm.vo2OfMeans(7.2, 7.2 * 3.0), 1e-9)
+        assertEquals(Acsm.walkingVo2(7.2, 3.0), Acsm.walkingVo2OfMeans(7.2, 7.2 * 3.0), 1e-9)
+        assertEquals(Acsm.walkingVo2(6.0, 3.0), Acsm.vo2OfMeans(6.0, 6.0 * 3.0), 1e-9)
+    }
+
+    @Test
     fun `the walking inverses solve the walking equation`() {
         // 26.833 at 5 km/h is the 10 % of the first case.
         assertEquals(0.10, Acsm.walkingGradeFor(Acsm.walkingVo2(5.0, 10.0), 5.0), 1e-9)

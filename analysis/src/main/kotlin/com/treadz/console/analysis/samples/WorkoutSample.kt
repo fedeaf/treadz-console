@@ -18,7 +18,7 @@ enum class SampleHeartRateSource { Strap, Console, Unknown }
  * @property heartRateSource `null` when there is no heart rate; a reading with an unknown origin is
  *   [SampleHeartRateSource.Unknown].
  * @property rrIntervalsMs RR intervals (ms between beats) that arrived with this sample, oldest first. They are used
- *   only when [heartRateSource] is [SampleHeartRateSource.Strap].
+ *   only when they come from a strap connected to the app ([hasStrapRr]).
  */
 data class WorkoutSample(
     val timeMillis: Long,
@@ -27,7 +27,17 @@ data class WorkoutSample(
     val heartRateBpm: Int? = null,
     val heartRateSource: SampleHeartRateSource? = null,
     val rrIntervalsMs: List<Int> = emptyList(),
-)
+) {
+    /**
+     * The RR intervals of this sample come from a strap connected to the app: its heart rate does, or it has no heart
+     * rate at all (the reading of that moment was not usable, e.g. a moment without skin contact) and still carries the
+     * beats received since the previous sample, which only such a strap delivers. Leaving those beats out would splice
+     * the series across a hole.
+     */
+    val hasStrapRr: Boolean
+        get() = rrIntervalsMs.isNotEmpty() &&
+            (heartRateSource == SampleHeartRateSource.Strap || (heartRateSource == null && heartRateBpm == null))
+}
 
 /**
  * One RR interval with the time of the beat that ends it.
@@ -58,13 +68,13 @@ object RrSeries {
     }
 
     /**
-     * The RR series of [samples] (in time order): only the samples whose heart rate comes from
-     * [SampleHeartRateSource.Strap]; each sample's intervals are placed as by [append].
+     * The RR series of [samples] (in time order): only the intervals of a strap connected to the app
+     * ([WorkoutSample.hasStrapRr]); each sample's intervals are placed as by [append].
      */
     fun fromSamples(samples: List<WorkoutSample>): List<RrInterval> {
         val series = ArrayList<RrInterval>()
         for (s in samples) {
-            if (s.heartRateSource == SampleHeartRateSource.Strap) append(series, s.timeMillis, s.rrIntervalsMs)
+            if (s.hasStrapRr) append(series, s.timeMillis, s.rrIntervalsMs)
         }
         return series
     }

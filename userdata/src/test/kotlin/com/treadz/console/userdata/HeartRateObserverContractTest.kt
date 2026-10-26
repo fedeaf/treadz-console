@@ -483,6 +483,25 @@ class HeartRatePeakTrackerTest {
         assertEquals(138, t.peak!!.bpm)
     }
 
+    @Test fun `the beats of a moment without a usable reading still judge the window`() {
+        // 12 s of 137 from the strap while its beats say 127, a sample every 0.5 s: the readings bring one beat each and
+        // every other sample had no usable reading (no heart rate, no source) but brought [beatsWithoutReading].
+        fun peak(beatsWithoutReading: List<Int>): Int {
+            val t = HeartRatePeakTracker()
+            strap(t, 0, 60, 127, listOf(472, 472))
+            repeat(24) { i ->
+                val at = 60_000L + i * 500L
+                if (i % 2 == 0) t.add(at, 137, HeartRateSourceKind.DirectStrap, listOf(472)) else t.add(at, null, null, beatsWithoutReading)
+            }
+            strap(t, 72_000, 30, 127, listOf(472, 472))
+            return t.peak!!.bpm
+        }
+        // Without them a 5-s window has too few beats to be judged, and the false 137 is the peak.
+        assertEquals(137, peak(emptyList()))
+        // With them every window of the 137 is judged and doubtful; only the edges, mostly at 127, count.
+        assertTrue(peak(listOf(472, 472)) <= 131)
+    }
+
     @Test fun `without RR every window counts, as before`() {
         val t = HeartRatePeakTracker()
         strap(t, 0, 60, 127, emptyList(), HeartRateSourceKind.TreadmillConsole)

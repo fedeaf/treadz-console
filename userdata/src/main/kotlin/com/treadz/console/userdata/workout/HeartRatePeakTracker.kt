@@ -44,10 +44,12 @@ class HeartRatePeakTracker(maxHeartRateBpm: Int? = null) {
      */
     fun add(atMillis: Long, bpm: Int?, source: HeartRateSourceKind?, rrIntervalsMs: List<Int> = emptyList()) {
         val accepted = filter.accept(atMillis, bpm?.takeIf { it > 0 })
-        if (source == HeartRateSourceKind.DirectStrap) {
-            // The beats go in even when the reading is rejected: the cleaning judges them.
+        // Only a strap connected to the app delivers RR: beats without a source come with a reading that was not usable.
+        val strapRr = rrIntervalsMs.isNotEmpty() && source == null && (bpm ?: 0) <= 0
+        if (source == HeartRateSourceKind.DirectStrap || strapRr) {
+            // The beats go in even when the reading is rejected or missing: the cleaning judges them.
             strapJudge.addRr(atMillis, rrIntervalsMs)
-            if (accepted != null) strapJudge.addReading(atMillis, accepted)
+            if (source == HeartRateSourceKind.DirectStrap && accepted != null) strapJudge.addReading(atMillis, accepted)
             strapJudge.trimBefore(atMillis - JUDGE_KEEP_MS)
         }
         while (window.isNotEmpty() && window.first().atMillis <= atMillis - WINDOW_MS) window.removeFirst()

@@ -88,6 +88,18 @@ class ThresholdEngineTest {
     }
 
     @Test
+    fun `a walked test takes the walking equation for the load at its thresholds, at any speed`() {
+        // The same ramp walked at 7.2 km/h: above the 7 km/h of the running equation.
+        val fast = SyntheticRr.rampSamples(start, minutes * 60, 7.2, 5.0, 17.0)
+        val base = ThresholdInput(ramp(), fast, start, end, maxHeartRateBpm = 190, vo2maxMlKgMin = 45.0)
+        val byEquation = checkNotNull(ThresholdEngine.analyse(base).result.vt1)
+        val walked = checkNotNull(ThresholdEngine.analyse(base.copy(walked = true)).result.vt1)
+        assertEquals(Acsm.runningVo2(7.2, byEquation.inclinePercent!!), byEquation.vo2MlKgMin!!, 1e-9)
+        assertEquals(Acsm.walkingVo2(7.2, walked.inclinePercent!!), walked.vo2MlKgMin!!, 1e-9)
+        assertEquals(byEquation.heartRateBpm, walked.heartRateBpm, 1e-9)
+    }
+
+    @Test
     fun `over many random series VT1 is unbiased, each within 10 bpm`() {
         val expected = expectedHeartRate(0.75)
         val errors = (20L..31L).map { seed -> ThresholdEngine.analyse(input(ramp(seed = seed))).result.vt1!!.heartRateBpm - expected }
@@ -173,6 +185,23 @@ class ThresholdEngineTest {
         assertEquals((0..3).toList(), stretchOf(1.1, 0.8, 0.6, 0.38))
         // A window below 0.4 whose next window is at 95 % of the maximum ends it as well.
         assertEquals((0..2).toList(), stretchOf(1.1, 0.8, 0.38, 0.6, maxHr = 129))
+    }
+
+    @Test
+    fun `one window above 1,0 does not start the stretch, two in a row do`() {
+        fun stretchOf(vararg alphas: Double): List<Int> {
+            val windows = alphas.mapIndexed { i, a ->
+                Alpha1Window(i * 10_000L, i * 10_000L + 120_000L, 250, 0.0, true, a, 120.0 + i)
+            }
+            return ThresholdEngine.stretch(windows, windows.indices.toList(), 200, ThresholdRules())
+        }
+        // The real walking ramp of 2026-10-15: 1.07, 1.05, then 0.85-0.92, one window at 1.02, then the fall.
+        assertEquals((1..9).toList(), stretchOf(1.07, 1.05, 0.88, 0.86, 0.92, 0.85, 1.02, 0.85, 0.66, 0.38, 0.35))
+        // A pair above 1.0 late in the ramp starts it at its second window.
+        assertEquals((4..7).toList(), stretchOf(1.2, 0.9, 0.95, 1.05, 1.03, 0.8, 0.6, 0.38, 0.3))
+        // The first window needs no other before it; without any window above 1.0 the stretch starts at the first.
+        assertEquals((0..3).toList(), stretchOf(1.05, 0.9, 0.6, 0.38))
+        assertEquals((0..3).toList(), stretchOf(0.98, 0.9, 0.6, 0.38))
     }
 
     @Test

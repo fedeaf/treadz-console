@@ -14,7 +14,8 @@ import com.treadz.console.analysis.samples.WorkoutSample
  * Windows of [ThresholdRules.windowSeconds] (120 s) start at `fromMillis` and advance by [ThresholdRules.stepSeconds]
  * (10 s) while they end at or before `toMillis`. A window holds the beats whose time is in (start, end]. It is *valid*
  * with at least [ThresholdRules.minBeats] (100) beats, at most [ThresholdRules.maxArtifactFraction] (5 %) of them
- * artifacts ([RrCleaning]) and a computable α1 ([Dfa.alpha1]); windows that are not valid carry no α1. Its heart rate
+ * artifacts ([RrCleaning]), beats covering it without a hole longer than [ThresholdRules.maxRrGapSeconds] (15 s: at its
+ * start, between two beats or at its end) and a computable α1 ([Dfa.alpha1]); windows that are not valid carry no α1. Its heart rate
  * is 60 000 / the mean corrected RR; its load is the time-weighted mean of the given samples (sample-and-hold, see
  * [LoadAverage]), `null` without samples.
  */
@@ -60,7 +61,8 @@ object Alpha1Windows {
                 sum += cleaned.rrMs[i]
             }
             val fraction = if (beats > 0) artifacts.toDouble() / beats else 1.0
-            val valid = beats >= rules.minBeats && fraction <= rules.maxArtifactFraction + 1e-12
+            val valid = beats >= rules.minBeats && fraction <= rules.maxArtifactFraction + 1e-12 &&
+                covered(times, from, to, s, e, rules.maxRrGapSeconds * 1000L)
             val alpha = if (valid) Dfa.alpha1(cleaned.rrMs, from, to) else null
             val load = LoadAverage.over(samples, s, e)
             out += Alpha1Window(
@@ -77,6 +79,13 @@ object Alpha1Windows {
             s += step
         }
         return out
+    }
+
+    /** The beats [from] until [to] cover the window (start, end] without a hole longer than [maxGapMs]. */
+    private fun covered(times: LongArray, from: Int, to: Int, start: Long, end: Long, maxGapMs: Long): Boolean {
+        if (to <= from || times[from] - start > maxGapMs || end - times[to - 1] > maxGapMs) return false
+        for (i in from + 1 until to) if (times[i] - times[i - 1] > maxGapMs) return false
+        return true
     }
 
     /** Index of the first beat with time > [t]. */

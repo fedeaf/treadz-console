@@ -184,6 +184,40 @@ class AlertsAndStalenessTest {
         assertTrue(rig.pending.isEmpty(), "${rig.pending}")
     }
 
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a stop does not wait for the Control Point response of the command before it`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
+        rig.runAt(3.0)
+        // The speed command is not answered within the response timeout (3 s).
+        rig.sim.controlPointLatencyMs = 10_000
+        val speed = async { rig.controller.setSpeed(6.0) }
+        delay(300)
+        rig.sim.controlPointLatencyMs = 80
+        val stop = async { rig.controller.stop() }
+        delay(200)
+        assertTrue("0801" in rig.commandsHex, "the stop is written at once: ${rig.commandsHex}")
+        assertEquals(FailureCode.Preempted, speed.await().code())
+        assertEquals(CommandResult.Success, stop.await())
+        assertTrue(rig.pending.isEmpty(), "${rig.pending}")
+    }
+
+    @ParameterizedTest(name = "{displayName} [{0}]")
+    @EnumSource(DataRate::class)
+    fun `a stop refused while the command before it is unanswered is written again`(rate: DataRate) = runTest {
+        val rig = Rig(this, rate)
+        rig.runAt(3.0)
+        rig.sim.refusesWritesInProgress = true
+        rig.sim.controlPointLatencyMs = 1_000
+        val speed = async { rig.controller.setSpeed(6.0) }
+        delay(300)
+        val stop = async { rig.controller.stop() }
+        assertEquals(FailureCode.Preempted, speed.await().code())
+        assertEquals(CommandResult.Success, stop.await())
+        assertEquals(1, rig.commandsHex.count { it == "0801" }, "${rig.commandsHex}")
+        assertTrue(rig.pending.isEmpty(), "${rig.pending}")
+    }
+
     @Test
     fun `the recording keeps the code of every failure and the stale flag`() {
         val fields = RecordSerializer.resultFields(CommandResult.NotVerified(FailureCode.StillMoving, "not decreasing"))

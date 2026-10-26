@@ -106,6 +106,7 @@ object FitnessTestRecalculation {
                 maxHeartRateBpm = result.inputs.hrMaxBpm,
                 restingHeartRateBpm = restingHeartRateBpm,
                 vo2maxMlKgMin = outputs?.vo2maxMlKgMin,
+                walked = result.testType == FitnessTestType.MaxHeartRateWalk,
             )
         }
         val recalculated = peaked.copy(outputs = outputs, thresholds = thresholds, schemaVersion = FitnessTestResult.SCHEMA_VERSION, outputsWithheld = withheld)
@@ -307,10 +308,11 @@ object FitnessTestRecalculation {
         maxHeartRateBpm: Int,
         restingHeartRateBpm: Int?,
         vo2maxMlKgMin: Double?,
+        walked: Boolean,
     ): ThresholdResult {
         if (rr.isEmpty()) return ThresholdResult.none(ThresholdReason.NoRrIntervals)
         val analysis = ThresholdEngine.analyse(
-            ThresholdInput(rr, samples, fromMillis, toMillis, maxHeartRateBpm, restingHeartRateBpm, vo2maxMlKgMin),
+            ThresholdInput(rr, samples, fromMillis, toMillis, maxHeartRateBpm, restingHeartRateBpm, vo2maxMlKgMin, walked),
         )
         return rounded(analysis.result)
     }

@@ -186,6 +186,11 @@ class StrapWindowJudgeTest {
             assertEquals(StrapWindowVerdict.NotJudged, StrapWindowJudge.fromSamples(other).judge(20_000, 30_000).verdict, "$source")
         }
 
+        // Samples whose reading was not usable (no heart rate, no source) keep the strap's beats: the window is judged.
+        val withoutReadings = strap.mapIndexed { i, s -> if (i % 3 == 0) s.copy(heartRateBpm = null, heartRateSource = null) else s }
+        assertEquals(StrapWindowVerdict.Reliable, StrapWindowJudge.fromSamples(withoutReadings).judge(20_000, 30_000).verdict)
+        assertEquals(20, StrapWindowJudge.fromSamples(withoutReadings).judge(20_000, 30_000).beats)
+
         // A strap whose readings run 10 bpm above their RR (the stored artifact of the audit): doubtful. Any order.
         val false137 = strap.map { it.copy(heartRateBpm = 140) }.reversed()
         val d = StrapWindowJudge.fromSamples(false137).judge(20_000, 30_000)

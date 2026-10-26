@@ -123,6 +123,13 @@ class SimulatedTreadmill(
     /** Delay between the write and the Control Point indication (on the real treadmill: ~80 ms). */
     var controlPointLatencyMs: Long = 80
 
+    /**
+     * `true` = a write to the Control Point while the previous one has not been answered yet fails, as the FTMS
+     * specification allows ("Procedure Already In Progress").
+     */
+    var refusesWritesInProgress: Boolean = false
+    private var unansweredWrites = 0
+
     /** Countdown duration after Start/Resume. */
     var countdownMs: Long = 3_400
 
@@ -333,10 +340,13 @@ class SimulatedTreadmill(
         delay(5)
         synchronized(lock) {
             if (!connected) throw TransportException("Not connected")
+            if (refusesWritesInProgress && unansweredWrites > 0) throw TransportException("Procedure already in progress")
             commandLog += value.copyOf()
+            unansweredWrites++
         }
         scope.launch {
             delay(controlPointLatencyMs)
+            synchronized(lock) { unansweredWrites-- }
             handleCommand(value)
         }
     }

@@ -18,12 +18,17 @@ import kotlin.math.pow
  * - **Faster** (running): the ACSM running equation, `VO2 = 3.5 + 0.2·S + 0.9·S·G` (S in m/min, G a fraction), with
  *   [KCAL_PER_LITRE_OXYGEN].
  *
+ * The cut is the one of the oxygen demand ([Acsm.RUNNING_SPEED_THRESHOLD_KMH], 7 km/h, decided with the user on
+ * 2026-10-26): one gait for the calories and for the METs. On steep grades running costs less than walking (here, at
+ * 18 %, −17 % from 7.0 to 7.1 km/h): that is the change of gait the cut assumes. Looney's equation is not used above it:
+ * it was fitted up to 1.96 m/s and its 0.24·S⁴ term would give at running speeds far more than running costs.
+ *
  * Only while the belt moves: a stopped belt adds nothing.
  */
 object EnergyExpenditure {
 
     /** Up to this speed (km/h) the walking equation is used, above it the running one. */
-    const val WALKING_MAX_KMH = 7.0
+    const val WALKING_MAX_KMH = Acsm.RUNNING_SPEED_THRESHOLD_KMH
 
     /** Energy of one litre of oxygen (kcal), the usual round figure (ACSM). */
     const val KCAL_PER_LITRE_OXYGEN = 5.0

@@ -53,8 +53,8 @@ data class FuelSnapshot(
  * [AnalysisRules.maxHeartRateBpm] from a strap connected to the app ([SampleHeartRateSource.Strap]), and the window that
  * contains the second is not doubtful for [StrapWindowJudge]. Windows are consecutive of [FuelRules.windowSeconds],
  * `(t0 + 10·w s, t0 + 10·(w+1) s]` from the first sample time `t0`; the second at tick `k` (instant `t0 + 1000·k`) is in
- * window `(k − 1)/10` (the tick 0 in window 0). The judge is fed every strap sample's reading and RR intervals (placed
- * back from the sample time). **A window is judged once, when it has closed** (the first sample after its end has
+ * window `(k − 1)/10` (the tick 0 in window 0). The judge is fed every strap sample's reading and every sample's strap RR
+ * intervals ([WorkoutSample.hasStrapRr], placed back from the sample time). **A window is judged once, when it has closed** (the first sample after its end has
  * arrived, with that sample's beats), with the data received up to then, so the artifact correction never sees later
  * beats and the live and the batch results are identical. A window "not judged" (fewer than 6 beats, no RR) counts as
  * valid. Seconds wait in a queue until their window is judged: this is the lag of the snapshot.
@@ -144,10 +144,8 @@ class FuelTracker(
             implausible = true
             return
         }
-        if (sample.heartRateSource == SampleHeartRateSource.Strap) {
-            sample.heartRateBpm?.takeIf { it > 0 }?.let { judge.addReading(sample.timeMillis, it) }
-            judge.addRr(sample.timeMillis, sample.rrIntervalsMs)
-        }
+        if (sample.heartRateSource == SampleHeartRateSource.Strap) sample.heartRateBpm?.takeIf { it > 0 }?.let { judge.addReading(sample.timeMillis, it) }
+        if (sample.hasStrapRr) judge.addRr(sample.timeMillis, sample.rrIntervalsMs)
         pending?.let { previous ->
             val duration = minOf(sample.timeMillis - previous.timeMillis, analysisRules.maxHoldSeconds * 1000L)
             lastIntervalMillis = duration

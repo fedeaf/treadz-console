@@ -194,19 +194,22 @@ with nothing new stays at 1 and older apps keep reading it; apps that know a low
 file untouched. **Version 2** (added in October 2026) adds:
 
 - The **maximal walking test** (`testType` `maxHeartRateWalk`, a modified Balke ramp: +1 % incline per minute until
-  exhaustion) now has `outputs` when it is valid: `method` `acsmWalkRamp` (the ACSM walking equation, running above
-  7.5 km/h, at the mean real speed and incline of the last 60 seconds of the effort, from the workout samples; from the
-  stage records when the workout is not available), `vo2maxSeeMlKgMin` 3.5 (an assumption), `vo2maxIsLowerBound`,
-  `classification`, `hrMaxCandidateBpm`, `effort`, and `masKmh` = VO2max / 3.5 with **`masIsEstimated: true`**: the maximal
-  aerobic speed of the walking test is an estimate, only the maximal running test measures it (its `masKmh` has no
-  `masIsEstimated`). Walking results written before version 2 have no `outputs`, only the measured maximum heart rate in
-  the measurements, until the app recalculates them.
+  exhaustion) now has `outputs` when it is valid: `method` `acsmWalkRamp` (the ACSM walking equation at any speed, at
+  the mean real speed and incline of the last 60 seconds of the effort, from the workout samples; from the stage records
+  when the workout is not available; until thresholds `algorithmVersion` 4, the running equation above 7.5 km/h),
+  `vo2maxSeeMlKgMin` 3.5 (an assumption), `vo2maxIsLowerBound`, `classification`, `hrMaxCandidateBpm`, `effort`, and
+  `masKmh` = VO2max / 3.5 with **`masIsEstimated: true`**: the maximal aerobic speed of the walking test is an
+  estimate, only the maximal running test measures it (its `masKmh` has no `masIsEstimated`). Walking results written
+  before version 2 have no `outputs`, only the measured maximum heart rate in the measurements, until the app
+  recalculates them.
 - **`thresholds`**, on the valid maximal tests (walking and running): the heart rates of the first and second ventilatory
   thresholds (VT1 and VT2) found with the DFA-alpha1 of the RR intervals of the test, from the start of the warm-up to the
   end of the effort (alpha1 = 0.75 for VT1, 0.5 for VT2, from the windows of 120 s where alpha1 falls as the heart rate
   rises; algorithm version 1 looked at the ramp only; from version 4 the cleaning of the RR also corrects the pause
-  after a premature beat). It needs RR intervals from a strap connected to the app
-  (`hr_source` `direct_strap` in the workout csv); the console's heart rate and imported workouts have none.
+  after a premature beat; from version 5 a window with more than 15 seconds without beats is not used, the beats of a
+  sample without a usable heart rate count, and the stretch starts at a window confirmed by the one before it). It
+  needs RR intervals from a strap connected to the app (`hr_source` `direct_strap` in the workout csv); the console's
+  heart rate and imported workouts have none.
 
   ```
   "thresholds": {"algorithmVersion": 2, "quality": "high",

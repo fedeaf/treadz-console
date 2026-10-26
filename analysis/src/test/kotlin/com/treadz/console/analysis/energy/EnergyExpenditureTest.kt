@@ -1,5 +1,6 @@
 package com.treadz.console.analysis.energy
 
+import com.treadz.console.analysis.fitness.Acsm
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -15,6 +16,11 @@ class EnergyExpenditureTest {
         assertEquals(6.618, EnergyExpenditure.kcalPerMinute(5.6, 0.0, 88.9), 0.001)
         assertEquals(10.672, EnergyExpenditure.kcalPerMinute(5.6, 7.0, 88.9), 0.001)
         assertEquals(12.871, EnergyExpenditure.kcalPerMinute(5.6, 10.0, 88.9), 0.001)
+    }
+
+    @Test
+    fun `the cut is the one of the oxygen demand`() {
+        assertEquals(Acsm.RUNNING_SPEED_THRESHOLD_KMH, EnergyExpenditure.WALKING_MAX_KMH)
     }
 
     @Test

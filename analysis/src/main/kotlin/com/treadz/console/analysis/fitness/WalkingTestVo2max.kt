@@ -12,7 +12,8 @@ data class StageLoad(val speedKmh: Double, val inclinePercent: Double, val durat
  * @property vo2maxMlKgMin Unrounded.
  * @property speedKmh Mean speed of the load used.
  * @property inclinePercent Mean incline of the load used.
- * @property running The running equation was used (mean speed above [Acsm.RUNNING_SPEED_THRESHOLD_KMH]).
+ * @property aboveWalkingSpeeds The mean speed was above [Acsm.RUNNING_SPEED_THRESHOLD_KMH]: the walking equation was
+ *   used beyond the speeds the app counts as walking (the test is walked by definition).
  * @property fromStages Computed from the stored stage records instead of the samples.
  * @property coveredSeconds Seconds of the window the data covered.
  */
@@ -20,16 +21,18 @@ data class WalkingTestVo2maxEstimate(
     val vo2maxMlKgMin: Double,
     val speedKmh: Double,
     val inclinePercent: Double,
-    val running: Boolean,
+    val aboveWalkingSpeeds: Boolean,
     val fromStages: Boolean,
     val coveredSeconds: Double,
 )
 
 /**
- * VO2max of the maximal walking test: the ACSM equation ([Acsm]) at the **mean load of the last [WINDOW_SECONDS]
- * before the end of the effort**, with the real speed and incline. The walking equation
- * `VO2 = 3.5 + 0.1·S + 1.8·S·G`, or the running one `3.5 + 0.2·S + 0.9·S·G` when the mean speed is above 7.5 km/h
- * (S in m/min, G a fraction).
+ * VO2max of the maximal walking test: the ACSM walking equation ([Acsm.walkingVo2OfMeans]) at the **mean load of the
+ * last [WINDOW_SECONDS] before the end of the effort**, with the real speed and incline: `VO2 = 3.5 + 0.1·S + 1.8·S·G`
+ * (S in m/min, G a fraction), **at any speed**. The test is walked by definition; with the equation of the speed (running
+ * above 7 km/h, [Acsm.vo2]) a user who went past 7 km/h at the 18 % of the ramp's top would get a lower VO2max than by
+ * stopping a minute earlier (at 18 %: 55.8 walking at 7.4 km/h, 49.3 running at 7.6), so the walking one is kept (since
+ * the thresholds' algorithm version 5; until then the running one above 7.5 km/h).
  *
  * Why the last 60 s and not the final load: in a ramp with 1-min stages the oxygen uptake lags the load (its time
  * constant is 30-40 s), so the load of the final seconds overstates the VO2 reached; the mean of the last minute
@@ -62,7 +65,8 @@ object WalkingTestVo2max {
     fun fromSamples(samples: List<WorkoutSample>, effortEndMillis: Long, windowSeconds: Int = WINDOW_SECONDS): WalkingTestVo2maxEstimate? {
         val load = LoadAverage.over(samples, effortEndMillis - windowSeconds * 1000L, effortEndMillis) ?: return null
         if (load.coveredMillis < MIN_COVERED_SECONDS * 1000L) return null
-        return WalkingTestVo2maxEstimate(load.vo2MlKgMin, load.speedKmh, load.inclinePercent, load.running, false, load.coveredMillis / 1000.0)
+        val vo2 = Acsm.walkingVo2OfMeans(load.speedKmh, load.speedTimesInclinePercent)
+        return WalkingTestVo2maxEstimate(vo2, load.speedKmh, load.inclinePercent, Acsm.isRunning(load.speedKmh), false, load.coveredMillis / 1000.0)
     }
 
     /**
@@ -90,8 +94,7 @@ object WalkingTestVo2max {
         if (covered <= 0.0) return null
         val speed = sumS / covered
         val incline = sumG / covered
-        val running = Acsm.isRunning(speed)
-        val vo2 = Acsm.vo2OfMeans(speed, sumSG / covered)
-        return WalkingTestVo2maxEstimate(vo2, speed, incline, running, true, covered)
+        val vo2 = Acsm.walkingVo2OfMeans(speed, sumSG / covered)
+        return WalkingTestVo2maxEstimate(vo2, speed, incline, Acsm.isRunning(speed), true, covered)
     }
 }

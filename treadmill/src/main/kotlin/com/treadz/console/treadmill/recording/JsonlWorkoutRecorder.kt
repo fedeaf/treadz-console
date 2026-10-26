@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executor
 
 data class RecorderConfig(
     val appName: String = "TreadZ",
@@ -40,7 +41,14 @@ data class RecorderConfig(
  * connection changes. The last [RecorderConfig.prerollMs] ms before the start are included too.
  *
  * The logic is independent of the storage ([RecordingStorage]). Every line is handed to the system
- * as it is written, so an unexpected app shutdown does not lose what was recorded.
+ * as it is written, so an unexpected app shutdown does not lose what was recorded (only what was still waiting for the
+ * [writer], a few milliseconds).
+ *
+ * **Where the work happens**: [onTrace] and [finish] only hand the record to the [writer], which processes the records
+ * one at a time in the order they were handed (session start and end, serialisation, the file writes and their
+ * `sync`). The treadmill controller calls its observers holding its own lock, sometimes on the main thread: with a
+ * single-thread executor as the writer, none of them waits for the storage. The default writer runs everything on the
+ * caller's thread (tests and simple uses).
  *
  * Line types: `header`, `rx`, `tx`, `read`, `malformed`, `connection`, `device`, `data`, `status`,
  * `training`, `cp_response`, `state`, `event`, `command`, `command_result`, `note`, `end`, plus the external records
@@ -52,6 +60,8 @@ class JsonlWorkoutRecorder(
     private val storage: RecordingStorage,
     private val clock: Clock = Clock.System,
     private val config: RecorderConfig = RecorderConfig(),
+    /** Processes the records in the order they are handed to it (see the class description). */
+    private val writer: Executor = Executor { it.run() },
 ) : WorkoutRecorder, ControllerObserver {
 
     private val _status = MutableStateFlow<RecordingStatus>(RecordingStatus.Idle)
@@ -72,6 +82,10 @@ class JsonlWorkoutRecorder(
     private var lastSyncAt = 0L
 
     override fun onTrace(record: TraceRecord) {
+        submit { process(record) }
+    }
+
+    private fun process(record: TraceRecord) {
         synchronized(lock) {
             val line = RecordSerializer.line(record)
             if (record is TraceRecord.Device) device = record
@@ -208,7 +222,18 @@ class JsonlWorkoutRecorder(
 
     /** Closes the session in progress (e.g. when the service stops). Does nothing if there is no session. */
     fun finish(reason: String = "closed") {
-        synchronized(lock) { endSession(reason, clock.nowMillis()) }
+        val at = clock.nowMillis()
+        submit { synchronized(lock) { endSession(reason, at) } }
+    }
+
+    /** Hands [work] to the [writer]. A broken recorder must not affect whoever called it, nor the writer's thread. */
+    private fun submit(work: () -> Unit) {
+        writer.execute {
+            try {
+                work()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun uniqueFileName(startedAt: Long): String {

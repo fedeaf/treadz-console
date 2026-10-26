@@ -376,8 +376,8 @@ enum class Vo2MaxMethod {
     LegerMercier1984,
 
     /**
-     * Maximal walking test: the ACSM walking equation (running above 7.5 km/h) at the mean real load of the last 60 s of
-     * the effort; SEE 3.5 assumed. See [WalkingTestVo2max].
+     * Maximal walking test: the ACSM walking equation, at any speed, at the mean real load of the last 60 s of the
+     * effort; SEE 3.5 assumed. See [WalkingTestVo2max].
      */
     AcsmWalkRamp,
 }

@@ -220,6 +220,16 @@ class TrainingCoordinator(
         }
     }.distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, SessionKind.None)
 
+    // Declared before init: the sessions it follows may start a workout at once, and attaching its events needs them.
+    private val eventTargets = ConcurrentHashMap<Long, EventsTarget>()
+
+    /** Stores happen one at a time, so a late write of an old list never lands after the final one. */
+    private val eventsLock = Mutex()
+
+    /** When the program in progress started (for the clock of a workout that mixes it with manual changes). */
+    @Volatile
+    private var programStartedAtMillis: Long? = null
+
     init {
         // A new run shows its own screen again, even if the previous result was closed.
         scope.launch { programRunner.progress.map { it.state.isActive() }.distinctUntilChanged().collect { if (it) programResultSeen.value = false } }
@@ -469,15 +479,6 @@ class TrainingCoordinator(
             return parts.flatMap { part -> part.events.map { it.copy(seconds = it.seconds + part.offsetSeconds) } }
         }
     }
-
-    private val eventTargets = ConcurrentHashMap<Long, EventsTarget>()
-
-    /** Stores happen one at a time, so a late write of an old list never lands after the final one. */
-    private val eventsLock = Mutex()
-
-    /** When the program in progress started (for the clock of a workout that mixes it with manual changes). */
-    @Volatile
-    private var programStartedAtMillis: Long? = null
 
     /** A workout has started: its events come from the program or the test that is running, else from a manual workout. */
     private fun attachEvents(workout: WorkoutSummary) {

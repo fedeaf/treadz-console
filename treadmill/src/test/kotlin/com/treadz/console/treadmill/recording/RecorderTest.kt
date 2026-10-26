@@ -413,6 +413,23 @@ class RecorderTest {
     }
 
     @Test
+    fun `with a writer of its own the recorder writes nothing on the caller's thread and keeps the order`() {
+        val storage = InMemoryRecordingStorage()
+        val queued = ArrayDeque<Runnable>()
+        val recorder = JsonlWorkoutRecorder(storage, { T0 + 5 }, RecorderConfig(endGraceMs = 0), writer = { queued.addLast(it) })
+        recorder.onTrace(stateRecord(T0, BeltStatus.Running, 1.0))
+        recorder.onTrace(TraceRecord.Note(T0 + 1, "during the session"))
+        recorder.finish("closed by the test")
+        assertTrue(storage.fileNames.isEmpty(), "nothing is created or written until the writer runs")
+        assertEquals(RecordingStatus.Idle, recorder.status.value)
+        while (queued.isNotEmpty()) queued.removeFirst().run()
+        val session = storage.parsed(storage.fileNames.single())
+        assertTrue("note" in session.types(), "${session.types()}")
+        assertEquals("closed by the test", notNull(session.end)["reason"])
+        assertTrue(recorder.status.value is RecordingStatus.Saved)
+    }
+
+    @Test
     fun `a broken observer does not affect the controller and the recorder ignores what is not a session`() {
         val storage = InMemoryRecordingStorage()
         val recorder = JsonlWorkoutRecorder(storage, { T0 })

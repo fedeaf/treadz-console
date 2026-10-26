@@ -27,6 +27,20 @@ class RrSeriesTest {
     }
 
     @Test
+    fun `the beats of a sample without a usable reading are not lost`() {
+        // The reading of the second sample was not usable (no heart rate, so no source), but the strap's beats came with it.
+        val samples = listOf(
+            WorkoutSample(1_000, 5.0, 1.0, 100, SampleHeartRateSource.Strap, listOf(600)),
+            WorkoutSample(2_000, 5.0, 1.0, null, null, listOf(605)),
+            WorkoutSample(3_000, 5.0, 1.0, 100, SampleHeartRateSource.Strap, listOf(610)),
+            WorkoutSample(4_000, 5.0, 1.0, null, null),
+        )
+        assertEquals(listOf(1_000L, 2_000L, 3_000L), RrSeries.fromSamples(samples).map { it.timeMillis })
+        assertEquals(listOf(true, true, true, false), samples.map { it.hasStrapRr })
+        assertEquals(false, WorkoutSample(5_000, 5.0, 1.0, 100, SampleHeartRateSource.Console, listOf(600)).hasStrapRr)
+    }
+
+    @Test
     fun `the mean load is time weighted and the equation follows the mean speed`() {
         // 5 km/h and 10 % for 30 s, then 5 km/h and 20 % for 30 s, sampled at different rates.
         val samples = listOf(WorkoutSample(0, 5.0, 10.0), WorkoutSample(30_000, 5.0, 20.0), WorkoutSample(45_000, 5.0, 20.0))

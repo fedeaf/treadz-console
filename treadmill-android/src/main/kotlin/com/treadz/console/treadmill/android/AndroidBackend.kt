@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 /**
  * The whole backend as a single per-process instance: BLE transport, controller with its safety
@@ -36,7 +37,8 @@ internal class AndroidBackend(context: Context) {
 
     /**
      * The debug recording of every session (`.jsonl` files in `Download/TreadZ/`). Only debug (debuggable) builds
-     * record: a release build has no recorder and writes no file.
+     * record: a release build has no recorder and writes no file. It writes on a thread of its own, so the controller
+     * (which traces holding its lock) and the main thread never wait for the storage.
      */
     val recorder: JsonlWorkoutRecorder? = if (isDebuggable()) {
         JsonlWorkoutRecorder(
@@ -48,6 +50,7 @@ internal class AndroidBackend(context: Context) {
                 phoneModel = "${Build.MANUFACTURER} ${Build.MODEL}",
                 androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             ),
+            writer = Executors.newSingleThreadExecutor { task -> Thread(task, "TreadZ-recorder").apply { isDaemon = true } },
         )
     } else {
         null

@@ -232,17 +232,16 @@ class StrapWindowJudge(val config: StrapWindowConfig = StrapWindowConfig()) {
 
     companion object {
         /**
-         * A judge over stored [samples] (any order): the heart rate and the RR of the samples whose heart rate comes from a
-         * strap connected to the app ([SampleHeartRateSource.Strap]); the other samples (console, unknown) carry no
-         * trustworthy RR and are left out, so a window made of them is not judged. The times of the samples are the clock
-         * of [StrapWindowJudge.judge].
+         * A judge over stored [samples] (any order): the heart rate of the samples whose heart rate comes from a strap
+         * connected to the app ([SampleHeartRateSource.Strap]) and the RR of that strap ([WorkoutSample.hasStrapRr]); the
+         * other samples (console, unknown) carry no trustworthy RR and are left out, so a window made of them is not
+         * judged. The times of the samples are the clock of [StrapWindowJudge.judge].
          */
         fun fromSamples(samples: List<WorkoutSample>, config: StrapWindowConfig = StrapWindowConfig()): StrapWindowJudge {
             val judge = StrapWindowJudge(config)
             for (s in samples.sortedBy { it.timeMillis }) {
-                if (s.heartRateSource != SampleHeartRateSource.Strap) continue
-                s.heartRateBpm?.takeIf { it > 0 }?.let { judge.addReading(s.timeMillis, it) }
-                judge.addRr(s.timeMillis, s.rrIntervalsMs)
+                if (s.heartRateSource == SampleHeartRateSource.Strap) s.heartRateBpm?.takeIf { it > 0 }?.let { judge.addReading(s.timeMillis, it) }
+                if (s.hasStrapRr) judge.addRr(s.timeMillis, s.rrIntervalsMs)
             }
             return judge
         }

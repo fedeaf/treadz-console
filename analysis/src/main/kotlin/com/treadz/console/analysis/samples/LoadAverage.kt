@@ -8,6 +8,8 @@ import kotlin.math.min
  * The treadmill load over a time span: time-weighted means of the speed, the incline and the oxygen demand.
  *
  * @property coveredMillis How much of the span the samples covered.
+ * @property speedTimesInclinePercent Time-weighted mean of speed × incline (km/h × %), for an equation of the means
+ *   ([Acsm.walkingVo2OfMeans]).
  * @property running Whether the ACSM running equation was used (mean speed above
  *   [Acsm.RUNNING_SPEED_THRESHOLD_KMH]).
  * @property vo2MlKgMin Mean oxygen demand with that equation, ml·kg⁻¹·min⁻¹.
@@ -15,6 +17,7 @@ import kotlin.math.min
 data class MeanLoad(
     val speedKmh: Double,
     val inclinePercent: Double,
+    val speedTimesInclinePercent: Double,
     val running: Boolean,
     val vo2MlKgMin: Double,
     val coveredMillis: Long,
@@ -56,6 +59,6 @@ object LoadAverage {
         val running = Acsm.isRunning(speed)
         // Linear in S and S·G: the mean of the equation is the equation of the means of S and S·G.
         val vo2 = Acsm.vo2OfMeans(speed, sumSG / c)
-        return MeanLoad(speed, incline, running, vo2, covered)
+        return MeanLoad(speed, incline, sumSG / c, running, vo2, covered)
     }
 }

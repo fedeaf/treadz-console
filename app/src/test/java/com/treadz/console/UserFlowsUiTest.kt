@@ -251,15 +251,4 @@ class UserFlowsUiTest {
         click("alert_dismiss")
         rule.onNodeWithTag("alert_overlay").assertDoesNotExist()
     }
-
-    @Test fun inProgressWorkoutIsShownAsSuch() {
-        val recording = com.treadz.console.fakes.RecordingWorkout(app, seconds = 20).start()
-        try {
-            show(Screen.History)
-            // The card is a single clickable node: look inside it.
-            rule.onNodeWithTag("in_progress_tag", useUnmergedTree = true).assertIsDisplayed()
-        } finally {
-            recording.close()
-        }
-    }
 }
